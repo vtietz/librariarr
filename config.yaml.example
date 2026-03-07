@@ -8,6 +8,7 @@ radarr:
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   shadow_root: "/data/radarr_library"
+  sync_enabled: true
 
 quality_map:
   - match: ["2160p", "remux"]

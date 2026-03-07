@@ -2,6 +2,8 @@
 
 LibrariArr keeps a nested movie archive compatible with Radarr's flat root-folder model.
 
+Wrapper hint: use `./run.sh <command>` (Linux/macOS) or `run.bat <command>` (Windows) for all common actions.
+
 ## What it does
 
 - Watches nested source roots for file/folder changes.
@@ -51,8 +53,14 @@ Supported env overrides:
 
 - `LIBRARIARR_RADARR_URL`
 - `LIBRARIARR_RADARR_API_KEY`
+- `LIBRARIARR_RADARR_SYNC_ENABLED` (`true`/`false`)
 - `LIBRARIARR_SHADOW_ROOT`
 - `LIBRARIARR_NESTED_ROOTS` (comma-separated)
+
+Two-step mode is supported:
+
+- `sync_enabled: true`: symlinks + Radarr API updates
+- `sync_enabled: false`: symlinks only (no Radarr API calls)
 
 ## Docker-first setup (no Python on host)
 
@@ -82,7 +90,25 @@ cp .env.example .env
 ./run.sh once
 ```
 
-5. Stop:
+5. Run tests:
+
+```bash
+./run.sh test
+```
+
+6. Run quality checks:
+
+```bash
+./run.sh quality
+```
+
+7. Auto-fix quality issues and re-check:
+
+```bash
+./run.sh quality-autofix
+```
+
+8. Stop:
 
 ```bash
 ./run.sh down
@@ -94,6 +120,9 @@ Windows wrappers:
 run.bat up
 run.bat logs
 run.bat once
+run.bat test
+run.bat quality
+run.bat quality-autofix
 run.bat down
 ```
 
@@ -139,6 +168,28 @@ Key sections:
 
 - `paths.nested_roots`: nested source roots
 - `radarr.url`, `radarr.api_key`, `radarr.shadow_root`
+- `radarr.sync_enabled`
 - `quality_map`: ordered rules (`match` + `target_id`)
 - `cleanup.remove_orphaned_links`, `cleanup.unmonitor_on_delete`
 - `runtime.debounce_seconds`, `runtime.maintenance_interval_minutes`
+
+## GitHub CI and Docker Publish
+
+- CI workflow: `.github/workflows/ci.yml`
+  - Runs `./run.sh test` and `./run.sh quality` on pushes and pull requests.
+- Docker publish workflow: `.github/workflows/publish-docker.yml`
+  - Builds and pushes image to `ghcr.io/<owner>/<repo>` on `main`, tags (`v*`), and manual trigger.
+
+Enable on GitHub:
+
+1. Push this repository to GitHub.
+2. Open `Settings` -> `Actions` -> `General`:
+   - Set Actions permissions to allow workflows.
+   - Set Workflow permissions to `Read and write permissions`.
+3. Open `Settings` -> `Packages` (or org package settings) and allow GitHub Actions to publish packages.
+4. Run the `Publish Docker Image` workflow once from the `Actions` tab (or push to `main`).
+5. Pull image from GHCR:
+
+```bash
+docker pull ghcr.io/<owner>/<repo>:latest
+```

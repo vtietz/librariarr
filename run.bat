@@ -14,6 +14,9 @@ if /I "%~1"=="down" goto :down
 if /I "%~1"=="restart" goto :restart
 if /I "%~1"=="logs" goto :logs
 if /I "%~1"=="once" goto :once
+if /I "%~1"=="test" goto :test
+if /I "%~1"=="quality" goto :quality
+if /I "%~1"=="quality-autofix" goto :qualityautofix
 if /I "%~1"=="dev-up" goto :devup
 if /I "%~1"=="dev-down" goto :devdown
 if /I "%~1"=="dev-logs" goto :devlogs
@@ -54,6 +57,18 @@ goto :eof
 docker compose -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml --once
 goto :eof
 
+:test
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && PYTHONPATH=/app pytest -q"
+goto :eof
+
+:quality
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && PYTHONPATH=/app ruff check . && PYTHONPATH=/app ruff format --check . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+goto :eof
+
+:qualityautofix
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && PYTHONPATH=/app ruff check . --fix && PYTHONPATH=/app ruff format . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+goto :eof
+
 :devup
 docker compose -f %COMPOSE_FILE% --profile dev up -d %DEV_SERVICE%
 goto :eof
@@ -81,6 +96,9 @@ echo   down        Stop and remove service containers
 echo   restart     Restart service
 echo   logs        Tail service logs
 echo   once        Run one reconcile cycle and exit
+echo   test        Run unit tests in Docker
+echo   quality     Run lint/format/complexity/LOC checks in Docker
+echo   quality-autofix  Apply auto-fixes, then run quality checks
 echo   dev-up      Start dev profile service in background
 echo   dev-down    Stop dev profile service
 echo   dev-logs    Tail dev profile logs

@@ -5,7 +5,6 @@ from typing import Any
 
 import requests
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -59,12 +58,15 @@ class RadarrClient:
 
         payload = {
             "movieFileIds": [movie_file_id],
-            "quality": {"quality": {"id": quality_id, "name": "LibrariArrMapped"}, "revision": {"version": 1, "real": 0, "isRepack": False}},
+            "quality": {
+                "quality": {"id": quality_id, "name": "LibrariArrMapped"},
+                "revision": {"version": 1, "real": 0, "isRepack": False},
+            },
         }
 
         try:
             self._request("PUT", "/moviefile/editor", json=payload)
             LOG.info("Set quality id=%s for movie=%s", quality_id, movie.get("title"))
         except requests.HTTPError as exc:
-            # Radarr endpoints/permissions can differ by version. Keep syncing path even if quality update fails.
+            # Radarr endpoints vary by version. Keep path sync even if quality update fails.
             LOG.warning("Quality update failed for movie=%s: %s", movie.get("title"), exc)

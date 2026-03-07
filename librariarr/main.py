@@ -8,7 +8,9 @@ from .service import LibrariArrService
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="LibrariArr: nested movie folders -> flat Radarr symlink root")
+    parser = argparse.ArgumentParser(
+        description="LibrariArr: nested movie folders -> flat Radarr symlink root"
+    )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--log-level", default="INFO", help="DEBUG, INFO, WARNING, ERROR")
     parser.add_argument("--once", action="store_true", help="Run one reconcile cycle and exit")

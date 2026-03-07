@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -33,6 +33,7 @@ class RadarrConfig:
     url: str
     api_key: str
     shadow_root: str = "/data/radarr_library"
+    sync_enabled: bool = True
 
 
 @dataclass
@@ -55,6 +56,12 @@ def _require(data: dict[str, Any], key: str) -> Any:
     return data[key]
 
 
+def _parse_bool_env(value: str | None, default: bool) -> bool:
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 def load_config(path: str | Path) -> AppConfig:
     with Path(path).open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
@@ -70,7 +77,14 @@ def load_config(path: str | Path) -> AppConfig:
 
     radarr_url = os.getenv("LIBRARIARR_RADARR_URL", str(_require(radarr, "url")).rstrip("/"))
     radarr_api_key = os.getenv("LIBRARIARR_RADARR_API_KEY", str(_require(radarr, "api_key")))
-    shadow_root = os.getenv("LIBRARIARR_SHADOW_ROOT", str(radarr.get("shadow_root", "/data/radarr_library")))
+    shadow_root = os.getenv(
+        "LIBRARIARR_SHADOW_ROOT",
+        str(radarr.get("shadow_root", "/data/radarr_library")),
+    )
+    sync_enabled = _parse_bool_env(
+        os.getenv("LIBRARIARR_RADARR_SYNC_ENABLED"),
+        bool(radarr.get("sync_enabled", True)),
+    )
 
     quality_map = [
         QualityRule(
@@ -96,6 +110,7 @@ def load_config(path: str | Path) -> AppConfig:
             url=radarr_url,
             api_key=radarr_api_key,
             shadow_root=shadow_root,
+            sync_enabled=sync_enabled,
         ),
         quality_map=quality_map,
         cleanup=CleanupConfig(

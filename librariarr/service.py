@@ -14,7 +14,6 @@ from .config import AppConfig
 from .quality import VIDEO_EXTENSIONS, map_quality_id
 from .radarr import RadarrClient
 
-
 LOG = logging.getLogger(__name__)
 TITLE_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*\((?P<year>\d{4})\)$")
 
@@ -68,6 +67,7 @@ class SyncEventHandler(FileSystemEventHandler):
 class LibrariArrService:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
+        self.sync_enabled = config.radarr.sync_enabled
         self.radarr = RadarrClient(config.radarr.url, config.radarr.api_key)
         self.shadow_root = Path(config.radarr.shadow_root)
         self.nested_roots = [Path(p) for p in config.paths.nested_roots]
@@ -95,7 +95,9 @@ class LibrariArrService:
             while True:
                 now = time.time()
                 should_maintenance = (now - self._last_sync) >= self._maintenance_interval
-                should_event_sync = self._last_event and (now - self._last_event) >= self._debounce_seconds
+                should_event_sync = self._last_event and (
+                    (now - self._last_event) >= self._debounce_seconds
+                )
 
                 if should_maintenance or should_event_sync:
                     self.reconcile()
@@ -112,16 +114,18 @@ class LibrariArrService:
         with self._lock:
             LOG.info("Reconciling shadow links and Radarr state...")
             self._last_sync = time.time()
+            self.shadow_root.mkdir(parents=True, exist_ok=True)
 
             movie_folders = self._all_movie_folders()
             target_to_link = self._current_links()
-            movies_by_ref = self._build_movie_index()
+            movies_by_ref = self._build_movie_index() if self.sync_enabled else {}
 
             for folder in sorted(movie_folders):
                 link_path = target_to_link.get(folder)
                 if link_path is None:
                     link_path = self._create_link(folder)
-                self._sync_radarr_for_folder(folder, link_path, movies_by_ref)
+                if self.sync_enabled:
+                    self._sync_radarr_for_folder(folder, link_path, movies_by_ref)
 
             if self.config.cleanup.remove_orphaned_links:
                 self._cleanup_orphans(movie_folders, movies_by_ref)
@@ -180,7 +184,12 @@ class LibrariArrService:
         LOG.info("Created link: %s -> %s", candidate, folder)
         return candidate
 
-    def _sync_radarr_for_folder(self, folder: Path, link: Path, movies_by_ref: dict[MovieRef, dict]) -> None:
+    def _sync_radarr_for_folder(
+        self,
+        folder: Path,
+        link: Path,
+        movies_by_ref: dict[MovieRef, dict],
+    ) -> None:
         ref = parse_movie_ref(folder.name)
         movie = movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
         if not movie:
@@ -192,7 +201,11 @@ class LibrariArrService:
         self.radarr.try_update_moviefile_quality(movie, quality_id)
         self.radarr.refresh_movie(int(movie["id"]))
 
-    def _cleanup_orphans(self, existing_folders: set[Path], movies_by_ref: dict[MovieRef, dict]) -> None:
+    def _cleanup_orphans(
+        self,
+        existing_folders: set[Path],
+        movies_by_ref: dict[MovieRef, dict],
+    ) -> None:
         for child in self.shadow_root.iterdir():
             if not child.is_symlink():
                 continue
@@ -208,11 +221,16 @@ class LibrariArrService:
             child.unlink(missing_ok=True)
             LOG.info("Removed orphaned symlink: %s", child)
 
+            if not self.sync_enabled:
+                continue
+
             if not self.config.cleanup.unmonitor_on_delete:
                 continue
 
             ref = parse_movie_ref(child.name.split("--", 1)[0])
-            movie = movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
+            movie = movies_by_ref.get(ref) or movies_by_ref.get(
+                MovieRef(title=ref.title, year=None)
+            )
             if movie:
                 self.radarr.unmonitor_movie(movie)
                 self.radarr.refresh_movie(int(movie["id"]))

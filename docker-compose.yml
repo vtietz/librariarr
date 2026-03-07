@@ -8,6 +8,7 @@ services:
     environment:
       LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_RADARR_SYNC_ENABLED: ${LIBRARIARR_RADARR_SYNC_ENABLED:-true}
       LIBRARIARR_SHADOW_ROOT: ${LIBRARIARR_SHADOW_ROOT:-/data/radarr_library}
       LIBRARIARR_NESTED_ROOTS: ${LIBRARIARR_NESTED_ROOTS:-/data/movies/age_06,/data/movies/age_12,/data/movies/age_16}
     volumes:
@@ -24,6 +25,7 @@ services:
     environment:
       LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_RADARR_SYNC_ENABLED: ${LIBRARIARR_RADARR_SYNC_ENABLED:-true}
       LIBRARIARR_SHADOW_ROOT: ${LIBRARIARR_SHADOW_ROOT:-/data/radarr_library}
       LIBRARIARR_NESTED_ROOTS: ${LIBRARIARR_NESTED_ROOTS:-/data/movies/age_06,/data/movies/age_12,/data/movies/age_16}
     volumes:

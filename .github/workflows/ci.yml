@@ -1,0 +1,27 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  test-and-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare config for wrapper commands
+        run: |
+          cp config.yaml.example config.yaml
+
+      - name: Ensure wrapper executable
+        run: chmod +x run.sh
+
+      - name: Run tests via wrapper
+        run: ./run.sh test
+
+      - name: Run quality via wrapper
+        run: ./run.sh quality

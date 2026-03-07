@@ -17,6 +17,9 @@ Commands:
   restart     Restart service
   logs        Tail service logs
   once        Run one reconcile cycle and exit
+  test        Run unit tests in Docker
+  quality     Run lint/format/complexity/LOC checks in Docker
+  quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev profile service in background
   dev-down    Stop dev profile service
   dev-logs    Tail dev profile logs
@@ -56,6 +59,26 @@ case "$cmd" in
     ;;
   once)
     compose run --rm "$SERVICE" --config /config/config.yaml --once
+    ;;
+  test)
+    compose --profile dev run --rm "$DEV_SERVICE" \
+      "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && PYTHONPATH=/app pytest -q"
+    ;;
+  quality)
+    compose --profile dev run --rm "$DEV_SERVICE" \
+      "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && \
+       PYTHONPATH=/app ruff check . && \
+       PYTHONPATH=/app ruff format --check . && \
+       radon cc -s -n B librariarr tests && \
+       radon raw -s librariarr tests"
+    ;;
+  quality-autofix)
+    compose --profile dev run --rm "$DEV_SERVICE" \
+      "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && \
+       PYTHONPATH=/app ruff check . --fix && \
+       PYTHONPATH=/app ruff format . && \
+       radon cc -s -n B librariarr tests && \
+       radon raw -s librariarr tests"
     ;;
   dev-up)
     compose --profile dev up -d "$DEV_SERVICE"

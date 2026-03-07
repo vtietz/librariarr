@@ -4,7 +4,6 @@ from pathlib import Path
 
 from .config import QualityRule
 
-
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"}
 
 
