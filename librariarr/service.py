@@ -259,5 +259,8 @@ class LibrariArrService:
                 MovieRef(title=ref.title, year=None)
             )
             if movie:
+                if self.config.cleanup.delete_from_radarr_on_missing:
+                    self.radarr.delete_movie(int(movie["id"]), delete_files=False)
+                    continue
                 self.radarr.unmonitor_movie(movie)
                 self.radarr.refresh_movie(int(movie["id"]))

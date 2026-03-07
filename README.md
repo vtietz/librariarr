@@ -84,6 +84,7 @@ Supported env overrides:
 - `LIBRARIARR_RADARR_URL`
 - `LIBRARIARR_RADARR_API_KEY`
 - `LIBRARIARR_RADARR_SYNC_ENABLED` (`true`/`false`)
+- `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING` (`true`/`false`, default `false`)
 - `LIBRARIARR_SHADOW_ROOT`
 - `LIBRARIARR_NESTED_ROOTS` (comma-separated)
 
@@ -98,6 +99,11 @@ Two-step mode is supported:
 
 - `sync_enabled: true`: symlinks + Radarr API updates
 - `sync_enabled: false`: symlinks only (no Radarr API calls)
+
+Optional destructive behavior (off by default):
+
+- `cleanup.delete_from_radarr_on_missing: true` deletes missing movies from the Radarr DB.
+- If `false`, LibrariArr only unmonitors + refreshes (safer default).
 
 ## Docker-first setup (no Python on host)
 
@@ -151,17 +157,7 @@ cp .env.example .env
 ./run.sh down
 ```
 
-Windows wrappers:
-
-```bat
-run.bat up
-run.bat logs
-run.bat once
-run.bat test
-run.bat quality
-run.bat quality-autofix
-run.bat down
-```
+Windows users can use `run.bat` with the same commands as `run.sh`.
 
 ## Docker Compose
 
@@ -248,6 +244,7 @@ Key sections:
 - `radarr.sync_enabled`
 - `quality_map`: ordered rules (`match` + `target_id`)
 - `cleanup.remove_orphaned_links`, `cleanup.unmonitor_on_delete`
+- `cleanup.delete_from_radarr_on_missing`
 - `runtime.debounce_seconds`, `runtime.maintenance_interval_minutes`
 
 ## GitHub CI and Docker Publish

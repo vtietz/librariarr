@@ -19,6 +19,7 @@ class QualityRule:
 class CleanupConfig:
     remove_orphaned_links: bool = True
     unmonitor_on_delete: bool = True
+    delete_from_radarr_on_missing: bool = False
 
 
 @dataclass
@@ -96,6 +97,10 @@ def load_config(path: str | Path) -> AppConfig:
     ]
 
     cleanup_raw = raw.get("cleanup", {})
+    delete_from_radarr_on_missing = _parse_bool_env(
+        os.getenv("LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING"),
+        bool(cleanup_raw.get("delete_from_radarr_on_missing", False)),
+    )
     runtime_raw = raw.get("runtime", {})
 
     runtime = RuntimeConfig(
@@ -116,6 +121,7 @@ def load_config(path: str | Path) -> AppConfig:
         cleanup=CleanupConfig(
             remove_orphaned_links=bool(cleanup_raw.get("remove_orphaned_links", True)),
             unmonitor_on_delete=bool(cleanup_raw.get("unmonitor_on_delete", True)),
+            delete_from_radarr_on_missing=delete_from_radarr_on_missing,
         ),
         runtime=runtime,
     )

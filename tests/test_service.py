@@ -18,6 +18,7 @@ class FakeRadarr:
         self.updated_qualities: list[tuple[int, int]] = []
         self.refreshed: list[int] = []
         self.unmonitored: list[int] = []
+        self.deleted: list[int] = []
         self.get_movies_calls = 0
 
     def get_movies(self) -> list[dict]:
@@ -36,8 +37,23 @@ class FakeRadarr:
     def unmonitor_movie(self, movie: dict) -> None:
         self.unmonitored.append(int(movie["id"]))
 
+    def delete_movie(
+        self,
+        movie_id: int,
+        delete_files: bool = False,
+        add_import_exclusion: bool = False,
+    ) -> None:
+        del delete_files
+        del add_import_exclusion
+        self.deleted.append(movie_id)
 
-def make_config(nested_root: Path, shadow_root: Path, sync_enabled: bool = True) -> AppConfig:
+
+def make_config(
+    nested_root: Path,
+    shadow_root: Path,
+    sync_enabled: bool = True,
+    delete_from_radarr_on_missing: bool = False,
+) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(nested_roots=[str(nested_root)]),
         radarr=RadarrConfig(
@@ -47,7 +63,11 @@ def make_config(nested_root: Path, shadow_root: Path, sync_enabled: bool = True)
             sync_enabled=sync_enabled,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(
+            remove_orphaned_links=True,
+            unmonitor_on_delete=True,
+            delete_from_radarr_on_missing=delete_from_radarr_on_missing,
+        ),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -184,3 +204,43 @@ def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
 
     assert plain.is_symlink()
     assert qualified.is_symlink()
+
+
+def test_reconcile_deletes_radarr_entry_when_configured(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+    shadow_root.mkdir(parents=True)
+
+    missing_target = nested_root / "Missing Movie (2000)"
+    orphan = shadow_root / "Missing Movie (2000)"
+    orphan.symlink_to(missing_target, target_is_directory=True)
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        delete_from_radarr_on_missing=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 77,
+                "title": "Missing Movie",
+                "year": 2000,
+                "path": "/old/path",
+                "movieFile": {"id": 17},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert not orphan.exists()
+    assert fake.deleted == [77]
+    assert fake.unmonitored == []
+    assert fake.refreshed == []

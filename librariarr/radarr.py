@@ -45,6 +45,19 @@ class RadarrClient:
         self._request("PUT", f"/movie/{movie['id']}", json=payload)
         LOG.info("Unmonitored movie: %s", movie.get("title"))
 
+    def delete_movie(
+        self,
+        movie_id: int,
+        delete_files: bool = False,
+        add_import_exclusion: bool = False,
+    ) -> None:
+        params = {
+            "deleteFiles": str(delete_files).lower(),
+            "addImportExclusion": str(add_import_exclusion).lower(),
+        }
+        self._request("DELETE", f"/movie/{movie_id}", params=params)
+        LOG.info("Deleted movie from Radarr DB: id=%s", movie_id)
+
     def refresh_movie(self, movie_id: int) -> None:
         self._request("POST", "/command", json={"name": "RefreshMovie", "movieIds": [movie_id]})
 

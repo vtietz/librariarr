@@ -16,6 +16,7 @@ quality_map:
 cleanup:
   remove_orphaned_links: true
   unmonitor_on_delete: true
+  delete_from_radarr_on_missing: false
 runtime:
   debounce_seconds: 8
   maintenance_interval_minutes: 1440
