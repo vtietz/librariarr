@@ -178,7 +178,7 @@ Key sections:
 - CI workflow: `.github/workflows/ci.yml`
   - Runs `./run.sh test` and `./run.sh quality` on pushes and pull requests.
 - Docker publish workflow: `.github/workflows/publish-docker.yml`
-  - Builds and pushes image to `ghcr.io/<owner>/<repo>` on `main`, tags (`v*`), and manual trigger.
+  - Builds and pushes image to `ghcr.io/<owner>/<repo>` after successful `CI` runs on `main` commits, and via manual trigger.
 
 Enable on GitHub:
 
