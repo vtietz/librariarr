@@ -4,6 +4,7 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: librariarr
+    user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     environment:
       LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
@@ -25,6 +26,7 @@ services:
       context: .
       dockerfile: Dockerfile.dev
     container_name: librariarr-dev
+    user: "${PUID:-1000}:${PGID:-1000}"
     working_dir: /app
     profiles: ["dev"]
     environment:

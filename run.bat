@@ -63,15 +63,15 @@ docker compose -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml
 goto :eof
 
 :test
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONPATH=/app pytest -q"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -p no:cacheprovider"
 goto :eof
 
 :quality
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONPATH=/app ruff check . && PYTHONPATH=/app ruff format --check . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && PYTHONPATH=/app ruff format --check . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :qualityautofix
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONPATH=/app ruff check . --fix && PYTHONPATH=/app ruff format . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && PYTHONPATH=/app ruff format . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :devup

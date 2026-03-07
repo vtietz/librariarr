@@ -125,6 +125,12 @@ cp .env.example .env
 # edit config.yaml and .env
 ```
 
+Permissions note (Linux/Unix):
+
+- Set `PUID` and `PGID` in `.env` to match the user/group that owns your media folders.
+- This ensures created symlinks and writes use expected ownership.
+- You can check values with `id -u` and `id -g` on the host.
+
 2. Start the service:
 
 ```bash

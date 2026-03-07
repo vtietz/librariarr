@@ -65,19 +65,20 @@ case "$cmd" in
     compose run --rm "$SERVICE" --config /config/config.yaml --once
     ;;
   test)
-    compose --profile dev run --rm "$DEV_SERVICE" "PYTHONPATH=/app pytest -q"
+    compose --profile dev run --rm "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -p no:cacheprovider"
     ;;
   quality)
     compose --profile dev run --rm "$DEV_SERVICE" \
-      "PYTHONPATH=/app ruff check . && \
-       PYTHONPATH=/app ruff format --check . && \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && \
+       PYTHONPATH=/app ruff format --check . --no-cache && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
   quality-autofix)
     compose --profile dev run --rm "$DEV_SERVICE" \
-      "PYTHONPATH=/app ruff check . --fix && \
-       PYTHONPATH=/app ruff format . && \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && \
+       PYTHONPATH=/app ruff format . --no-cache && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
