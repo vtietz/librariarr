@@ -8,6 +8,7 @@ set DEV_SERVICE=librariarr-dev
 if "%~1"=="" goto :usage
 
 if /I "%~1"=="setup" goto :setup
+if /I "%~1"=="install" goto :install
 if /I "%~1"=="build" goto :build
 if /I "%~1"=="up" goto :up
 if /I "%~1"=="down" goto :down
@@ -31,6 +32,10 @@ if not exist config.yaml (
 ) else (
   echo config.yaml already exists
 )
+goto :eof
+
+:install
+docker compose -f %COMPOSE_FILE% --profile dev build %DEV_SERVICE%
 goto :eof
 
 :build
@@ -58,15 +63,15 @@ docker compose -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml
 goto :eof
 
 :test
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && PYTHONPATH=/app pytest -q"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm --build %DEV_SERVICE% "PYTHONPATH=/app pytest -q"
 goto :eof
 
 :quality
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && PYTHONPATH=/app ruff check . && PYTHONPATH=/app ruff format --check . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm --build %DEV_SERVICE% "PYTHONPATH=/app ruff check . && PYTHONPATH=/app ruff format --check . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :qualityautofix
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && PYTHONPATH=/app ruff check . --fix && PYTHONPATH=/app ruff format . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm --build %DEV_SERVICE% "PYTHONPATH=/app ruff check . --fix && PYTHONPATH=/app ruff format . && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :devup
@@ -90,6 +95,7 @@ echo Usage: run.bat ^<command^>
 echo.
 echo Commands:
 echo   setup       Create config.yaml from example if missing
+echo   install     Build dev image with dependencies (cached)
 echo   build       Build the production image
 echo   up          Start service in background
 echo   down        Stop and remove service containers

@@ -11,6 +11,7 @@ Usage: ./run.sh <command>
 
 Commands:
   setup       Create config.yaml from example if missing
+  install     Build dev image with dependencies (cached)
   build       Build the production image
   up          Start service in background
   down        Stop and remove service containers
@@ -42,6 +43,9 @@ case "$cmd" in
       echo "config.yaml already exists"
     fi
     ;;
+  install)
+    compose --profile dev build "$DEV_SERVICE"
+    ;;
   build)
     compose build "$SERVICE"
     ;;
@@ -61,21 +65,18 @@ case "$cmd" in
     compose run --rm "$SERVICE" --config /config/config.yaml --once
     ;;
   test)
-    compose --profile dev run --rm "$DEV_SERVICE" \
-      "pip install --no-cache-dir -r requirements.txt -r requirements-dev.txt && PYTHONPATH=/app pytest -q"
+    compose --profile dev run --rm --build "$DEV_SERVICE" "PYTHONPATH=/app pytest -q"
     ;;
   quality)
-    compose --profile dev run --rm "$DEV_SERVICE" \
-      "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && \
-       PYTHONPATH=/app ruff check . && \
+    compose --profile dev run --rm --build "$DEV_SERVICE" \
+      "PYTHONPATH=/app ruff check . && \
        PYTHONPATH=/app ruff format --check . && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
   quality-autofix)
-    compose --profile dev run --rm "$DEV_SERVICE" \
-      "pip install --no-cache-dir -r requirements.txt -r requirements-quality.txt && \
-       PYTHONPATH=/app ruff check . --fix && \
+    compose --profile dev run --rm --build "$DEV_SERVICE" \
+      "PYTHONPATH=/app ruff check . --fix && \
        PYTHONPATH=/app ruff format . && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
