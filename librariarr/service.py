@@ -16,6 +16,7 @@ from .radarr import RadarrClient
 
 LOG = logging.getLogger(__name__)
 TITLE_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*\((?P<year>\d{4})\)$")
+NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
 @dataclass(frozen=True)
@@ -166,9 +167,29 @@ class LibrariArrService:
     def _safe_link_name(self, folder: Path) -> str:
         return folder.name.replace("/", "-").strip()
 
+    def _normalize_name_part(self, value: str) -> str:
+        cleaned = NON_ALNUM_RE.sub("-", value.strip())
+        return cleaned.strip("-")
+
+    def _collision_qualifier(self, folder: Path) -> str:
+        for root in self.nested_roots:
+            try:
+                relative = folder.relative_to(root)
+            except ValueError:
+                continue
+
+            parent_parts = [self._normalize_name_part(part) for part in relative.parts[:-1]]
+            qualifier_parts = [self._normalize_name_part(root.name)] + parent_parts
+            qualifier = "-".join(part for part in qualifier_parts if part)
+            if qualifier:
+                return qualifier
+        return ""
+
     def _create_link(self, folder: Path) -> Path:
         base_name = self._safe_link_name(folder)
         candidate = self.shadow_root / base_name
+        qualifier = self._collision_qualifier(folder)
+        qualified_candidate = self.shadow_root / f"{base_name}--{qualifier}" if qualifier else None
         counter = 2
 
         while candidate.exists() or candidate.is_symlink():
@@ -177,6 +198,12 @@ class LibrariArrService:
                     return candidate
             except OSError:
                 pass
+
+            if qualified_candidate is not None:
+                candidate = qualified_candidate
+                qualified_candidate = None
+                continue
+
             candidate = self.shadow_root / f"{base_name}--{counter}"
             counter += 1
 

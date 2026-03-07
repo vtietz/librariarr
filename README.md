@@ -13,10 +13,40 @@ Wrapper hint: use `./run.sh <command>` (Linux/macOS) or `run.bat <command>` (Win
 - Removes orphaned symlinks and optionally unmonitors deleted movies.
 - Runs startup bootstrap and periodic maintenance reconcile.
 
+## Example layout
+
+Nested source folders (real files):
+
+```text
+/data/movies/
+  age_12/
+    Bond/
+      Dr. No (1962)/
+        Dr.No.1962.1080p.x265.mkv
+  age_16/
+    SciFi/
+      Dune (2021)/
+        Dune.2021.2160p.REMUX.mkv
+```
+
+Flat shadow library (symlinks only):
+
+```text
+/data/radarr_library/
+  Dr. No (1962)   -> /data/movies/age_12/Bond/Dr. No (1962)
+  Dune (2021)     -> /data/movies/age_16/SciFi/Dune (2021)
+```
+
+If two nested folders produce the same movie folder name, LibrariArr keeps links unique with
+a deterministic qualifier from source path, for example:
+
+```text
+Dr. No (1962)--age_16-Classics
+```
+
 ## Simple defaults used
 
 - Shadow root name: `/data/radarr_library`
-- TMM: ignored entirely (no dependency)
 - Matching: `Title (Year)` exact first, then title-only fallback
 - Delete behavior: remove orphan link + unmonitor + refresh
 - No auto-delete from Radarr DB
@@ -179,17 +209,3 @@ Key sections:
   - Runs `./run.sh test` and `./run.sh quality` on pushes and pull requests.
 - Docker publish workflow: `.github/workflows/publish-docker.yml`
   - Builds and pushes image to `ghcr.io/<owner>/<repo>` after successful `CI` runs on `main` commits, and via manual trigger.
-
-Enable on GitHub:
-
-1. Push this repository to GitHub.
-2. Open `Settings` -> `Actions` -> `General`:
-   - Set Actions permissions to allow workflows.
-   - Set Workflow permissions to `Read and write permissions`.
-3. Open `Settings` -> `Packages` (or org package settings) and allow GitHub Actions to publish packages.
-4. Run the `Publish Docker Image` workflow once from the `Actions` tab (or push to `main`).
-5. Pull image from GHCR:
-
-```bash
-docker pull ghcr.io/<owner>/<repo>:latest
-```

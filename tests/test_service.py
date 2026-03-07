@@ -149,3 +149,38 @@ def test_reconcile_skips_radarr_when_sync_disabled(tmp_path: Path) -> None:
     assert fake.updated_paths == []
     assert fake.updated_qualities == []
     assert fake.refreshed == []
+
+
+def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
+    root_one = tmp_path / "age_12"
+    root_two = tmp_path / "age_16"
+    shadow_root = tmp_path / "radarr_library"
+
+    movie_one = root_one / "Bond" / "Dr. No (1962)"
+    movie_two = root_two / "Classics" / "Dr. No (1962)"
+    movie_one.mkdir(parents=True)
+    movie_two.mkdir(parents=True)
+    (movie_one / "Dr.No.1962.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_two / "Dr.No.1962.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(nested_roots=[str(root_one), str(root_two)]),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            shadow_root=str(shadow_root),
+            sync_enabled=False,
+        ),
+        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    plain = shadow_root / "Dr. No (1962)"
+    qualified = shadow_root / "Dr. No (1962)--age_16-Classics"
+
+    assert plain.is_symlink()
+    assert qualified.is_symlink()
