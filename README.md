@@ -87,6 +87,13 @@ Supported env overrides:
 - `LIBRARIARR_SHADOW_ROOT`
 - `LIBRARIARR_NESTED_ROOTS` (comma-separated)
 
+Radarr API key:
+
+1. Open Radarr Web UI.
+2. Go to `Settings` -> `General` -> `Security`.
+3. Copy the `API Key` value.
+4. Set it in `.env` as `LIBRARIARR_RADARR_API_KEY=...` (preferred), or in `config.yaml` under `radarr.api_key`.
+
 Two-step mode is supported:
 
 - `sync_enabled: true`: symlinks + Radarr API updates
@@ -170,6 +177,46 @@ Dev mode examples:
 ./run.sh dev-logs
 ./run.sh dev-shell
 ./run.sh dev-down
+```
+
+## *arr Stack Integration Example
+
+LibrariArr fits well into a typical `*arr` stack. The key is that both `radarr` and
+`librariarr` must see the same movie paths inside the containers.
+
+Example service addition:
+
+```yaml
+  librariarr:
+    image: ghcr.io/<owner>/<repo>:latest
+    container_name: librariarr
+    environment:
+      - TZ=${TZ}
+      - LIBRARIARR_RADARR_URL=http://radarr:7878
+      - LIBRARIARR_RADARR_API_KEY=${RADARR_API_KEY}
+      - LIBRARIARR_RADARR_SYNC_ENABLED=true
+      - LIBRARIARR_NESTED_ROOTS=/data/movies/age_12,/data/movies/age_16
+      - LIBRARIARR_SHADOW_ROOT=/data/radarr_library
+    volumes:
+      - ./librariarr/config.yaml:/config/config.yaml:ro
+      - ${MOVIES_DIR}:/data/movies
+      - ${RADARR_LIBRARY_DIR}:/data/radarr_library
+    command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
+    restart: unless-stopped
+    depends_on:
+      - radarr
+```
+
+Radarr side requirement:
+
+- Add the same shadow volume to `radarr`, for example:
+  - `${RADARR_LIBRARY_DIR}:/data/radarr_library`
+- In Radarr, use `/data/radarr_library` as the movie root folder.
+
+If you want symlink-only mode (no API writes), set:
+
+```yaml
+LIBRARIARR_RADARR_SYNC_ENABLED=false
 ```
 
 ## Manual Docker commands (optional)
