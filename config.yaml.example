@@ -1,0 +1,30 @@
+paths:
+  nested_roots:
+    - "/data/movies/age_06"
+    - "/data/movies/age_12"
+    - "/data/movies/age_16"
+
+radarr:
+  url: "http://radarr:7878"
+  api_key: "YOUR_API_KEY"
+  shadow_root: "/data/radarr_library"
+
+quality_map:
+  - match: ["2160p", "remux"]
+    target_id: 13
+    name: "4K Bluray"
+  - match: ["1080p", "x265"]
+    target_id: 7
+    name: "Bluray-1080p"
+  - match: ["720p", "web"]
+    target_id: 5
+    name: "Web-DL 720p"
+
+cleanup:
+  remove_orphaned_links: true
+  unmonitor_on_delete: true
+
+runtime:
+  debounce_seconds: 8
+  maintenance_interval_minutes: 1440
+  scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]

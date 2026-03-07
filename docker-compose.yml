@@ -1,0 +1,38 @@
+services:
+  librariarr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: librariarr
+    restart: unless-stopped
+    environment:
+      LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
+      LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_SHADOW_ROOT: ${LIBRARIARR_SHADOW_ROOT:-/data/radarr_library}
+      LIBRARIARR_NESTED_ROOTS: ${LIBRARIARR_NESTED_ROOTS:-/data/movies/age_06,/data/movies/age_12,/data/movies/age_16}
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - ${MOVIES_HOST_PATH:-/data/movies}:/data/movies
+      - ${RADARR_LIBRARY_HOST_PATH:-/data/radarr_library}:/data/radarr_library
+    command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}"]
+
+  librariarr-dev:
+    image: python:3.12-slim
+    container_name: librariarr-dev
+    working_dir: /app
+    profiles: ["dev"]
+    environment:
+      LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
+      LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_SHADOW_ROOT: ${LIBRARIARR_SHADOW_ROOT:-/data/radarr_library}
+      LIBRARIARR_NESTED_ROOTS: ${LIBRARIARR_NESTED_ROOTS:-/data/movies/age_06,/data/movies/age_12,/data/movies/age_16}
+    volumes:
+      - ./:/app
+      - ./config.yaml:/config/config.yaml:ro
+      - ${MOVIES_HOST_PATH:-/data/movies}:/data/movies
+      - ${RADARR_LIBRARY_HOST_PATH:-/data/radarr_library}:/data/radarr_library
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        pip install --no-cache-dir -r requirements.txt &&
+        python -m librariarr.main --config /config/config.yaml --log-level ${LIBRARIARR_LOG_LEVEL:-DEBUG}
