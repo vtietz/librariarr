@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -30,6 +30,13 @@ class RuntimeConfig:
 
 
 @dataclass
+class AnalysisConfig:
+    use_nfo: bool = False
+    use_media_probe: bool = False
+    media_probe_bin: str = "ffprobe"
+
+
+@dataclass
 class RadarrConfig:
     url: str
     api_key: str
@@ -49,6 +56,7 @@ class AppConfig:
     quality_map: list[QualityRule]
     cleanup: CleanupConfig
     runtime: RuntimeConfig
+    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
 
 
 def _require(data: dict[str, Any], key: str) -> Any:
@@ -109,6 +117,22 @@ def load_config(path: str | Path) -> AppConfig:
         scan_video_extensions=runtime_raw.get("scan_video_extensions"),
     )
 
+    analysis_raw = raw.get("analysis", {})
+    analysis = AnalysisConfig(
+        use_nfo=_parse_bool_env(
+            os.getenv("LIBRARIARR_USE_NFO_ANALYSIS"),
+            bool(analysis_raw.get("use_nfo", False)),
+        ),
+        use_media_probe=_parse_bool_env(
+            os.getenv("LIBRARIARR_USE_MEDIA_PROBE"),
+            bool(analysis_raw.get("use_media_probe", False)),
+        ),
+        media_probe_bin=os.getenv(
+            "LIBRARIARR_MEDIA_PROBE_BIN",
+            str(analysis_raw.get("media_probe_bin", "ffprobe")),
+        ),
+    )
+
     return AppConfig(
         paths=PathsConfig(nested_roots=list(nested_roots)),
         radarr=RadarrConfig(
@@ -124,4 +148,5 @@ def load_config(path: str | Path) -> AppConfig:
             delete_from_radarr_on_missing=delete_from_radarr_on_missing,
         ),
         runtime=runtime,
+        analysis=analysis,
     )

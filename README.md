@@ -85,6 +85,9 @@ Supported env overrides:
 - `LIBRARIARR_RADARR_API_KEY`
 - `LIBRARIARR_RADARR_SYNC_ENABLED` (`true`/`false`)
 - `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING` (`true`/`false`, default `false`)
+- `LIBRARIARR_USE_NFO_ANALYSIS` (`true`/`false`, default `false`)
+- `LIBRARIARR_USE_MEDIA_PROBE` (`true`/`false`, default `false`)
+- `LIBRARIARR_MEDIA_PROBE_BIN` (default `ffprobe`)
 - `LIBRARIARR_SHADOW_ROOT`
 - `LIBRARIARR_NESTED_ROOTS` (comma-separated)
 
@@ -99,6 +102,13 @@ Two-step mode is supported:
 
 - `sync_enabled: true`: symlinks + Radarr API updates
 - `sync_enabled: false`: symlinks only (no Radarr API calls)
+
+Optional quality analyzers (off by default):
+
+- Filename heuristics are always used first.
+- If no filename rule matches and `analysis.use_nfo: true`, LibrariArr scans `.nfo` text.
+- If still no match and `analysis.use_media_probe: true`, LibrariArr probes the media stream
+  (via `ffprobe` by default) to infer tokens like `2160p`/`1080p` and `x265`/`x264`.
 
 Optional destructive behavior (off by default):
 
@@ -121,43 +131,50 @@ cp .env.example .env
 ./run.sh up
 ```
 
-3. View logs:
+3. Build dev dependencies once (for test/quality commands):
+
+```bash
+./run.sh install
+```
+
+4. View logs:
 
 ```bash
 ./run.sh logs
 ```
 
-4. Run one-shot reconcile:
+5. Run one-shot reconcile:
 
 ```bash
 ./run.sh once
 ```
 
-5. Run tests:
+6. Run tests:
 
 ```bash
 ./run.sh test
 ```
 
-6. Run quality checks:
+7. Run quality checks:
 
 ```bash
 ./run.sh quality
 ```
 
-7. Auto-fix quality issues and re-check:
+8. Auto-fix quality issues and re-check:
 
 ```bash
 ./run.sh quality-autofix
 ```
 
-8. Stop:
+9. Stop:
 
 ```bash
 ./run.sh down
 ```
 
 Windows users can use `run.bat` with the same commands as `run.sh`.
+`install` is intended to be run once (or again only when dependencies change).
 
 ## Docker Compose
 
@@ -245,6 +262,7 @@ Key sections:
 - `quality_map`: ordered rules (`match` + `target_id`)
 - `cleanup.remove_orphaned_links`, `cleanup.unmonitor_on_delete`
 - `cleanup.delete_from_radarr_on_missing`
+- `analysis.use_nfo`, `analysis.use_media_probe`, `analysis.media_probe_bin`
 - `runtime.debounce_seconds`, `runtime.maintenance_interval_minutes`
 
 ## GitHub CI and Docker Publish

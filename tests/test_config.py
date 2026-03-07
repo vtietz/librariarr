@@ -20,6 +20,10 @@ cleanup:
 runtime:
   debounce_seconds: 8
   maintenance_interval_minutes: 1440
+analysis:
+  use_nfo: false
+  use_media_probe: false
+  media_probe_bin: ffprobe
 """.strip()
 
 
@@ -39,6 +43,9 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.api_key == "test-key"
     assert config.radarr.shadow_root == "/data/radarr_library"
     assert config.quality_map[0].target_id == 7
+    assert config.analysis.use_nfo is False
+    assert config.analysis.use_media_probe is False
+    assert config.analysis.media_probe_bin == "ffprobe"
 
 
 def test_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
@@ -49,6 +56,9 @@ def test_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("LIBRARIARR_RADARR_API_KEY", "env-key")
     monkeypatch.setenv("LIBRARIARR_SHADOW_ROOT", "/data/custom_shadow")
     monkeypatch.setenv("LIBRARIARR_NESTED_ROOTS", "/a,/b")
+    monkeypatch.setenv("LIBRARIARR_USE_NFO_ANALYSIS", "true")
+    monkeypatch.setenv("LIBRARIARR_USE_MEDIA_PROBE", "true")
+    monkeypatch.setenv("LIBRARIARR_MEDIA_PROBE_BIN", "customprobe")
 
     config = load_config(config_path)
 
@@ -56,3 +66,6 @@ def test_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.api_key == "env-key"
     assert config.radarr.shadow_root == "/data/custom_shadow"
     assert config.paths.nested_roots == ["/a", "/b"]
+    assert config.analysis.use_nfo is True
+    assert config.analysis.use_media_probe is True
+    assert config.analysis.media_probe_bin == "customprobe"

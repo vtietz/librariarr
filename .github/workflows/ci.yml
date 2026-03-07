@@ -20,6 +20,9 @@ jobs:
       - name: Ensure wrapper executable
         run: chmod +x run.sh
 
+      - name: Build dev dependencies image via wrapper
+        run: ./run.sh install
+
       - name: Run tests via wrapper
         run: ./run.sh test
 

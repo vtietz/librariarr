@@ -224,7 +224,13 @@ class LibrariArrService:
             return
 
         self.radarr.update_movie_path(movie, str(link))
-        quality_id = map_quality_id(folder, self.config.quality_map)
+        quality_id = map_quality_id(
+            folder,
+            self.config.quality_map,
+            use_nfo=self.config.analysis.use_nfo,
+            use_media_probe=self.config.analysis.use_media_probe,
+            media_probe_bin=self.config.analysis.media_probe_bin,
+        )
         self.radarr.try_update_moviefile_quality(movie, quality_id)
         self.radarr.refresh_movie(int(movie["id"]))
 

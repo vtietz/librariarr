@@ -30,3 +30,8 @@ runtime:
   debounce_seconds: 8
   maintenance_interval_minutes: 1440
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]
+
+analysis:
+  use_nfo: false
+  use_media_probe: false
+  media_probe_bin: "ffprobe"

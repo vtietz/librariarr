@@ -65,17 +65,17 @@ case "$cmd" in
     compose run --rm "$SERVICE" --config /config/config.yaml --once
     ;;
   test)
-    compose --profile dev run --rm --build "$DEV_SERVICE" "PYTHONPATH=/app pytest -q"
+    compose --profile dev run --rm "$DEV_SERVICE" "PYTHONPATH=/app pytest -q"
     ;;
   quality)
-    compose --profile dev run --rm --build "$DEV_SERVICE" \
+    compose --profile dev run --rm "$DEV_SERVICE" \
       "PYTHONPATH=/app ruff check . && \
        PYTHONPATH=/app ruff format --check . && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
   quality-autofix)
-    compose --profile dev run --rm --build "$DEV_SERVICE" \
+    compose --profile dev run --rm "$DEV_SERVICE" \
       "PYTHONPATH=/app ruff check . --fix && \
        PYTHONPATH=/app ruff format . && \
        radon cc -s -n B librariarr tests && \
