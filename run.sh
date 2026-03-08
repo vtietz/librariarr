@@ -2,8 +2,11 @@
 set -euo pipefail
 
 COMPOSE_FILE="docker-compose.yml"
+DEV_COMPOSE_FILE="docker-compose.dev.yml"
+E2E_COMPOSE_FILE="docker-compose.e2e.yml"
 SERVICE="librariarr"
 DEV_SERVICE="librariarr-dev"
+E2E_SERVICE="librariarr-e2e"
 
 usage() {
   cat <<'EOF'
@@ -20,6 +23,7 @@ Commands:
   once        Run one reconcile cycle and exit
   test        Run unit tests in Docker
   e2e         Run end-to-end filesystem tests in Docker
+  radarr-e2e  Run end-to-end tests against a live Radarr container
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev profile service in background
@@ -31,6 +35,14 @@ EOF
 
 compose() {
   docker compose -f "$COMPOSE_FILE" "$@"
+}
+
+compose_dev() {
+  docker compose -f "$DEV_COMPOSE_FILE" "$@"
+}
+
+compose_e2e() {
+  docker compose -f "$E2E_COMPOSE_FILE" "$@"
 }
 
 cmd="${1:-}"
@@ -45,7 +57,7 @@ case "$cmd" in
     fi
     ;;
   install)
-    compose --profile dev build "$DEV_SERVICE"
+    compose_dev build "$DEV_SERVICE"
     ;;
   build)
     compose build "$SERVICE"
@@ -66,39 +78,43 @@ case "$cmd" in
     compose run --rm "$SERVICE" --config /config/config.yaml --once
     ;;
   test)
-    compose --profile dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e' -p no:cacheprovider"
+    compose_dev run --rm "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not radarr_e2e' -p no:cacheprovider"
     ;;
   e2e)
     mkdir -p .e2e-data
-    compose --profile e2e run --rm "librariarr-e2e" \
+    compose_e2e run --rm "$E2E_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m e2e -p no:cacheprovider"
     ;;
+  radarr-e2e)
+    mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
+    docker compose -f docker-compose.test.yml --profile radarr-e2e run --rm librariarr-radarr-e2e
+    ;;
   quality)
-    compose --profile dev run --rm "$DEV_SERVICE" \
+    compose_dev run --rm "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && \
        PYTHONPATH=/app ruff format --check . --no-cache && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
   quality-autofix)
-    compose --profile dev run --rm "$DEV_SERVICE" \
+    compose_dev run --rm "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && \
        PYTHONPATH=/app ruff format . --no-cache && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
   dev-up)
-    compose --profile dev up -d "$DEV_SERVICE"
+    compose_dev up -d "$DEV_SERVICE"
     ;;
   dev-down)
-    compose --profile dev down
+    compose_dev down
     ;;
   dev-logs)
-    compose --profile dev logs -f "$DEV_SERVICE"
+    compose_dev logs -f "$DEV_SERVICE"
     ;;
   dev-shell)
-    compose --profile dev run --rm "$DEV_SERVICE" bash
+    compose_dev run --rm "$DEV_SERVICE" bash
     ;;
   *)
     usage

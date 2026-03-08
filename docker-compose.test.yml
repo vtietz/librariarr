@@ -1,0 +1,39 @@
+services:
+  radarr-test:
+    image: ${RADARR_TEST_IMAGE:-lscr.io/linuxserver/radarr:latest}
+    container_name: librariarr-radarr-test
+    profiles: ["radarr-e2e"]
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - radarr-e2e-appdata:/config
+      - ./.e2e-data/radarr-e2e:/e2e
+
+  librariarr-radarr-e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: librariarr-radarr-e2e
+    profiles: ["radarr-e2e"]
+    working_dir: /app
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      - radarr-test
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app
+      LIBRARIARR_RADARR_E2E_URL: http://radarr-test:7878
+      LIBRARIARR_E2E_PERSIST_ROOT: /e2e
+    volumes:
+      - ./:/app
+      - ./.e2e-data/radarr-e2e:/e2e
+      - radarr-e2e-appdata:/radarr-config:ro
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        pytest -q -rs -m radarr_e2e -p no:cacheprovider
+
+volumes:
+  radarr-e2e-appdata:

@@ -167,19 +167,32 @@ Permissions note (Linux/Unix):
 ./run.sh e2e
 ```
 
-8. Run quality checks:
+8. Run end-to-end tests against a live Radarr container:
+
+```bash
+./run.sh radarr-e2e
+```
+
+Optional: pin the Radarr test image for deterministic runs:
+
+```bash
+export RADARR_TEST_IMAGE=lscr.io/linuxserver/radarr:latest
+./run.sh radarr-e2e
+```
+
+9. Run quality checks:
 
 ```bash
 ./run.sh quality
 ```
 
-9. Auto-fix quality issues and re-check:
+10. Auto-fix quality issues and re-check:
 
 ```bash
 ./run.sh quality-autofix
 ```
 
-10. Stop:
+11. Stop:
 
 ```bash
 ./run.sh down
@@ -190,11 +203,12 @@ Windows users can use `run.bat` with the same commands as `run.sh`.
 
 ## Docker Compose
 
-Main file: `docker-compose.yml`
+Compose files are split by intent:
 
-- `librariarr`: production-style service
-- `librariarr-dev` (`--profile dev`): development service with source mounted
-- `librariarr-e2e` (`--profile e2e`): end-to-end filesystem test service
+- `docker-compose.yml`: production-style service (`librariarr`)
+- `docker-compose.dev.yml`: development service with source mounted (`librariarr-dev`)
+- `docker-compose.e2e.yml`: end-to-end filesystem test service (`librariarr-e2e`)
+- `docker-compose.test.yml` (`--profile radarr-e2e`): live Radarr integration test services
 
 Dev mode examples:
 
