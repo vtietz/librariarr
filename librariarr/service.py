@@ -170,21 +170,37 @@ class LibrariArrService:
                 shadow_root.mkdir(parents=True, exist_ok=True)
 
             movie_folders = self._all_movie_folders()
-            target_to_link = self._current_links()
+            target_to_links = self._current_links()
             movies_by_ref = self._build_movie_index() if self.sync_enabled else {}
+            expected_links: set[Path] = set()
             created_links = 0
             matched_movies = 0
             unmatched_movies = 0
 
             for folder, shadow_root in sorted(movie_folders.items()):
-                link_path = target_to_link.get(folder)
-                if link_path is None:
-                    link_path = self._create_link(folder, shadow_root)
+                movie = (
+                    self._match_movie_for_folder(folder, movies_by_ref)
+                    if self.sync_enabled
+                    else None
+                )
+                existing_links = target_to_links.get(folder, set())
+                link_path, was_created = self._ensure_link(
+                    folder,
+                    shadow_root,
+                    existing_links,
+                    movie,
+                )
+                expected_links.add(link_path)
+                target_to_links.setdefault(folder, set()).add(link_path)
+                if was_created:
                     created_links += 1
+
                 if self.sync_enabled:
-                    if self._sync_radarr_for_folder(folder, link_path, movies_by_ref):
+                    if movie is not None:
+                        self._sync_radarr_for_folder(folder, link_path, movie)
                         matched_movies += 1
                     else:
+                        LOG.warning("No Radarr match for folder: %s", folder)
                         unmatched_movies += 1
 
             orphaned_links_removed = 0
@@ -192,6 +208,7 @@ class LibrariArrService:
                 orphaned_links_removed = self._cleanup_orphans(
                     set(movie_folders.keys()),
                     movies_by_ref,
+                    expected_links,
                 )
 
             duration_seconds = round(time.time() - started, 2)
@@ -200,7 +217,7 @@ class LibrariArrService:
                 "created_links=%s matched_movies=%s unmatched_movies=%s "
                 "removed_orphans=%s sync_enabled=%s duration_seconds=%s",
                 len(movie_folders),
-                len(target_to_link),
+                sum(len(links) for links in target_to_links.values()),
                 created_links,
                 matched_movies,
                 unmatched_movies,
@@ -221,8 +238,8 @@ class LibrariArrService:
                 all_folders.setdefault(folder, shadow_root)
         return all_folders
 
-    def _current_links(self) -> dict[Path, Path]:
-        out: dict[Path, Path] = {}
+    def _current_links(self) -> dict[Path, set[Path]]:
+        out: dict[Path, set[Path]] = {}
         for shadow_root in self.shadow_roots:
             if not shadow_root.exists():
                 continue
@@ -234,8 +251,16 @@ class LibrariArrService:
                     target = child.resolve(strict=False)
                 except OSError:
                     continue
-                out[target] = child
+                out.setdefault(target, set()).add(child)
         return out
+
+    def _match_movie_for_folder(
+        self,
+        folder: Path,
+        movies_by_ref: dict[MovieRef, dict],
+    ) -> dict | None:
+        ref = parse_movie_ref(folder.name)
+        return movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
 
     def _build_movie_index(self) -> dict[MovieRef, dict]:
         index: dict[MovieRef, dict] = {}
@@ -251,6 +276,16 @@ class LibrariArrService:
 
     def _safe_link_name(self, folder: Path) -> str:
         return folder.name.replace("/", "-").strip()
+
+    def _canonical_link_name(self, folder: Path, movie: dict | None) -> str:
+        if movie is None:
+            return self._safe_link_name(folder)
+
+        title = str(movie.get("title") or "").strip() or folder.name
+        year = movie.get("year")
+        if isinstance(year, int):
+            return f"{title} ({year})"
+        return title
 
     def _normalize_name_part(self, value: str) -> str:
         cleaned = NON_ALNUM_RE.sub("-", value.strip())
@@ -270,8 +305,7 @@ class LibrariArrService:
                 return qualifier
         return ""
 
-    def _create_link(self, folder: Path, shadow_root: Path) -> Path:
-        base_name = self._safe_link_name(folder)
+    def _create_link(self, folder: Path, shadow_root: Path, base_name: str) -> Path:
         candidate = shadow_root / base_name
         qualifier = self._collision_qualifier(folder)
         qualified_candidate = shadow_root / f"{base_name}--{qualifier}" if qualifier else None
@@ -296,18 +330,34 @@ class LibrariArrService:
         LOG.info("Created link: %s -> %s", candidate, folder)
         return candidate
 
+    def _ensure_link(
+        self,
+        folder: Path,
+        shadow_root: Path,
+        existing_links: set[Path],
+        movie: dict | None,
+    ) -> tuple[Path, bool]:
+        base_name = self._canonical_link_name(folder, movie)
+        desired = shadow_root / base_name
+
+        for link in existing_links:
+            if link == desired and link.exists() and link.is_symlink():
+                try:
+                    if link.resolve(strict=False) == folder:
+                        return link, False
+                except OSError:
+                    pass
+
+        created = not (desired.exists() or desired.is_symlink())
+        link = self._create_link(folder, shadow_root, base_name)
+        return link, created
+
     def _sync_radarr_for_folder(
         self,
         folder: Path,
         link: Path,
-        movies_by_ref: dict[MovieRef, dict],
-    ) -> bool:
-        ref = parse_movie_ref(folder.name)
-        movie = movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
-        if not movie:
-            LOG.warning("No Radarr match for folder: %s", folder)
-            return False
-
+        movie: dict,
+    ) -> None:
         self.radarr.update_movie_path(movie, str(link))
         quality_id = map_quality_id(
             folder,
@@ -318,12 +368,12 @@ class LibrariArrService:
         )
         self.radarr.try_update_moviefile_quality(movie, quality_id)
         self.radarr.refresh_movie(int(movie["id"]))
-        return True
 
     def _cleanup_orphans(
         self,
         existing_folders: set[Path],
         movies_by_ref: dict[MovieRef, dict],
+        expected_links: set[Path],
     ) -> int:
         removed_count = 0
         for shadow_root in self.shadow_roots:
@@ -338,13 +388,19 @@ class LibrariArrService:
                     target = child.resolve(strict=False)
                 except OSError:
                     target = None
+                target_exists = target is not None and target in existing_folders
+                link_is_expected = child in expected_links
 
-                if target and target in existing_folders:
+                if target_exists and link_is_expected:
                     continue
 
                 child.unlink(missing_ok=True)
                 removed_count += 1
                 LOG.info("Removed orphaned symlink: %s", child)
+
+                # If this is only a stale/renamed duplicate link, do not touch Radarr state.
+                if target_exists:
+                    continue
 
                 if not self.sync_enabled:
                     continue

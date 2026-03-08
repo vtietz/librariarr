@@ -26,6 +26,12 @@ If two folders would create the same link name, LibrariArr auto-qualifies the na
 
 If you want age-specific Radarr roots, use `paths.root_mappings` so each source root writes to its own shadow root.
 
+Default naming behavior:
+
+1. When a folder matches a Radarr movie, the symlink name is canonicalized to `Title (Year)`.
+2. If no Radarr match exists, LibrariArr falls back to the source folder name.
+3. On later successful matches, stale non-canonical links are replaced by canonical names.
+
 ## What It Actually Does
 
 1. Scans configured nested roots for movie folders (folder containing a video file).
@@ -101,6 +107,12 @@ paths:
 ```
 
 With this, links are not merged into one folder. Each age root is reconciled into its mapped shadow root.
+
+Version/cut note:
+
+1. Radarr treats one movie as one path entry.
+2. Multiple cuts/editions of the same title/year are not modeled as separate managed paths by default.
+3. If duplicates collide, LibrariArr keeps links unique with suffixes, but Radarr will still track one active path for that movie.
 
 ## Embed Into Existing *arr Stack
 

@@ -285,3 +285,66 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
     assert not (age16_shadow / "Movie A (2020)").exists()
     assert (age16_shadow / "Movie B (2021)").is_symlink()
     assert not (age12_shadow / "Movie B (2021)").exists()
+
+
+def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Star Wars"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Star.Wars.1977.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Star Wars",
+                "year": 1977,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    canonical_link = shadow_root / "Star Wars (1977)"
+    assert canonical_link.is_symlink()
+    assert not (shadow_root / "Star Wars").exists()
+
+
+def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Star Wars"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Star.Wars.1977.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    shadow_root.mkdir(parents=True)
+    stale_link = shadow_root / "Star Wars"
+    stale_link.symlink_to(movie_dir, target_is_directory=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Star Wars",
+                "year": 1977,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    canonical_link = shadow_root / "Star Wars (1977)"
+    assert canonical_link.is_symlink()
+    assert not stale_link.exists()
