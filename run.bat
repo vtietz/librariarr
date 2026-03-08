@@ -16,6 +16,7 @@ if /I "%~1"=="restart" goto :restart
 if /I "%~1"=="logs" goto :logs
 if /I "%~1"=="once" goto :once
 if /I "%~1"=="test" goto :test
+if /I "%~1"=="e2e" goto :e2e
 if /I "%~1"=="quality" goto :quality
 if /I "%~1"=="quality-autofix" goto :qualityautofix
 if /I "%~1"=="dev-up" goto :devup
@@ -63,7 +64,12 @@ docker compose -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml
 goto :eof
 
 :test
-docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -p no:cacheprovider"
+docker compose -f %COMPOSE_FILE% --profile dev run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e' -p no:cacheprovider"
+goto :eof
+
+:e2e
+if not exist .e2e-data mkdir .e2e-data
+docker compose -f %COMPOSE_FILE% --profile e2e run --rm librariarr-e2e "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m e2e -p no:cacheprovider"
 goto :eof
 
 :quality
@@ -103,6 +109,7 @@ echo   restart     Restart service
 echo   logs        Tail service logs
 echo   once        Run one reconcile cycle and exit
 echo   test        Run unit tests in Docker
+echo   e2e         Run end-to-end filesystem tests in Docker
 echo   quality     Run lint/format/complexity/LOC checks in Docker
 echo   quality-autofix  Apply auto-fixes, then run quality checks
 echo   dev-up      Start dev profile service in background

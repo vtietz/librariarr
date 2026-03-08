@@ -161,19 +161,25 @@ Permissions note (Linux/Unix):
 ./run.sh test
 ```
 
-7. Run quality checks:
+7. Run end-to-end filesystem tests:
+
+```bash
+./run.sh e2e
+```
+
+8. Run quality checks:
 
 ```bash
 ./run.sh quality
 ```
 
-8. Auto-fix quality issues and re-check:
+9. Auto-fix quality issues and re-check:
 
 ```bash
 ./run.sh quality-autofix
 ```
 
-9. Stop:
+10. Stop:
 
 ```bash
 ./run.sh down
@@ -188,6 +194,7 @@ Main file: `docker-compose.yml`
 
 - `librariarr`: production-style service
 - `librariarr-dev` (`--profile dev`): development service with source mounted
+- `librariarr-e2e` (`--profile e2e`): end-to-end filesystem test service
 
 Dev mode examples:
 

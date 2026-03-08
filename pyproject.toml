@@ -7,3 +7,8 @@ select = ["E", "F", "I", "UP", "B", "C90"]
 
 [tool.ruff.lint.mccabe]
 max-complexity = 12
+
+[tool.pytest.ini_options]
+markers = [
+	"e2e: marks end-to-end filesystem tests that run via ./run.sh e2e",
+]

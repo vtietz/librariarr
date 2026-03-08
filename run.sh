@@ -19,6 +19,7 @@ Commands:
   logs        Tail service logs
   once        Run one reconcile cycle and exit
   test        Run unit tests in Docker
+  e2e         Run end-to-end filesystem tests in Docker
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev profile service in background
@@ -66,7 +67,12 @@ case "$cmd" in
     ;;
   test)
     compose --profile dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -p no:cacheprovider"
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e' -p no:cacheprovider"
+    ;;
+  e2e)
+    mkdir -p .e2e-data
+    compose --profile e2e run --rm "librariarr-e2e" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m e2e -p no:cacheprovider"
     ;;
   quality)
     compose --profile dev run --rm "$DEV_SERVICE" \
