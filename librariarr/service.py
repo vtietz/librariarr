@@ -81,6 +81,15 @@ class LibrariArrService:
         self._lock = threading.Lock()
 
     def run(self) -> None:
+        LOG.info(
+            "Starting LibrariArr service: shadow_root=%s nested_roots=%s "
+            "sync_enabled=%s debounce_seconds=%s maintenance_interval_seconds=%s",
+            self.shadow_root,
+            ",".join(str(root) for root in self.nested_roots),
+            self.sync_enabled,
+            self._debounce_seconds,
+            self._maintenance_interval,
+        )
         self.shadow_root.mkdir(parents=True, exist_ok=True)
         observer = Observer()
         handler = SyncEventHandler(self.mark_dirty)
@@ -92,7 +101,11 @@ class LibrariArrService:
 
         observer.start()
         try:
-            self.reconcile()
+            try:
+                self.reconcile()
+            except Exception:
+                LOG.exception("Initial reconcile failed")
+
             while True:
                 now = time.time()
                 should_maintenance = (now - self._last_sync) >= self._maintenance_interval
@@ -101,7 +114,14 @@ class LibrariArrService:
                 )
 
                 if should_maintenance or should_event_sync:
-                    self.reconcile()
+                    if should_maintenance:
+                        LOG.info("Running scheduled maintenance reconcile")
+                    if should_event_sync:
+                        LOG.info("Running event-triggered reconcile")
+                    try:
+                        self.reconcile()
+                    except Exception:
+                        LOG.exception("Reconcile failed; will retry on next cycle")
                     self._last_event = 0.0
                 time.sleep(1)
         finally:
@@ -109,10 +129,16 @@ class LibrariArrService:
             observer.join()
 
     def mark_dirty(self) -> None:
+        if self._last_event == 0.0:
+            LOG.info(
+                "Filesystem change detected; reconciling in ~%ss after debounce",
+                self._debounce_seconds,
+            )
         self._last_event = time.time()
 
     def reconcile(self) -> None:
         with self._lock:
+            started = time.time()
             LOG.info("Reconciling shadow links and Radarr state...")
             self._last_sync = time.time()
             self.shadow_root.mkdir(parents=True, exist_ok=True)
@@ -120,16 +146,39 @@ class LibrariArrService:
             movie_folders = self._all_movie_folders()
             target_to_link = self._current_links()
             movies_by_ref = self._build_movie_index() if self.sync_enabled else {}
+            created_links = 0
+            matched_movies = 0
+            unmatched_movies = 0
 
             for folder in sorted(movie_folders):
                 link_path = target_to_link.get(folder)
                 if link_path is None:
                     link_path = self._create_link(folder)
+                    created_links += 1
                 if self.sync_enabled:
-                    self._sync_radarr_for_folder(folder, link_path, movies_by_ref)
+                    if self._sync_radarr_for_folder(folder, link_path, movies_by_ref):
+                        matched_movies += 1
+                    else:
+                        unmatched_movies += 1
 
+            orphaned_links_removed = 0
             if self.config.cleanup.remove_orphaned_links:
-                self._cleanup_orphans(movie_folders, movies_by_ref)
+                orphaned_links_removed = self._cleanup_orphans(movie_folders, movies_by_ref)
+
+            duration_seconds = round(time.time() - started, 2)
+            LOG.info(
+                "Reconcile complete: movie_folders=%s existing_links=%s "
+                "created_links=%s matched_movies=%s unmatched_movies=%s "
+                "removed_orphans=%s sync_enabled=%s duration_seconds=%s",
+                len(movie_folders),
+                len(target_to_link),
+                created_links,
+                matched_movies,
+                unmatched_movies,
+                orphaned_links_removed,
+                self.sync_enabled,
+                duration_seconds,
+            )
 
     def _all_movie_folders(self) -> set[Path]:
         all_folders: set[Path] = set()
@@ -216,12 +265,12 @@ class LibrariArrService:
         folder: Path,
         link: Path,
         movies_by_ref: dict[MovieRef, dict],
-    ) -> None:
+    ) -> bool:
         ref = parse_movie_ref(folder.name)
         movie = movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
         if not movie:
             LOG.warning("No Radarr match for folder: %s", folder)
-            return
+            return False
 
         self.radarr.update_movie_path(movie, str(link))
         quality_id = map_quality_id(
@@ -233,12 +282,14 @@ class LibrariArrService:
         )
         self.radarr.try_update_moviefile_quality(movie, quality_id)
         self.radarr.refresh_movie(int(movie["id"]))
+        return True
 
     def _cleanup_orphans(
         self,
         existing_folders: set[Path],
         movies_by_ref: dict[MovieRef, dict],
-    ) -> None:
+    ) -> int:
+        removed_count = 0
         for child in self.shadow_root.iterdir():
             if not child.is_symlink():
                 continue
@@ -252,6 +303,7 @@ class LibrariArrService:
                 continue
 
             child.unlink(missing_ok=True)
+            removed_count += 1
             LOG.info("Removed orphaned symlink: %s", child)
 
             if not self.sync_enabled:
@@ -270,3 +322,5 @@ class LibrariArrService:
                     continue
                 self.radarr.unmonitor_movie(movie)
                 self.radarr.refresh_movie(int(movie["id"]))
+
+        return removed_count
