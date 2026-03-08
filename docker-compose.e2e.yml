@@ -1,25 +1,37 @@
 services:
-  librariarr-e2e:
+  radarr-test:
+    image: ${RADARR_TEST_IMAGE:-lscr.io/linuxserver/radarr:latest}
+    container_name: librariarr-radarr-test
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    volumes:
+      - radarr-e2e-appdata:/config
+      - ./.e2e-data/radarr-e2e:/e2e
+
+  librariarr-radarr-e2e:
     build:
       context: .
       dockerfile: Dockerfile.dev
-    container_name: librariarr-e2e
-    user: "${PUID:-1000}:${PGID:-1000}"
+    container_name: librariarr-radarr-e2e
     working_dir: /app
+    user: "${PUID:-1000}:${PGID:-1000}"
+    depends_on:
+      - radarr-test
     environment:
-      LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
-      LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
-      LIBRARIARR_RADARR_SYNC_ENABLED: ${LIBRARIARR_RADARR_SYNC_ENABLED:-false}
-      LIBRARIARR_USE_NFO_ANALYSIS: ${LIBRARIARR_USE_NFO_ANALYSIS:-false}
-      LIBRARIARR_USE_MEDIA_PROBE: ${LIBRARIARR_USE_MEDIA_PROBE:-false}
-      LIBRARIARR_MEDIA_PROBE_BIN: ${LIBRARIARR_MEDIA_PROBE_BIN:-ffprobe}
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONPATH: /app
+      LIBRARIARR_RADARR_E2E_URL: http://radarr-test:7878
       LIBRARIARR_E2E_PERSIST_ROOT: /e2e
-      LIBRARIARR_SHADOW_ROOT: /e2e/radarr_library
-      LIBRARIARR_NESTED_ROOTS: /e2e/movies
     volumes:
       - ./:/app
-      - ./.e2e-data:/e2e
+      - ./.e2e-data/radarr-e2e:/e2e
+      - radarr-e2e-appdata:/radarr-config:ro
     entrypoint: ["bash", "-lc"]
     command:
       - |
-        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m e2e -p no:cacheprovider
+        pytest -q -rs -m e2e -p no:cacheprovider
+
+volumes:
+  radarr-e2e-appdata:

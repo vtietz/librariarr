@@ -105,7 +105,7 @@ def _seed_movie_or_skip(session: requests.Session, base_url: str, shadow_root: P
     return add_movie_resp.json()
 
 
-@pytest.mark.radarr_e2e
+@pytest.mark.e2e
 def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
     case_root = persist_root / f"radarr_sync_{uuid.uuid4().hex[:8]}"

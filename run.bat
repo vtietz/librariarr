@@ -4,9 +4,11 @@ setlocal
 set COMPOSE_FILE=docker-compose.yml
 set DEV_COMPOSE_FILE=docker-compose.dev.yml
 set E2E_COMPOSE_FILE=docker-compose.e2e.yml
+set FS_E2E_COMPOSE_FILE=docker-compose.fs-e2e.yml
 set SERVICE=librariarr
 set DEV_SERVICE=librariarr-dev
-set E2E_SERVICE=librariarr-e2e
+set E2E_SERVICE=librariarr-radarr-e2e
+set FS_E2E_SERVICE=librariarr-e2e
 
 if "%~1"=="" goto :usage
 
@@ -20,6 +22,7 @@ if /I "%~1"=="logs" goto :logs
 if /I "%~1"=="once" goto :once
 if /I "%~1"=="test" goto :test
 if /I "%~1"=="e2e" goto :e2e
+if /I "%~1"=="fs-e2e" goto :fse2e
 if /I "%~1"=="radarr-e2e" goto :radarre2e
 if /I "%~1"=="quality" goto :quality
 if /I "%~1"=="quality-autofix" goto :qualityautofix
@@ -68,18 +71,26 @@ docker compose -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml
 goto :eof
 
 :test
-docker compose -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not radarr_e2e' -p no:cacheprovider"
+docker compose -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e' -p no:cacheprovider"
 goto :eof
 
 :e2e
+if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
+if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
+docker compose -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
+docker compose -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
+goto :eof
+
+:fse2e
 if not exist .e2e-data mkdir .e2e-data
-docker compose -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m e2e -p no:cacheprovider"
+docker compose -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
 goto :eof
 
 :radarre2e
 if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
 if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
-docker compose -f docker-compose.test.yml --profile radarr-e2e run --rm librariarr-radarr-e2e
+docker compose -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
+docker compose -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :quality
@@ -119,8 +130,9 @@ echo   restart     Restart service
 echo   logs        Tail service logs
 echo   once        Run one reconcile cycle and exit
 echo   test        Run unit tests in Docker
-echo   e2e         Run end-to-end filesystem tests in Docker
-echo   radarr-e2e  Run end-to-end tests against a live Radarr container
+echo   e2e         Run end-to-end integration tests against live Radarr
+echo   fs-e2e      Run end-to-end filesystem tests in Docker
+echo   radarr-e2e  Alias for e2e
 echo   quality     Run lint/format/complexity/LOC checks in Docker
 echo   quality-autofix  Apply auto-fixes, then run quality checks
 echo   dev-up      Start dev profile service in background

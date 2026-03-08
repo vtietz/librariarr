@@ -1,0 +1,25 @@
+services:
+  librariarr-e2e:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: librariarr-e2e
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /app
+    environment:
+      LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
+      LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_RADARR_SYNC_ENABLED: ${LIBRARIARR_RADARR_SYNC_ENABLED:-false}
+      LIBRARIARR_USE_NFO_ANALYSIS: ${LIBRARIARR_USE_NFO_ANALYSIS:-false}
+      LIBRARIARR_USE_MEDIA_PROBE: ${LIBRARIARR_USE_MEDIA_PROBE:-false}
+      LIBRARIARR_MEDIA_PROBE_BIN: ${LIBRARIARR_MEDIA_PROBE_BIN:-ffprobe}
+      LIBRARIARR_E2E_PERSIST_ROOT: /e2e
+      LIBRARIARR_SHADOW_ROOT: /e2e/radarr_library
+      LIBRARIARR_NESTED_ROOTS: /e2e/movies
+    volumes:
+      - ./:/app
+      - ./.e2e-data:/e2e
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider

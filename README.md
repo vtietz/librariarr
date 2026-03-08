@@ -161,23 +161,23 @@ Permissions note (Linux/Unix):
 ./run.sh test
 ```
 
-7. Run end-to-end filesystem tests:
+7. Run end-to-end integration tests against a live Radarr container:
 
 ```bash
 ./run.sh e2e
 ```
 
-8. Run end-to-end tests against a live Radarr container:
+8. Run end-to-end filesystem tests:
 
 ```bash
-./run.sh radarr-e2e
+./run.sh fs-e2e
 ```
 
 Optional: pin the Radarr test image for deterministic runs:
 
 ```bash
 export RADARR_TEST_IMAGE=lscr.io/linuxserver/radarr:latest
-./run.sh radarr-e2e
+./run.sh e2e
 ```
 
 9. Run quality checks:
@@ -207,8 +207,8 @@ Compose files are split by intent:
 
 - `docker-compose.yml`: production-style service (`librariarr`)
 - `docker-compose.dev.yml`: development service with source mounted (`librariarr-dev`)
-- `docker-compose.e2e.yml`: end-to-end filesystem test service (`librariarr-e2e`)
-- `docker-compose.test.yml` (`--profile radarr-e2e`): live Radarr integration test services
+- `docker-compose.fs-e2e.yml`: filesystem end-to-end test service (`librariarr-e2e`)
+- `docker-compose.e2e.yml`: live Radarr integration end-to-end services
 
 Dev mode examples:
 

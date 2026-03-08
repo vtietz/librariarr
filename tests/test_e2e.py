@@ -37,7 +37,7 @@ def _relativize_links_for_host_view(shadow_root: Path) -> None:
         link.symlink_to(relative_target, target_is_directory=True)
 
 
-@pytest.mark.e2e
+@pytest.mark.fs_e2e
 def test_e2e_reconcile_creates_expected_symlink_layout(tmp_path: Path) -> None:
     nested_root, shadow_root = _make_roots(tmp_path, "creates_symlink_layout")
 
@@ -76,7 +76,7 @@ def test_e2e_reconcile_creates_expected_symlink_layout(tmp_path: Path) -> None:
     assert link_b.resolve(strict=False) == movie_b
 
 
-@pytest.mark.e2e
+@pytest.mark.fs_e2e
 def test_e2e_reconcile_handles_collisions_and_orphans(tmp_path: Path) -> None:
     root_base, shadow_root = _make_roots(tmp_path, "collision_and_orphan_cleanup")
     root_one = root_base / "source_a"

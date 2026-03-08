@@ -4,9 +4,11 @@ set -euo pipefail
 COMPOSE_FILE="docker-compose.yml"
 DEV_COMPOSE_FILE="docker-compose.dev.yml"
 E2E_COMPOSE_FILE="docker-compose.e2e.yml"
+FS_E2E_COMPOSE_FILE="docker-compose.fs-e2e.yml"
 SERVICE="librariarr"
 DEV_SERVICE="librariarr-dev"
-E2E_SERVICE="librariarr-e2e"
+E2E_SERVICE="librariarr-radarr-e2e"
+FS_E2E_SERVICE="librariarr-e2e"
 
 usage() {
   cat <<'EOF'
@@ -22,8 +24,9 @@ Commands:
   logs        Tail service logs
   once        Run one reconcile cycle and exit
   test        Run unit tests in Docker
-  e2e         Run end-to-end filesystem tests in Docker
-  radarr-e2e  Run end-to-end tests against a live Radarr container
+  e2e         Run end-to-end integration tests against live Radarr
+  fs-e2e      Run end-to-end filesystem tests in Docker
+  radarr-e2e  Alias for e2e
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev profile service in background
@@ -43,6 +46,10 @@ compose_dev() {
 
 compose_e2e() {
   docker compose -f "$E2E_COMPOSE_FILE" "$@"
+}
+
+compose_fs_e2e() {
+  docker compose -f "$FS_E2E_COMPOSE_FILE" "$@"
 }
 
 cmd="${1:-}"
@@ -79,16 +86,22 @@ case "$cmd" in
     ;;
   test)
     compose_dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not radarr_e2e' -p no:cacheprovider"
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e' -p no:cacheprovider"
     ;;
   e2e)
+    mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
+    compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
+    compose_e2e run --rm "$E2E_SERVICE"
+    ;;
+  fs-e2e)
     mkdir -p .e2e-data
-    compose_e2e run --rm "$E2E_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m e2e -p no:cacheprovider"
+    compose_fs_e2e run --rm "$FS_E2E_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
     ;;
   radarr-e2e)
     mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
-    docker compose -f docker-compose.test.yml --profile radarr-e2e run --rm librariarr-radarr-e2e
+    compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
+    compose_e2e run --rm "$E2E_SERVICE"
     ;;
   quality)
     compose_dev run --rm "$DEV_SERVICE" \
