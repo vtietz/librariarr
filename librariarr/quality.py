@@ -7,6 +7,7 @@ from pathlib import Path
 from .config import QualityRule
 
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"}
+SAMPLE_HINTS = {"sample", "trailer", "extras", "featurette", "behindthescenes"}
 
 
 def collect_movie_text(movie_dir: Path) -> str:
@@ -29,12 +30,88 @@ def collect_nfo_text(movie_dir: Path) -> str:
     return " ".join(parts)
 
 
+def _safe_int(value: object, default: int = 0) -> int:
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
 def _first_video_file(movie_dir: Path) -> Path | None:
-    candidates = []
+    candidates: list[tuple[int, int, str, Path]] = []
     for child in sorted(movie_dir.iterdir()):
         if child.is_file() and child.suffix.lower() in VIDEO_EXTENSIONS:
-            candidates.append(child)
-    return candidates[0] if candidates else None
+            name = child.stem.lower()
+            penalty = 0 if any(hint in name for hint in SAMPLE_HINTS) else 1
+            try:
+                size = child.stat().st_size
+            except OSError:
+                size = 0
+            candidates.append((penalty, size, child.name.lower(), child))
+
+    if not candidates:
+        return None
+
+    # Prefer non-sample files, then larger files, then a stable lexical tie-break.
+    _, _, _, selected = max(candidates)
+    return selected
+
+
+def _video_probe_tokens(video_stream: dict) -> list[str]:
+    tokens: list[str] = []
+
+    height = _safe_int(video_stream.get("height"))
+    if height >= 2000:
+        tokens.append("2160p")
+    elif height >= 1000:
+        tokens.append("1080p")
+    elif height >= 700:
+        tokens.append("720p")
+
+    codec = str(video_stream.get("codec_name") or "").lower()
+    if codec in {"hevc", "h265"}:
+        tokens.extend(["x265", "hevc"])
+    elif codec in {"h264", "avc"}:
+        tokens.extend(["x264", "h264"])
+
+    transfer = str(video_stream.get("color_transfer") or "").lower()
+    if transfer in {"smpte2084", "pq"}:
+        tokens.append("hdr10")
+    elif transfer in {"arib-std-b67", "hlg"}:
+        tokens.append("hlg")
+
+    bit_rate = _safe_int(video_stream.get("bit_rate"))
+    if bit_rate >= 25_000_000:
+        tokens.extend(["remux-bitrate", "very-high-bitrate"])
+    elif bit_rate >= 10_000_000:
+        tokens.append("high-bitrate")
+    elif bit_rate >= 4_000_000:
+        tokens.append("medium-bitrate")
+
+    return tokens
+
+
+def _audio_probe_tokens(audio_streams: list[dict]) -> list[str]:
+    tokens: list[str] = []
+    for audio_stream in audio_streams:
+        audio_codec = str(audio_stream.get("codec_name") or "").lower()
+        if audio_codec:
+            tokens.append(audio_codec)
+
+        channels = _safe_int(audio_stream.get("channels"))
+        if channels >= 8:
+            tokens.append("7.1")
+        elif channels >= 6:
+            tokens.append("5.1")
+    return tokens
+
+
+def _pick_probe_streams(streams: list[dict]) -> tuple[dict, list[dict]]:
+    video_stream = next((s for s in streams if s.get("codec_type") == "video"), None)
+    if video_stream is None:
+        video_stream = streams[0] if streams else {}
+    audio_streams = [s for s in streams if s.get("codec_type") == "audio"]
+    return video_stream, audio_streams
 
 
 def collect_media_probe_text(movie_dir: Path, probe_bin: str = "ffprobe") -> str:
@@ -46,10 +123,8 @@ def collect_media_probe_text(movie_dir: Path, probe_bin: str = "ffprobe") -> str
         probe_bin,
         "-v",
         "error",
-        "-select_streams",
-        "v:0",
         "-show_entries",
-        "stream=width,height,codec_name",
+        "stream=codec_type,width,height,codec_name,bit_rate,pix_fmt,color_transfer,color_primaries,profile,channels",
         "-of",
         "json",
         str(file_path),
@@ -61,22 +136,10 @@ def collect_media_probe_text(movie_dir: Path, probe_bin: str = "ffprobe") -> str
     except (OSError, subprocess.SubprocessError, ValueError):
         return ""
 
-    stream = (data.get("streams") or [{}])[0]
-    tokens: list[str] = []
-
-    height = int(stream.get("height") or 0)
-    if height >= 2000:
-        tokens.append("2160p")
-    elif height >= 1000:
-        tokens.append("1080p")
-    elif height >= 700:
-        tokens.append("720p")
-
-    codec = str(stream.get("codec_name") or "").lower()
-    if codec in {"hevc", "h265"}:
-        tokens.append("x265")
-    elif codec in {"h264", "avc"}:
-        tokens.append("x264")
+    streams = data.get("streams") or []
+    video_stream, audio_streams = _pick_probe_streams(streams)
+    tokens = _video_probe_tokens(video_stream)
+    tokens.extend(_audio_probe_tokens(audio_streams))
 
     return " ".join(tokens)
 

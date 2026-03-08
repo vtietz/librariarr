@@ -1,300 +1,215 @@
 # LibrariArr
 
-LibrariArr keeps a nested movie archive compatible with Radarr's flat root-folder model.
+LibrariArr lets you keep your real movie files in nested folders while presenting Radarr with a flat library root.
 
-Wrapper hint: use `./run.sh <command>` (Linux/macOS) or `run.bat <command>` (Windows) for all common actions.
+It does this by creating symlinks in a shadow folder and, when enabled, updating matching movies in Radarr to point at those symlinks.
 
-## What it does
+## Why You Would Use It
 
-- Watches nested source roots for file/folder changes.
-- Ensures every detected movie folder has a symlink in a flat shadow root: `radarr_library`.
-- Uses filename heuristics to map movie quality IDs.
-- Updates Radarr movie path to the shadow symlink path.
-- Removes orphaned symlinks and optionally unmonitors deleted movies.
-- Runs startup bootstrap and periodic maintenance reconcile.
-
-## Example layout
-
-Nested source folders (real files):
+Some people organize files like this:
 
 ```text
 /data/movies/
-  age_12/
-    Blender/
-      Big Buck Bunny (2008)/
-        Big.Buck.Bunny.2008.1080p.x265.mkv
-  age_16/
-    OpenFilms/
-      Sintel (2010)/
-        Sintel.2010.2160p.REMUX.mkv
+  age_12/Studio/Foo (2020)/Foo.2020.1080p.x265.mkv
+  age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
 ```
 
-Flat shadow library (symlinks only):
+Radarr expects a flatter root layout. LibrariArr builds that view for Radarr:
 
 ```text
 /data/radarr_library/
-  Big Buck Bunny (2008)   -> /data/movies/age_12/Blender/Big Buck Bunny (2008)
-  Sintel (2010)           -> /data/movies/age_16/OpenFilms/Sintel (2010)
+  Foo (2020) -> /data/movies/age_12/Studio/Foo (2020)
+  Bar (2011) -> /data/movies/age_16/Other/Bar (2011)
 ```
 
-If two nested folders produce the same movie folder name, LibrariArr keeps links unique with
-a deterministic qualifier from source path, for example:
+If two folders would create the same link name, LibrariArr auto-qualifies the name to keep links unique.
 
-```text
-Sintel (2010)--age_16-OpenFilms
-```
+## What It Actually Does
 
-## Simple defaults used
+1. Scans configured nested roots for movie folders (folder containing a video file).
+2. Creates missing symlinks in the shadow root.
+3. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only fallback.
+4. Updates Radarr movie path to the symlink path.
+5. Attempts quality mapping based on configured rules.
+6. Cleans up orphaned symlinks and can unmonitor or delete from Radarr on missing source folders.
+7. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
 
-- Shadow root name: `/data/radarr_library`
-- Matching: `Title (Year)` exact first, then title-only fallback
-- Delete behavior: remove orphan link + unmonitor + refresh
-- No auto-delete from Radarr DB
-- Quality rules: case-insensitive, all listed keywords required (`AND`)
-- Default quality fallback: `4` (`HDTV-1080p`)
-- Startup behavior: full import/reconcile immediately
-- Event debounce: `8s`
-- Maintenance interval: every `1440` minutes
+## Docker Compose Setup
 
-## Is it a CLI?
-
-Yes. The service is started via a CLI entrypoint:
-
-```bash
-python -m librariarr.main --config config.yaml
-```
-
-Additional mode:
-
-```bash
-python -m librariarr.main --config config.yaml --once
-```
-
-`--once` runs one reconcile cycle and exits.
-
-## Config: YAML or ENV?
-
-Both are supported.
-
-- Use `config.yaml` for stable project config (quality rules, cleanup behavior, runtime settings).
-- Use environment variables for secrets and deployment-specific overrides (especially Radarr API key and paths).
-
-Supported env overrides:
-
-- `LIBRARIARR_RADARR_URL`
-- `LIBRARIARR_RADARR_API_KEY`
-- `LIBRARIARR_RADARR_SYNC_ENABLED` (`true`/`false`)
-- `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING` (`true`/`false`, default `false`)
-- `LIBRARIARR_USE_NFO_ANALYSIS` (`true`/`false`, default `false`)
-- `LIBRARIARR_USE_MEDIA_PROBE` (`true`/`false`, default `false`)
-- `LIBRARIARR_MEDIA_PROBE_BIN` (default `ffprobe`)
-- `LIBRARIARR_SHADOW_ROOT`
-- `LIBRARIARR_NESTED_ROOTS` (comma-separated)
-
-Radarr API key:
-
-1. Open Radarr Web UI.
-2. Go to `Settings` -> `General` -> `Security`.
-3. Copy the `API Key` value.
-4. Set it in `.env` as `LIBRARIARR_RADARR_API_KEY=...` (preferred), or in `config.yaml` under `radarr.api_key`.
-
-Two-step mode is supported:
-
-- `sync_enabled: true`: symlinks + Radarr API updates
-- `sync_enabled: false`: symlinks only (no Radarr API calls)
-
-Optional quality analyzers (off by default):
-
-- Filename heuristics are always used first.
-- If no filename rule matches and `analysis.use_nfo: true`, LibrariArr scans `.nfo` text.
-- If still no match and `analysis.use_media_probe: true`, LibrariArr probes the media stream
-  (via `ffprobe` by default) to infer tokens like `2160p`/`1080p` and `x265`/`x264`.
-
-Optional destructive behavior (off by default):
-
-- `cleanup.delete_from_radarr_on_missing: true` deletes missing movies from the Radarr DB.
-- If `false`, LibrariArr only unmonitors + refreshes (safer default).
-
-## Docker-first setup (no Python on host)
-
-1. Create config and env files:
+1. Create local config files:
 
 ```bash
 cp config.yaml.example config.yaml
 cp .env.example .env
-# edit config.yaml and .env
 ```
 
-Permissions note (Linux/Unix):
+2. Edit `config.yaml` and `.env` for your paths and Radarr API key.
 
-- Set `PUID` and `PGID` in `.env` to match the user/group that owns your media folders.
-- This ensures created symlinks and writes use expected ownership.
-- You can check values with `id -u` and `id -g` on the host.
+3. Make sure host path mappings in `.env` exist and are writable:
 
-2. Start the service:
+```dotenv
+MOVIES_HOST_PATH=/data/movies
+RADARR_LIBRARY_HOST_PATH=/data/radarr_library
+```
+
+4. Set container user mapping in `.env` to avoid ownership issues on Linux:
+
+```dotenv
+PUID=1000
+PGID=1000
+```
+
+5. Start LibrariArr:
 
 ```bash
 ./run.sh up
 ```
 
-3. Build dev dependencies once (for test/quality commands):
-
-```bash
-./run.sh install
-```
-
-4. View logs:
+6. Check logs:
 
 ```bash
 ./run.sh logs
 ```
 
-5. Run one-shot reconcile:
-
-```bash
-./run.sh once
-```
-
-6. Run tests:
-
-```bash
-./run.sh test
-```
-
-7. Run end-to-end integration tests against a live Radarr container:
-
-```bash
-./run.sh e2e
-```
-
-8. Run end-to-end filesystem tests:
-
-```bash
-./run.sh fs-e2e
-```
-
-Optional: pin the Radarr test image for deterministic runs:
-
-```bash
-export RADARR_TEST_IMAGE=lscr.io/linuxserver/radarr:latest
-./run.sh e2e
-```
-
-9. Run quality checks:
-
-```bash
-./run.sh quality
-```
-
-10. Auto-fix quality issues and re-check:
-
-```bash
-./run.sh quality-autofix
-```
-
-11. Stop:
+7. Stop when needed:
 
 ```bash
 ./run.sh down
 ```
 
-Windows users can use `run.bat` with the same commands as `run.sh`.
-`install` is intended to be run once (or again only when dependencies change).
+## Radarr Integration Requirements
 
-## Docker Compose
+1. `radarr` and `librariarr` must see the same shadow-root path in-container.
+2. Add `/data/radarr_library` as a Radarr root folder.
+3. Use a valid Radarr API key.
 
-Compose files are split by intent:
+If `radarr.sync_enabled` (or `LIBRARIARR_RADARR_SYNC_ENABLED`) is `false`, LibrariArr still manages symlinks but does not call Radarr APIs.
 
-- `docker-compose.yml`: production-style service (`librariarr`)
-- `docker-compose.dev.yml`: development service with source mounted (`librariarr-dev`)
-- `docker-compose.fs-e2e.yml`: filesystem end-to-end test service (`librariarr-e2e`)
-- `docker-compose.e2e.yml`: live Radarr integration end-to-end services
+## Embed Into Existing *arr Stack
 
-Dev mode examples:
-
-```bash
-./run.sh dev-up
-./run.sh dev-logs
-./run.sh dev-shell
-./run.sh dev-down
-```
-
-## *arr Stack Integration Example
-
-LibrariArr fits well into a typical `*arr` stack. The key is that both `radarr` and
-`librariarr` must see the same movie paths inside the containers.
-
-Example service addition:
+If you already run `radarr` in your own compose stack, add `librariarr` as another service and make sure both containers share the same movie and shadow-root mounts.
 
 ```yaml
-  librariarr:
-    image: ghcr.io/<owner>/<repo>:latest
-    container_name: librariarr
-    environment:
-      - TZ=${TZ}
-      - LIBRARIARR_RADARR_URL=http://radarr:7878
-      - LIBRARIARR_RADARR_API_KEY=${RADARR_API_KEY}
-      - LIBRARIARR_RADARR_SYNC_ENABLED=true
-      - LIBRARIARR_NESTED_ROOTS=/data/movies/age_12,/data/movies/age_16
-      - LIBRARIARR_SHADOW_ROOT=/data/radarr_library
+services:
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
     volumes:
-      - ./librariarr/config.yaml:/config/config.yaml:ro
-      - ${MOVIES_DIR}:/data/movies
-      - ${RADARR_LIBRARY_DIR}:/data/radarr_library
+      - /srv/media/movies:/data/movies
+      - /srv/media/radarr_library:/data/radarr_library
+
+  librariarr:
+    image: ghcr.io/vtietz/librariarr:latest
+    environment:
+      LIBRARIARR_RADARR_URL: http://radarr:7878
+      LIBRARIARR_RADARR_API_KEY: ${RADARR_API_KEY}
+      LIBRARIARR_RADARR_SYNC_ENABLED: "true"
+      LIBRARIARR_NESTED_ROOTS: /data/movies/age_06,/data/movies/age_12,/data/movies/age_16
+      LIBRARIARR_SHADOW_ROOT: /data/radarr_library
+    volumes:
+      - ./config.yaml:/config/config.yaml:ro
+      - /srv/media/movies:/data/movies
+      - /srv/media/radarr_library:/data/radarr_library
     command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
-    restart: unless-stopped
     depends_on:
       - radarr
 ```
 
-Radarr side requirement:
+Important:
 
-- Add the same shadow volume to `radarr`, for example:
-  - `${RADARR_LIBRARY_DIR}:/data/radarr_library`
-- In Radarr, use `/data/radarr_library` as the movie root folder.
+1. In Radarr, set root folder to `/data/radarr_library`.
+2. Keep container paths identical across both services.
+3. `LIBRARIARR_RADARR_URL` should use the Radarr service name (`http://radarr:7878`) when they share a compose network.
 
-If you want symlink-only mode (no API writes), set:
+## Configuration Reference
 
-```yaml
-LIBRARIARR_RADARR_SYNC_ENABLED=false
-```
+`config.yaml.example` is the baseline. Values below show effective defaults and env overrides.
 
-## Manual Docker commands (optional)
+| Option | Default | Env Override |
+|---|---|---|
+| `paths.nested_roots` | Required in config example | `LIBRARIARR_NESTED_ROOTS` (comma-separated) |
+| `radarr.url` | Required in config example | `LIBRARIARR_RADARR_URL` |
+| `radarr.api_key` | Required in config example | `LIBRARIARR_RADARR_API_KEY` |
+| `radarr.shadow_root` | `/data/radarr_library` | `LIBRARIARR_SHADOW_ROOT` |
+| `radarr.sync_enabled` | `true` | `LIBRARIARR_RADARR_SYNC_ENABLED` |
+| `quality_map` | `[]` | None |
+| `cleanup.remove_orphaned_links` | `true` | None |
+| `cleanup.unmonitor_on_delete` | `true` | None |
+| `cleanup.delete_from_radarr_on_missing` | `false` | `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING` |
+| `runtime.debounce_seconds` | `8` | None |
+| `runtime.maintenance_interval_minutes` | `1440` | None |
+| `runtime.scan_video_extensions` | `['.mkv','.mp4','.avi','.m2ts','.mov','.wmv','.ts']` | None |
+| `analysis.use_nfo` | `false` | `LIBRARIARR_USE_NFO_ANALYSIS` |
+| `analysis.use_media_probe` | `false` | `LIBRARIARR_USE_MEDIA_PROBE` |
+| `analysis.media_probe_bin` | `ffprobe` | `LIBRARIARR_MEDIA_PROBE_BIN` |
 
-Build image:
+Quality mapping behavior:
+
+1. Rules are evaluated in order.
+2. Every token in `match` must be present (AND match, case-insensitive).
+3. If no rule matches, quality falls back to Radarr quality id `4`.
+4. Optional analyzers (`nfo`, `media_probe`) are only used when enabled.
+5. Matching order is: filename/folder text, then NFO text, then media probe tokens.
+
+How to find `target_id` and profile names:
+
+1. In Radarr UI: `Settings` -> `Profiles` -> `Quality`.
+2. Or query Radarr API and read `id` + `name` values:
 
 ```bash
-docker build -t librariarr:alpha .
+curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
 ```
 
-Run once:
+`media_probe` details:
+
+1. Uses the most likely main video file in a movie folder (tries to avoid `sample` or extras files).
+2. Extracts tokens from ffprobe for resolution and codec (`2160p`, `1080p`, `720p`, `x265`, `x264`, `hevc`, `h264`).
+3. Also emits optional technical tokens: HDR transfer (`hdr10`, `hlg`), bitrate buckets (`medium-bitrate`, `high-bitrate`, `remux-bitrate`, `very-high-bitrate`), and audio hints (`truehd`, `dts`, `5.1`, `7.1`) when available.
+4. Source labels like `hdtv`, `web`, and `bluray` are still most reliable from filename/NFO tags.
+
+## Env vs Config: Which One Wins?
+
+Precedence is:
+
+1. Environment variable override.
+2. `config.yaml` value.
+3. Hardcoded default (if that field has one).
+
+Examples:
+
+1. If `radarr.url` is set in `config.yaml`, but `LIBRARIARR_RADARR_URL` is also set, the env value is used.
+2. If `cleanup.delete_from_radarr_on_missing` is `false` in `config.yaml`, but `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING=true`, deletion is enabled.
+3. `cleanup.remove_orphaned_links` has no env override, so only `config.yaml` (or its default) controls it.
+
+## Runtime Modes
+
+Default mode runs continuously.
+
+One-shot reconcile mode:
+
+Runs a single full sync pass (scan, link creation/update, optional Radarr updates, cleanup) and then exits.
 
 ```bash
-docker run --rm \
-  -v /path/to/config.yaml:/config/config.yaml:ro \
-  -v /data/movies:/data/movies \
-  -v /data/radarr_library:/data/radarr_library \
-  librariarr:alpha --config /config/config.yaml --once
+./run.sh once
 ```
 
-## Config keys
+## Compose Files in This Repo
 
-See `config.yaml.example`.
+1. `docker-compose.yml`: normal runtime service.
+2. `docker-compose.dev.yml`: development container and tooling.
+3. `docker-compose.e2e.yml`: Radarr integration end-to-end tests.
+4. `docker-compose.fs-e2e.yml`: filesystem-focused end-to-end tests.
 
-Key sections:
+## Wrapper Script Hint
 
-- `paths.nested_roots`: nested source roots
-- `radarr.url`, `radarr.api_key`, `radarr.shadow_root`
-- `radarr.sync_enabled`
-- `quality_map`: ordered rules (`match` + `target_id`)
-- `cleanup.remove_orphaned_links`, `cleanup.unmonitor_on_delete`
-- `cleanup.delete_from_radarr_on_missing`
-- `analysis.use_nfo`, `analysis.use_media_probe`, `analysis.media_probe_bin`
-- `runtime.debounce_seconds`, `runtime.maintenance_interval_minutes`
+If you prefer shortcuts, this repo includes wrappers:
 
-## GitHub CI and Docker Publish
+- Linux/macOS: `./run.sh`
+- Windows: `run.bat`
 
-- CI workflow: `.github/workflows/ci.yml`
-  - Runs `./run.sh test` and `./run.sh quality` on pushes and pull requests.
-- Docker publish workflow: `.github/workflows/publish-docker.yml`
-  - Builds and pushes image to `ghcr.io/<owner>/<repo>` after successful `CI` runs on `main` commits, and via manual trigger.
+Example:
+
+```bash
+./run.sh up
+```
+
+`run.sh` automatically detects whether your system supports `docker compose` (plugin) or legacy `docker-compose` and uses whichever is available.

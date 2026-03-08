@@ -10,6 +10,15 @@ DEV_SERVICE="librariarr-dev"
 E2E_SERVICE="librariarr-radarr-e2e"
 FS_E2E_SERVICE="librariarr-e2e"
 
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker compose)
+elif command -v docker-compose >/dev/null 2>&1; then
+  COMPOSE_CMD=(docker-compose)
+else
+  echo "Error: neither 'docker compose' nor 'docker-compose' is available." >&2
+  exit 1
+fi
+
 usage() {
   cat <<'EOF'
 Usage: ./run.sh <command>
@@ -37,19 +46,19 @@ EOF
 }
 
 compose() {
-  docker compose -f "$COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" "$@"
 }
 
 compose_dev() {
-  docker compose -f "$DEV_COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -f "$DEV_COMPOSE_FILE" "$@"
 }
 
 compose_e2e() {
-  docker compose -f "$E2E_COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -f "$E2E_COMPOSE_FILE" "$@"
 }
 
 compose_fs_e2e() {
-  docker compose -f "$FS_E2E_COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -f "$FS_E2E_COMPOSE_FILE" "$@"
 }
 
 cmd="${1:-}"

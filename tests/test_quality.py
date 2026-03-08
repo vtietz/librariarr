@@ -2,7 +2,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from librariarr.config import QualityRule
-from librariarr.quality import map_quality_id
+from librariarr.quality import collect_media_probe_text, map_quality_id
 
 
 def test_map_quality_id_matches_and_rule(tmp_path: Path) -> None:
@@ -48,6 +48,52 @@ def test_map_quality_id_uses_media_probe_fallback_when_enabled(tmp_path: Path) -
     probe_json = '{"streams":[{"height":2160,"codec_name":"hevc"}]}'
 
     with patch("subprocess.check_output", return_value=probe_json):
+        result = map_quality_id(movie_dir, rules, default_id=4, use_media_probe=True)
+
+    assert result == 13
+
+
+def test_collect_media_probe_text_extracts_extended_tokens(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Demo.2024.mkv").write_text("x", encoding="utf-8")
+
+    probe_json = (
+        '{"streams":['
+        '{"codec_type":"video","height":2160,"codec_name":"hevc","bit_rate":"32000000","color_transfer":"smpte2084"},'
+        '{"codec_type":"audio","codec_name":"truehd","channels":8}'
+        "]}"
+    )
+
+    with patch("subprocess.check_output", return_value=probe_json):
+        text = collect_media_probe_text(movie_dir)
+
+    assert "2160p" in text
+    assert "x265" in text
+    assert "hevc" in text
+    assert "hdr10" in text
+    assert "remux-bitrate" in text
+    assert "truehd" in text
+    assert "7.1" in text
+
+
+def test_map_quality_id_uses_larger_non_sample_video_for_probe(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Demo (2024)"
+    movie_dir.mkdir()
+    sample = movie_dir / "Demo.sample.mkv"
+    sample.write_text("tiny", encoding="utf-8")
+    main = movie_dir / "Demo.2024.main.mkv"
+    main.write_text("x" * 2000, encoding="utf-8")
+
+    rules = [QualityRule(match=["2160p", "x265"], target_id=13, name="4K Bluray")]
+
+    def _fake_probe(cmd: list[str], stderr=None, text=True, timeout=5):  # type: ignore[override]
+        file_name = Path(cmd[-1]).name.lower()
+        if "sample" in file_name:
+            return '{"streams":[{"codec_type":"video","height":720,"codec_name":"h264"}]}'
+        return '{"streams":[{"codec_type":"video","height":2160,"codec_name":"hevc"}]}'
+
+    with patch("subprocess.check_output", side_effect=_fake_probe):
         result = map_quality_id(movie_dir, rules, default_id=4, use_media_probe=True)
 
     assert result == 13

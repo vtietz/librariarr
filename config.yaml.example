@@ -11,15 +11,35 @@ radarr:
   sync_enabled: true
 
 quality_map:
-  - match: ["2160p", "remux"]
+  # How to find correct target_id/name values:
+  # 1) Radarr UI: Settings -> Profiles -> Quality.
+  # 2) API: GET /api/v3/qualityprofile and copy each profile's `id` and `name`.
+  #    Example:
+  #    curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
+  #
+  # Rules are checked top-to-bottom. First match wins.
+  # Every token in `match` must exist in detected text (AND logic, case-insensitive).
+  - match: ["2160p", "bluray", "remux"]
     target_id: 13
     name: "4K Bluray"
-  - match: ["1080p", "x265"]
+  - match: ["2160p", "remux-bitrate"]
+    target_id: 13
+    name: "4K Remux (Probe Fallback)"
+  - match: ["1080p", "bluray", "x265"]
     target_id: 7
     name: "Bluray-1080p"
+  - match: ["1080p", "web"]
+    target_id: 6
+    name: "Web-DL 1080p"
   - match: ["720p", "web"]
     target_id: 5
     name: "Web-DL 720p"
+  - match: ["1080p", "hdtv"]
+    target_id: 4
+    name: "HDTV-1080p"
+  - match: ["720p", "hdtv"]
+    target_id: 4
+    name: "HDTV-720p"
 
 cleanup:
   remove_orphaned_links: true
