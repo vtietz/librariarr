@@ -6,9 +6,9 @@ from librariarr.quality import map_quality_id
 
 
 def test_map_quality_id_matches_and_rule(tmp_path: Path) -> None:
-    movie_dir = tmp_path / "Some Movie (2024)"
+    movie_dir = tmp_path / "Big Buck Bunny (2008)"
     movie_dir.mkdir()
-    (movie_dir / "Some.Movie.2024.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     rules = [
         QualityRule(match=["2160p"], target_id=13, name="4K Bluray"),
@@ -19,9 +19,9 @@ def test_map_quality_id_matches_and_rule(tmp_path: Path) -> None:
 
 
 def test_map_quality_id_uses_default_when_no_rule_matches(tmp_path: Path) -> None:
-    movie_dir = tmp_path / "Other Movie (2000)"
+    movie_dir = tmp_path / "Sintel (2010)"
     movie_dir.mkdir()
-    (movie_dir / "Other.Movie.2000.DVDRip.avi").write_text("x", encoding="utf-8")
+    (movie_dir / "Sintel.2010.DVDRip.avi").write_text("x", encoding="utf-8")
 
     rules = [QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
 
@@ -29,9 +29,9 @@ def test_map_quality_id_uses_default_when_no_rule_matches(tmp_path: Path) -> Non
 
 
 def test_map_quality_id_uses_nfo_fallback_when_enabled(tmp_path: Path) -> None:
-    movie_dir = tmp_path / "Unknown Movie (2000)"
+    movie_dir = tmp_path / "Tears of Steel (2012)"
     movie_dir.mkdir()
-    (movie_dir / "Unknown.Movie.2000.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Tears.Of.Steel.2012.mkv").write_text("x", encoding="utf-8")
     (movie_dir / "movie.nfo").write_text("Video: 1080p HEVC", encoding="utf-8")
 
     rules = [QualityRule(match=["1080p", "hevc"], target_id=7, name="Bluray-1080p")]
@@ -40,9 +40,9 @@ def test_map_quality_id_uses_nfo_fallback_when_enabled(tmp_path: Path) -> None:
 
 
 def test_map_quality_id_uses_media_probe_fallback_when_enabled(tmp_path: Path) -> None:
-    movie_dir = tmp_path / "Unknown Movie (2000)"
+    movie_dir = tmp_path / "Sintel (2010)"
     movie_dir.mkdir()
-    (movie_dir / "Unknown.Movie.2000.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Sintel.2010.mkv").write_text("x", encoding="utf-8")
 
     rules = [QualityRule(match=["2160p", "x265"], target_id=13, name="4K Bluray")]
     probe_json = '{"streams":[{"height":2160,"codec_name":"hevc"}]}'

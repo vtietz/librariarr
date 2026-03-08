@@ -20,28 +20,28 @@ Nested source folders (real files):
 ```text
 /data/movies/
   age_12/
-    Bond/
-      Dr. No (1962)/
-        Dr.No.1962.1080p.x265.mkv
+    Blender/
+      Big Buck Bunny (2008)/
+        Big.Buck.Bunny.2008.1080p.x265.mkv
   age_16/
-    SciFi/
-      Dune (2021)/
-        Dune.2021.2160p.REMUX.mkv
+    OpenFilms/
+      Sintel (2010)/
+        Sintel.2010.2160p.REMUX.mkv
 ```
 
 Flat shadow library (symlinks only):
 
 ```text
 /data/radarr_library/
-  Dr. No (1962)   -> /data/movies/age_12/Bond/Dr. No (1962)
-  Dune (2021)     -> /data/movies/age_16/SciFi/Dune (2021)
+  Big Buck Bunny (2008)   -> /data/movies/age_12/Blender/Big Buck Bunny (2008)
+  Sintel (2010)           -> /data/movies/age_16/OpenFilms/Sintel (2010)
 ```
 
 If two nested folders produce the same movie folder name, LibrariArr keeps links unique with
 a deterministic qualifier from source path, for example:
 
 ```text
-Dr. No (1962)--age_16-Classics
+Sintel (2010)--age_16-OpenFilms
 ```
 
 ## Simple defaults used
