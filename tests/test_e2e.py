@@ -4,7 +4,14 @@ from pathlib import Path
 
 import pytest
 
-from librariarr.config import AppConfig, CleanupConfig, PathsConfig, RadarrConfig, RuntimeConfig
+from librariarr.config import (
+    AppConfig,
+    CleanupConfig,
+    PathsConfig,
+    RadarrConfig,
+    RootMapping,
+    RuntimeConfig,
+)
 from librariarr.service import LibrariArrService
 
 
@@ -121,3 +128,47 @@ def test_e2e_reconcile_handles_collisions_and_orphans(tmp_path: Path) -> None:
 
     assert plain_link.is_symlink()
     assert not qualified_link.exists()
+
+
+@pytest.mark.fs_e2e
+def test_e2e_reconcile_respects_root_mappings(tmp_path: Path) -> None:
+    root_base, shadow_root = _make_roots(tmp_path, "mapped_roots")
+    age12_root = root_base / "age_12"
+    age16_root = root_base / "age_16"
+    age12_shadow = shadow_root / "age_12"
+    age16_shadow = shadow_root / "age_16"
+
+    movie_age12 = age12_root / "Studio" / "Movie A (2020)"
+    movie_age16 = age16_root / "Studio" / "Movie B (2021)"
+    movie_age12.mkdir(parents=True)
+    movie_age16.mkdir(parents=True)
+    (movie_age12 / "Movie.A.2020.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+    (movie_age16 / "Movie.B.2021.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(age12_root), shadow_root=str(age12_shadow)),
+                RootMapping(nested_root=str(age16_root), shadow_root=str(age16_shadow)),
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            shadow_root=str(shadow_root),
+            sync_enabled=False,
+        ),
+        quality_map=[],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+    _relativize_links_for_host_view(age12_shadow)
+    _relativize_links_for_host_view(age16_shadow)
+
+    assert (age12_shadow / "Movie A (2020)").is_symlink()
+    assert not (age16_shadow / "Movie A (2020)").exists()
+    assert (age16_shadow / "Movie B (2021)").is_symlink()
+    assert not (age12_shadow / "Movie B (2021)").exists()

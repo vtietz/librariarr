@@ -46,7 +46,14 @@ class RadarrConfig:
 
 @dataclass
 class PathsConfig:
-    nested_roots: list[str]
+    nested_roots: list[str] = field(default_factory=list)
+    root_mappings: list[RootMapping] = field(default_factory=list)
+
+
+@dataclass
+class RootMapping:
+    nested_root: str
+    shadow_root: str
 
 
 @dataclass
@@ -79,6 +86,14 @@ def load_config(path: str | Path) -> AppConfig:
     radarr = _require(raw, "radarr")
 
     nested_roots = paths.get("nested_roots", [])
+    root_mappings_raw = paths.get("root_mappings", [])
+    root_mappings = [
+        RootMapping(
+            nested_root=str(_require(item, "nested_root")),
+            shadow_root=str(_require(item, "shadow_root")),
+        )
+        for item in root_mappings_raw
+    ]
 
     env_nested_roots = os.getenv("LIBRARIARR_NESTED_ROOTS")
     if env_nested_roots:
@@ -134,7 +149,7 @@ def load_config(path: str | Path) -> AppConfig:
     )
 
     return AppConfig(
-        paths=PathsConfig(nested_roots=list(nested_roots)),
+        paths=PathsConfig(nested_roots=list(nested_roots), root_mappings=root_mappings),
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=radarr_api_key,

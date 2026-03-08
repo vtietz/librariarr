@@ -6,6 +6,7 @@ from librariarr.config import (
     PathsConfig,
     QualityRule,
     RadarrConfig,
+    RootMapping,
     RuntimeConfig,
 )
 from librariarr.service import LibrariArrService
@@ -244,3 +245,43 @@ def test_reconcile_deletes_radarr_entry_when_configured(tmp_path: Path) -> None:
     assert fake.deleted == [77]
     assert fake.unmonitored == []
     assert fake.refreshed == []
+
+
+def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
+    age12_root = tmp_path / "movies" / "age_12"
+    age16_root = tmp_path / "movies" / "age_16"
+    age12_shadow = tmp_path / "radarr_library" / "age_12"
+    age16_shadow = tmp_path / "radarr_library" / "age_16"
+
+    movie_age12 = age12_root / "Studio" / "Movie A (2020)"
+    movie_age16 = age16_root / "Studio" / "Movie B (2021)"
+    movie_age12.mkdir(parents=True)
+    movie_age16.mkdir(parents=True)
+    (movie_age12 / "Movie.A.2020.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_age16 / "Movie.B.2021.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(age12_root), shadow_root=str(age12_shadow)),
+                RootMapping(nested_root=str(age16_root), shadow_root=str(age16_shadow)),
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            shadow_root=str(tmp_path / "unused_default_shadow"),
+            sync_enabled=False,
+        ),
+        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+
+    assert (age12_shadow / "Movie A (2020)").is_symlink()
+    assert not (age16_shadow / "Movie A (2020)").exists()
+    assert (age16_shadow / "Movie B (2021)").is_symlink()
+    assert not (age12_shadow / "Movie B (2021)").exists()

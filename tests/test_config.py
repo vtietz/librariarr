@@ -39,6 +39,7 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     config = load_config(config_path)
 
     assert config.paths.nested_roots == ["/data/movies/one"]
+    assert config.paths.root_mappings == []
     assert config.radarr.url == "http://radarr:7878"
     assert config.radarr.api_key == "test-key"
     assert config.radarr.shadow_root == "/data/radarr_library"
@@ -66,6 +67,63 @@ def test_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.api_key == "env-key"
     assert config.radarr.shadow_root == "/data/custom_shadow"
     assert config.paths.nested_roots == ["/a", "/b"]
+    assert config.paths.root_mappings == []
     assert config.analysis.use_nfo is True
     assert config.analysis.use_media_probe is True
     assert config.analysis.media_probe_bin == "customprobe"
+
+
+def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/age_06\n"
+            "      shadow_root: /data/radarr_library/age_06\n"
+            "    - nested_root: /data/movies/age_12\n"
+            "      shadow_root: /data/radarr_library/age_12\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("LIBRARIARR_NESTED_ROOTS", raising=False)
+
+    config = load_config(config_path)
+
+    assert config.paths.nested_roots == []
+    assert len(config.paths.root_mappings) == 2
+    assert config.paths.root_mappings[0].nested_root == "/data/movies/age_06"
+    assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/age_06"
+
+
+def test_root_mappings_take_precedence_over_env_nested_roots(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/age_16\n"
+            "      shadow_root: /data/radarr_library/age_16\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.setenv("LIBRARIARR_NESTED_ROOTS", "/a,/b")
+
+    config = load_config(config_path)
+
+    assert config.paths.nested_roots == ["/a", "/b"]
+    assert len(config.paths.root_mappings) == 1

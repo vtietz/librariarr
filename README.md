@@ -24,6 +24,8 @@ Radarr expects a flatter root layout. LibrariArr builds that view for Radarr:
 
 If two folders would create the same link name, LibrariArr auto-qualifies the name to keep links unique.
 
+If you want age-specific Radarr roots, use `paths.root_mappings` so each source root writes to its own shadow root.
+
 ## What It Actually Does
 
 1. Scans configured nested roots for movie folders (folder containing a video file).
@@ -85,31 +87,58 @@ PGID=1000
 
 If `radarr.sync_enabled` (or `LIBRARIARR_RADARR_SYNC_ENABLED`) is `false`, LibrariArr still manages symlinks but does not call Radarr APIs.
 
+Per-root shadow mapping example (age buckets):
+
+```yaml
+paths:
+  root_mappings:
+    - nested_root: /data/movies/age_06
+      shadow_root: /data/radarr_library/age_06
+    - nested_root: /data/movies/age_12
+      shadow_root: /data/radarr_library/age_12
+    - nested_root: /data/movies/age_16
+      shadow_root: /data/radarr_library/age_16
+```
+
+With this, links are not merged into one folder. Each age root is reconciled into its mapped shadow root.
+
 ## Embed Into Existing *arr Stack
 
-If you already run `radarr` in your own compose stack, add `librariarr` as another service and make sure both containers share the same movie and shadow-root mounts.
+If you already run `radarr` in your own compose stack, add `librariarr` as another service and keep path variables consistent with your existing naming pattern.
+
+Example with `CONFIG_ROOT` style variables:
 
 ```yaml
 services:
   radarr:
     image: lscr.io/linuxserver/radarr:latest
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
     volumes:
-      - /srv/media/movies:/data/movies
-      - /srv/media/radarr_library:/data/radarr_library
+      - ${CONFIG_ROOT}/radarr:/config
+      - ${MOVIES_DIR}:/data/movies
+      - ${RADARR_LIBRARY_DIR}:/data/radarr_library
 
   librariarr:
     image: ghcr.io/vtietz/librariarr:latest
+    container_name: librariarr
     environment:
-      LIBRARIARR_RADARR_URL: http://radarr:7878
-      LIBRARIARR_RADARR_API_KEY: ${RADARR_API_KEY}
-      LIBRARIARR_RADARR_SYNC_ENABLED: "true"
-      LIBRARIARR_NESTED_ROOTS: /data/movies/age_06,/data/movies/age_12,/data/movies/age_16
-      LIBRARIARR_SHADOW_ROOT: /data/radarr_library
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - LIBRARIARR_RADARR_URL=http://radarr:7878
+      - LIBRARIARR_RADARR_API_KEY=${RADARR_API_KEY}
+      - LIBRARIARR_RADARR_SYNC_ENABLED=true
+      - LIBRARIARR_NESTED_ROOTS=/data/movies/age_06,/data/movies/age_12,/data/movies/age_16
+      - LIBRARIARR_SHADOW_ROOT=/data/radarr_library
     volumes:
-      - ./config.yaml:/config/config.yaml:ro
-      - /srv/media/movies:/data/movies
-      - /srv/media/radarr_library:/data/radarr_library
+      - ${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro
+      - ${MOVIES_DIR}:/data/movies
+      - ${RADARR_LIBRARY_DIR}:/data/radarr_library
     command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
+    restart: unless-stopped
     depends_on:
       - radarr
 ```
@@ -119,6 +148,17 @@ Important:
 1. In Radarr, set root folder to `/data/radarr_library`.
 2. Keep container paths identical across both services.
 3. `LIBRARIARR_RADARR_URL` should use the Radarr service name (`http://radarr:7878`) when they share a compose network.
+4. For age-based roots, add each mapped path as a Radarr root folder (`/data/radarr_library/age_06`, etc.).
+
+What it means to merge with your existing compose file:
+
+1. Do not replace your stack.
+2. Add one new service: `librariarr`.
+3. Add one new shared volume mapping to `radarr` if missing: `${RADARR_LIBRARY_DIR}:/data/radarr_library`.
+4. Add `RADARR_LIBRARY_DIR` and any missing LibrariArr env vars to your `.env`.
+5. Set Radarr root folder to `/data/radarr_library` in the Radarr UI.
+
+For age-based roots, add all mapped roots in Radarr instead of only one.
 
 ## Configuration Reference
 
@@ -127,6 +167,7 @@ Important:
 | Option | Default | Env Override |
 |---|---|---|
 | `paths.nested_roots` | Required in config example | `LIBRARIARR_NESTED_ROOTS` (comma-separated) |
+| `paths.root_mappings` | `[]` | None |
 | `radarr.url` | Required in config example | `LIBRARIARR_RADARR_URL` |
 | `radarr.api_key` | Required in config example | `LIBRARIARR_RADARR_API_KEY` |
 | `radarr.shadow_root` | `/data/radarr_library` | `LIBRARIARR_SHADOW_ROOT` |
@@ -173,6 +214,11 @@ Precedence is:
 1. Environment variable override.
 2. `config.yaml` value.
 3. Hardcoded default (if that field has one).
+
+Root source precedence:
+
+1. `paths.root_mappings` (if non-empty).
+2. `paths.nested_roots` (or `LIBRARIARR_NESTED_ROOTS`) + one shared `radarr.shadow_root`.
 
 Examples:
 

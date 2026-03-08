@@ -70,8 +70,9 @@ class LibrariArrService:
         self.config = config
         self.sync_enabled = config.radarr.sync_enabled
         self.radarr = RadarrClient(config.radarr.url, config.radarr.api_key)
-        self.shadow_root = Path(config.radarr.shadow_root)
-        self.nested_roots = [Path(p) for p in config.paths.nested_roots]
+        self.root_mappings = self._build_root_mappings(config)
+        self.nested_roots = [nested for nested, _ in self.root_mappings]
+        self.shadow_roots = self._unique_paths([shadow for _, shadow in self.root_mappings])
         self.video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
 
         self._debounce_seconds = max(1, config.runtime.debounce_seconds)
@@ -80,17 +81,41 @@ class LibrariArrService:
         self._last_sync = 0.0
         self._lock = threading.Lock()
 
+    def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
+        mappings: list[tuple[Path, Path]] = []
+
+        if config.paths.root_mappings:
+            for item in config.paths.root_mappings:
+                mappings.append((Path(item.nested_root), Path(item.shadow_root)))
+            return mappings
+
+        default_shadow_root = Path(config.radarr.shadow_root)
+        for nested_root in config.paths.nested_roots:
+            mappings.append((Path(nested_root), default_shadow_root))
+        return mappings
+
+    def _unique_paths(self, paths: list[Path]) -> list[Path]:
+        seen: set[Path] = set()
+        ordered: list[Path] = []
+        for path in paths:
+            if path in seen:
+                continue
+            seen.add(path)
+            ordered.append(path)
+        return ordered
+
     def run(self) -> None:
         LOG.info(
-            "Starting LibrariArr service: shadow_root=%s nested_roots=%s "
+            "Starting LibrariArr service: shadow_roots=%s nested_roots=%s "
             "sync_enabled=%s debounce_seconds=%s maintenance_interval_seconds=%s",
-            self.shadow_root,
+            ",".join(str(root) for root in self.shadow_roots),
             ",".join(str(root) for root in self.nested_roots),
             self.sync_enabled,
             self._debounce_seconds,
             self._maintenance_interval,
         )
-        self.shadow_root.mkdir(parents=True, exist_ok=True)
+        for shadow_root in self.shadow_roots:
+            shadow_root.mkdir(parents=True, exist_ok=True)
         observer = Observer()
         handler = SyncEventHandler(self.mark_dirty)
 
@@ -141,7 +166,8 @@ class LibrariArrService:
             started = time.time()
             LOG.info("Reconciling shadow links and Radarr state...")
             self._last_sync = time.time()
-            self.shadow_root.mkdir(parents=True, exist_ok=True)
+            for shadow_root in self.shadow_roots:
+                shadow_root.mkdir(parents=True, exist_ok=True)
 
             movie_folders = self._all_movie_folders()
             target_to_link = self._current_links()
@@ -150,10 +176,10 @@ class LibrariArrService:
             matched_movies = 0
             unmatched_movies = 0
 
-            for folder in sorted(movie_folders):
+            for folder, shadow_root in sorted(movie_folders.items()):
                 link_path = target_to_link.get(folder)
                 if link_path is None:
-                    link_path = self._create_link(folder)
+                    link_path = self._create_link(folder, shadow_root)
                     created_links += 1
                 if self.sync_enabled:
                     if self._sync_radarr_for_folder(folder, link_path, movies_by_ref):
@@ -163,7 +189,10 @@ class LibrariArrService:
 
             orphaned_links_removed = 0
             if self.config.cleanup.remove_orphaned_links:
-                orphaned_links_removed = self._cleanup_orphans(movie_folders, movies_by_ref)
+                orphaned_links_removed = self._cleanup_orphans(
+                    set(movie_folders.keys()),
+                    movies_by_ref,
+                )
 
             duration_seconds = round(time.time() - started, 2)
             LOG.info(
@@ -180,25 +209,32 @@ class LibrariArrService:
                 duration_seconds,
             )
 
-    def _all_movie_folders(self) -> set[Path]:
-        all_folders: set[Path] = set()
-        for root in self.nested_roots:
-            all_folders.update(discover_movie_folders(root, self.video_exts))
+    def _all_movie_folders(self) -> dict[Path, Path]:
+        all_folders: dict[Path, Path] = {}
+        # Prefer more specific nested roots first if mappings overlap.
+        sorted_mappings = sorted(
+            self.root_mappings,
+            key=lambda pair: (-len(pair[0].parts), str(pair[0])),
+        )
+        for nested_root, shadow_root in sorted_mappings:
+            for folder in discover_movie_folders(nested_root, self.video_exts):
+                all_folders.setdefault(folder, shadow_root)
         return all_folders
 
     def _current_links(self) -> dict[Path, Path]:
         out: dict[Path, Path] = {}
-        if not self.shadow_root.exists():
-            return out
+        for shadow_root in self.shadow_roots:
+            if not shadow_root.exists():
+                continue
 
-        for child in self.shadow_root.iterdir():
-            if not child.is_symlink():
-                continue
-            try:
-                target = child.resolve(strict=False)
-            except OSError:
-                continue
-            out[target] = child
+            for child in shadow_root.iterdir():
+                if not child.is_symlink():
+                    continue
+                try:
+                    target = child.resolve(strict=False)
+                except OSError:
+                    continue
+                out[target] = child
         return out
 
     def _build_movie_index(self) -> dict[MovieRef, dict]:
@@ -234,11 +270,11 @@ class LibrariArrService:
                 return qualifier
         return ""
 
-    def _create_link(self, folder: Path) -> Path:
+    def _create_link(self, folder: Path, shadow_root: Path) -> Path:
         base_name = self._safe_link_name(folder)
-        candidate = self.shadow_root / base_name
+        candidate = shadow_root / base_name
         qualifier = self._collision_qualifier(folder)
-        qualified_candidate = self.shadow_root / f"{base_name}--{qualifier}" if qualifier else None
+        qualified_candidate = shadow_root / f"{base_name}--{qualifier}" if qualifier else None
         counter = 2
 
         while candidate.exists() or candidate.is_symlink():
@@ -253,7 +289,7 @@ class LibrariArrService:
                 qualified_candidate = None
                 continue
 
-            candidate = self.shadow_root / f"{base_name}--{counter}"
+            candidate = shadow_root / f"{base_name}--{counter}"
             counter += 1
 
         candidate.symlink_to(folder, target_is_directory=True)
@@ -290,37 +326,41 @@ class LibrariArrService:
         movies_by_ref: dict[MovieRef, dict],
     ) -> int:
         removed_count = 0
-        for child in self.shadow_root.iterdir():
-            if not child.is_symlink():
+        for shadow_root in self.shadow_roots:
+            if not shadow_root.exists():
                 continue
 
-            try:
-                target = child.resolve(strict=False)
-            except OSError:
-                target = None
-
-            if target and target in existing_folders:
-                continue
-
-            child.unlink(missing_ok=True)
-            removed_count += 1
-            LOG.info("Removed orphaned symlink: %s", child)
-
-            if not self.sync_enabled:
-                continue
-
-            if not self.config.cleanup.unmonitor_on_delete:
-                continue
-
-            ref = parse_movie_ref(child.name.split("--", 1)[0])
-            movie = movies_by_ref.get(ref) or movies_by_ref.get(
-                MovieRef(title=ref.title, year=None)
-            )
-            if movie:
-                if self.config.cleanup.delete_from_radarr_on_missing:
-                    self.radarr.delete_movie(int(movie["id"]), delete_files=False)
+            for child in shadow_root.iterdir():
+                if not child.is_symlink():
                     continue
-                self.radarr.unmonitor_movie(movie)
-                self.radarr.refresh_movie(int(movie["id"]))
+
+                try:
+                    target = child.resolve(strict=False)
+                except OSError:
+                    target = None
+
+                if target and target in existing_folders:
+                    continue
+
+                child.unlink(missing_ok=True)
+                removed_count += 1
+                LOG.info("Removed orphaned symlink: %s", child)
+
+                if not self.sync_enabled:
+                    continue
+
+                if not self.config.cleanup.unmonitor_on_delete:
+                    continue
+
+                ref = parse_movie_ref(child.name.split("--", 1)[0])
+                movie = movies_by_ref.get(ref) or movies_by_ref.get(
+                    MovieRef(title=ref.title, year=None)
+                )
+                if movie:
+                    if self.config.cleanup.delete_from_radarr_on_missing:
+                        self.radarr.delete_movie(int(movie["id"]), delete_files=False)
+                        continue
+                    self.radarr.unmonitor_movie(movie)
+                    self.radarr.refresh_movie(int(movie["id"]))
 
         return removed_count

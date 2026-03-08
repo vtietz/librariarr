@@ -1,4 +1,15 @@
 paths:
+  # Preferred for age-based layouts: map each nested source root to its own shadow root.
+  # When root_mappings is set, LibrariArr uses it instead of nested_roots.
+  # root_mappings:
+  #   - nested_root: "/data/movies/age_06"
+  #     shadow_root: "/data/radarr_library/age_06"
+  #   - nested_root: "/data/movies/age_12"
+  #     shadow_root: "/data/radarr_library/age_12"
+  #   - nested_root: "/data/movies/age_16"
+  #     shadow_root: "/data/radarr_library/age_16"
+
+  # Legacy mode: all nested roots are merged into one shared radarr.shadow_root.
   nested_roots:
     - "/data/movies/age_06"
     - "/data/movies/age_12"
