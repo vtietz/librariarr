@@ -49,7 +49,7 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.analysis.media_probe_bin == "ffprobe"
 
 
-def test_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
+def test_only_radarr_url_and_api_key_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(CONFIG_CONTENT, encoding="utf-8")
 
@@ -65,12 +65,12 @@ def test_env_overrides_are_applied(tmp_path: Path, monkeypatch) -> None:
 
     assert config.radarr.url == "http://radarr.local:7878"
     assert config.radarr.api_key == "env-key"
-    assert config.radarr.shadow_root == "/data/custom_shadow"
-    assert config.paths.nested_roots == ["/a", "/b"]
+    assert config.radarr.shadow_root == "/data/radarr_library"
+    assert config.paths.nested_roots == ["/data/movies/one"]
     assert config.paths.root_mappings == []
-    assert config.analysis.use_nfo is True
-    assert config.analysis.use_media_probe is True
-    assert config.analysis.media_probe_bin == "customprobe"
+    assert config.analysis.use_nfo is False
+    assert config.analysis.use_media_probe is False
+    assert config.analysis.media_probe_bin == "ffprobe"
 
 
 def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
@@ -103,11 +103,13 @@ def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
     assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/age_06"
 
 
-def test_root_mappings_take_precedence_over_env_nested_roots(tmp_path: Path, monkeypatch) -> None:
+def test_root_mappings_take_precedence_over_nested_roots(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
             "paths:\n"
+            "  nested_roots:\n"
+            "    - /data/movies/other\n"
             "  root_mappings:\n"
             "    - nested_root: /data/movies/age_16\n"
             "      shadow_root: /data/radarr_library/age_16\n"
@@ -125,5 +127,5 @@ def test_root_mappings_take_precedence_over_env_nested_roots(tmp_path: Path, mon
 
     config = load_config(config_path)
 
-    assert config.paths.nested_roots == ["/a", "/b"]
+    assert config.paths.nested_roots == ["/data/movies/other"]
     assert len(config.paths.root_mappings) == 1

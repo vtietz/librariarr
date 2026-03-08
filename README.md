@@ -51,7 +51,7 @@ cp config.yaml.example config.yaml
 cp .env.example .env
 ```
 
-2. Edit `config.yaml` and `.env` for your paths and Radarr API key.
+2. Edit `config.yaml` for LibrariArr behavior and `.env` for Docker values (host paths/user IDs and optional Radarr URL/API key overrides).
 
 3. Make sure host path mappings in `.env` exist and are writable:
 
@@ -91,7 +91,7 @@ PGID=1000
 2. Add `/data/radarr_library` as a Radarr root folder.
 3. Use a valid Radarr API key.
 
-If `radarr.sync_enabled` (or `LIBRARIARR_RADARR_SYNC_ENABLED`) is `false`, LibrariArr still manages symlinks but does not call Radarr APIs.
+If `radarr.sync_enabled` is `false`, LibrariArr still manages symlinks but does not call Radarr APIs.
 
 Per-root shadow mapping example (age buckets):
 
@@ -137,14 +137,8 @@ services:
     image: ghcr.io/vtietz/librariarr:latest
     container_name: librariarr
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - TZ=${TZ}
-      - LIBRARIARR_RADARR_URL=http://radarr:7878
-      - LIBRARIARR_RADARR_API_KEY=${RADARR_API_KEY}
-      - LIBRARIARR_RADARR_SYNC_ENABLED=true
-      - LIBRARIARR_NESTED_ROOTS=/data/movies/age_06,/data/movies/age_12,/data/movies/age_16
-      - LIBRARIARR_SHADOW_ROOT=/data/radarr_library
+      - LIBRARIARR_RADARR_URL=${LIBRARIARR_RADARR_URL:-http://radarr:7878}
+      - LIBRARIARR_RADARR_API_KEY=${LIBRARIARR_RADARR_API_KEY}
     volumes:
       - ${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro
       - ${MOVIES_DIR}:/data/movies
@@ -159,7 +153,7 @@ Important:
 
 1. In Radarr, set root folder to `/data/radarr_library`.
 2. Keep container paths identical across both services.
-3. `LIBRARIARR_RADARR_URL` should use the Radarr service name (`http://radarr:7878`) when they share a compose network.
+3. Set `LIBRARIARR_RADARR_URL=http://radarr:7878` in `.env` (or set `radarr.url` in config if you prefer file-only).
 4. For age-based roots, add each mapped path as a Radarr root folder (`/data/radarr_library/age_06`, etc.).
 
 What it means to merge with your existing compose file:
@@ -167,33 +161,34 @@ What it means to merge with your existing compose file:
 1. Do not replace your stack.
 2. Add one new service: `librariarr`.
 3. Add one new shared volume mapping to `radarr` if missing: `${RADARR_LIBRARY_DIR}:/data/radarr_library`.
-4. Add `RADARR_LIBRARY_DIR` and any missing LibrariArr env vars to your `.env`.
-5. Set Radarr root folder to `/data/radarr_library` in the Radarr UI.
+4. Add `RADARR_LIBRARY_DIR` to `.env` if missing.
+5. Configure LibrariArr in `${CONFIG_ROOT}/librariarr/config.yaml`; optionally set `LIBRARIARR_RADARR_URL` and `LIBRARIARR_RADARR_API_KEY` in `.env`.
+6. Set Radarr root folder to `/data/radarr_library` in the Radarr UI.
 
 For age-based roots, add all mapped roots in Radarr instead of only one.
 
 ## Configuration Reference
 
-`config.yaml.example` is the baseline. Values below show effective defaults and env overrides.
+`config.yaml.example` is the baseline.
 
-| Option | Default | Env Override |
-|---|---|---|
-| `paths.nested_roots` | Required in config example | `LIBRARIARR_NESTED_ROOTS` (comma-separated) |
-| `paths.root_mappings` | `[]` | None |
-| `radarr.url` | Required in config example | `LIBRARIARR_RADARR_URL` |
-| `radarr.api_key` | Required in config example | `LIBRARIARR_RADARR_API_KEY` |
-| `radarr.shadow_root` | `/data/radarr_library` | `LIBRARIARR_SHADOW_ROOT` |
-| `radarr.sync_enabled` | `true` | `LIBRARIARR_RADARR_SYNC_ENABLED` |
-| `quality_map` | `[]` | None |
-| `cleanup.remove_orphaned_links` | `true` | None |
-| `cleanup.unmonitor_on_delete` | `true` | None |
-| `cleanup.delete_from_radarr_on_missing` | `false` | `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING` |
-| `runtime.debounce_seconds` | `8` | None |
-| `runtime.maintenance_interval_minutes` | `1440` | None |
-| `runtime.scan_video_extensions` | `['.mkv','.mp4','.avi','.m2ts','.mov','.wmv','.ts']` | None |
-| `analysis.use_nfo` | `false` | `LIBRARIARR_USE_NFO_ANALYSIS` |
-| `analysis.use_media_probe` | `false` | `LIBRARIARR_USE_MEDIA_PROBE` |
-| `analysis.media_probe_bin` | `ffprobe` | `LIBRARIARR_MEDIA_PROBE_BIN` |
+| Option | Default |
+|---|---|
+| `paths.nested_roots` | Required in config example |
+| `paths.root_mappings` | `[]` |
+| `radarr.url` | Required in config example |
+| `radarr.api_key` | Required in config example |
+| `radarr.shadow_root` | `/data/radarr_library` |
+| `radarr.sync_enabled` | `true` |
+| `quality_map` | `[]` |
+| `cleanup.remove_orphaned_links` | `true` |
+| `cleanup.unmonitor_on_delete` | `true` |
+| `cleanup.delete_from_radarr_on_missing` | `false` |
+| `runtime.debounce_seconds` | `8` |
+| `runtime.maintenance_interval_minutes` | `1440` |
+| `runtime.scan_video_extensions` | `['.mkv','.mp4','.avi','.m2ts','.mov','.wmv','.ts']` |
+| `analysis.use_nfo` | `false` |
+| `analysis.use_media_probe` | `false` |
+| `analysis.media_probe_bin` | `ffprobe` |
 
 Quality mapping behavior:
 
@@ -219,24 +214,19 @@ curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
 3. Also emits optional technical tokens: HDR transfer (`hdr10`, `hlg`), bitrate buckets (`medium-bitrate`, `high-bitrate`, `remux-bitrate`, `very-high-bitrate`), and audio hints (`truehd`, `dts`, `5.1`, `7.1`) when available.
 4. Source labels like `hdtv`, `web`, and `bluray` are still most reliable from filename/NFO tags.
 
-## Env vs Config: Which One Wins?
+## Config Source
 
-Precedence is:
+LibrariArr uses `config.yaml` for almost all app settings.
 
-1. Environment variable override.
-2. `config.yaml` value.
-3. Hardcoded default (if that field has one).
+1. App behavior is read from `config.yaml`.
+2. `.env` is used for Docker Compose interpolation (host paths, IDs, ports, optional log level).
+3. Only two runtime env overrides are supported by the app: `LIBRARIARR_RADARR_URL` and `LIBRARIARR_RADARR_API_KEY`.
+4. All other `LIBRARIARR_*` app settings must be in `config.yaml`.
 
 Root source precedence:
 
 1. `paths.root_mappings` (if non-empty).
-2. `paths.nested_roots` (or `LIBRARIARR_NESTED_ROOTS`) + one shared `radarr.shadow_root`.
-
-Examples:
-
-1. If `radarr.url` is set in `config.yaml`, but `LIBRARIARR_RADARR_URL` is also set, the env value is used.
-2. If `cleanup.delete_from_radarr_on_missing` is `false` in `config.yaml`, but `LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING=true`, deletion is enabled.
-3. `cleanup.remove_orphaned_links` has no env override, so only `config.yaml` (or its default) controls it.
+2. `paths.nested_roots` + one shared `radarr.shadow_root`.
 
 ## Runtime Modes
 

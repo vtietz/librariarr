@@ -1,4 +1,6 @@
 paths:
+  # Config-first mode: LibrariArr reads app settings from this file.
+  # Only radarr.url and radarr.api_key can be overridden by env.
   # Preferred for age-based layouts: map each nested source root to its own shadow root.
   # When root_mappings is set, LibrariArr uses it instead of nested_roots.
   # root_mappings:
@@ -16,6 +18,9 @@ paths:
     - "/data/movies/age_16"
 
 radarr:
+  # Optional env overrides:
+  # - LIBRARIARR_RADARR_URL
+  # - LIBRARIARR_RADARR_API_KEY
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   shadow_root: "/data/radarr_library"

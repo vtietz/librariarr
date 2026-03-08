@@ -72,12 +72,6 @@ def _require(data: dict[str, Any], key: str) -> Any:
     return data[key]
 
 
-def _parse_bool_env(value: str | None, default: bool) -> bool:
-    if value is None:
-        return default
-    return value.strip().lower() in {"1", "true", "yes", "on"}
-
-
 def load_config(path: str | Path) -> AppConfig:
     with Path(path).open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
@@ -95,20 +89,11 @@ def load_config(path: str | Path) -> AppConfig:
         for item in root_mappings_raw
     ]
 
-    env_nested_roots = os.getenv("LIBRARIARR_NESTED_ROOTS")
-    if env_nested_roots:
-        nested_roots = [part.strip() for part in env_nested_roots.split(",") if part.strip()]
-
+    # Deployment-only overrides: allow URL and API key from env.
     radarr_url = os.getenv("LIBRARIARR_RADARR_URL", str(_require(radarr, "url")).rstrip("/"))
     radarr_api_key = os.getenv("LIBRARIARR_RADARR_API_KEY", str(_require(radarr, "api_key")))
-    shadow_root = os.getenv(
-        "LIBRARIARR_SHADOW_ROOT",
-        str(radarr.get("shadow_root", "/data/radarr_library")),
-    )
-    sync_enabled = _parse_bool_env(
-        os.getenv("LIBRARIARR_RADARR_SYNC_ENABLED"),
-        bool(radarr.get("sync_enabled", True)),
-    )
+    shadow_root = str(radarr.get("shadow_root", "/data/radarr_library"))
+    sync_enabled = bool(radarr.get("sync_enabled", True))
 
     quality_map = [
         QualityRule(
@@ -120,10 +105,7 @@ def load_config(path: str | Path) -> AppConfig:
     ]
 
     cleanup_raw = raw.get("cleanup", {})
-    delete_from_radarr_on_missing = _parse_bool_env(
-        os.getenv("LIBRARIARR_DELETE_FROM_RADARR_ON_MISSING"),
-        bool(cleanup_raw.get("delete_from_radarr_on_missing", False)),
-    )
+    delete_from_radarr_on_missing = bool(cleanup_raw.get("delete_from_radarr_on_missing", False))
     runtime_raw = raw.get("runtime", {})
 
     runtime = RuntimeConfig(
@@ -134,18 +116,9 @@ def load_config(path: str | Path) -> AppConfig:
 
     analysis_raw = raw.get("analysis", {})
     analysis = AnalysisConfig(
-        use_nfo=_parse_bool_env(
-            os.getenv("LIBRARIARR_USE_NFO_ANALYSIS"),
-            bool(analysis_raw.get("use_nfo", False)),
-        ),
-        use_media_probe=_parse_bool_env(
-            os.getenv("LIBRARIARR_USE_MEDIA_PROBE"),
-            bool(analysis_raw.get("use_media_probe", False)),
-        ),
-        media_probe_bin=os.getenv(
-            "LIBRARIARR_MEDIA_PROBE_BIN",
-            str(analysis_raw.get("media_probe_bin", "ffprobe")),
-        ),
+        use_nfo=bool(analysis_raw.get("use_nfo", False)),
+        use_media_probe=bool(analysis_raw.get("use_media_probe", False)),
+        media_probe_bin=str(analysis_raw.get("media_probe_bin", "ffprobe")),
     )
 
     return AppConfig(
