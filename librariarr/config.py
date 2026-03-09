@@ -42,7 +42,6 @@ class IngestConfig:
     min_age_seconds: int = 30
     collision_policy: str = "qualify"
     quarantine_root: str = ""
-    selector: str = "first"
 
 
 @dataclass
@@ -136,16 +135,17 @@ def load_config(path: str | Path) -> AppConfig:
     if collision_policy not in {"qualify", "skip"}:
         raise ValueError("ingest.collision_policy must be one of: qualify, skip")
 
-    selector = str(ingest_raw.get("selector", "first")).strip().lower()
-    if selector not in {"first", "round_robin", "largest_free"}:
-        raise ValueError("ingest.selector must be one of: first, round_robin, largest_free")
+    if "selector" in ingest_raw:
+        raise ValueError(
+            "ingest.selector is no longer supported; ingest requires a 1:1 "
+            "mapping between each shadow root and nested root"
+        )
 
     ingest = IngestConfig(
         enabled=bool(ingest_raw.get("enabled", False)),
         min_age_seconds=max(0, int(ingest_raw.get("min_age_seconds", 30))),
         collision_policy=collision_policy,
         quarantine_root=str(ingest_raw.get("quarantine_root", "")).strip(),
-        selector=selector,
     )
 
     return AppConfig(

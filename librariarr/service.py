@@ -33,6 +33,7 @@ class LibrariArrService:
         self.nested_roots = [nested for nested, _ in self.root_mappings]
         self.shadow_roots = self._unique_paths([shadow for _, shadow in self.root_mappings])
         self.shadow_to_nested_roots = self._build_shadow_to_nested_roots(self.root_mappings)
+        self._validate_ingest_root_mappings(config.ingest.enabled)
         self.video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
         self.link_manager = ShadowLinkManager(self.nested_roots, logger=LOG)
         self.ingestor = ShadowIngestor(
@@ -143,6 +144,25 @@ class LibrariArrService:
             if nested_root not in out[shadow_root]:
                 out[shadow_root].append(nested_root)
         return out
+
+    def _validate_ingest_root_mappings(self, ingest_enabled: bool) -> None:
+        if not ingest_enabled:
+            return
+
+        ambiguous = [
+            shadow_root
+            for shadow_root, nested_roots in self.shadow_to_nested_roots.items()
+            if len(nested_roots) != 1
+        ]
+        if not ambiguous:
+            return
+
+        roots = ", ".join(str(root) for root in sorted(ambiguous))
+        raise ValueError(
+            "Ingest requires a 1:1 mapping between each shadow root and nested root. "
+            f"Ambiguous shadow roots: {roots}. Use paths.root_mappings with unique "
+            "shadow_root values when ingest is enabled."
+        )
 
     def run(self) -> None:
         LOG.info(

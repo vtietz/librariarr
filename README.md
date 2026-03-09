@@ -215,7 +215,6 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 | `ingest.enabled` | `false` |
 | `ingest.min_age_seconds` | `30` |
 | `ingest.collision_policy` | `qualify` |
-| `ingest.selector` | `first` |
 | `ingest.quarantine_root` | `""` (disabled) |
 | `quality_map` | `[]` |
 | `cleanup.remove_orphaned_links` | `true` |
@@ -274,7 +273,7 @@ If you enable ingest (`ingest.enabled: true`), LibrariArr also handles real dire
 
 1. Detects non-symlink movie directories in configured shadow roots.
 2. Waits for quiescence (`ingest.min_age_seconds`) to avoid moving in-progress writes.
-3. Selects a nested destination root using `ingest.selector`.
+3. Requires a 1:1 mapping between each shadow root and nested root.
 4. Moves the folder into nested storage.
 5. Recreates the original shadow path as a symlink to the moved folder.
 

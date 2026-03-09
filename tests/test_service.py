@@ -525,17 +525,10 @@ def test_ingest_collision_qualify_policy_uses_suffix(tmp_path: Path) -> None:
     assert shadow_link.resolve(strict=False) == qualified_destination
 
 
-def test_ingest_round_robin_selector_distributes_across_roots(tmp_path: Path) -> None:
+def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None:
     shadow_root = tmp_path / "radarr_library"
     nested_a = tmp_path / "nested_a"
     nested_b = tmp_path / "nested_b"
-
-    incoming_a = shadow_root / "Movie A (2020)"
-    incoming_b = shadow_root / "Movie B (2021)"
-    incoming_a.mkdir(parents=True)
-    incoming_b.mkdir(parents=True)
-    (incoming_a / "movie.a.2020.mkv").write_text("x", encoding="utf-8")
-    (incoming_b / "movie.b.2021.mkv").write_text("x", encoding="utf-8")
 
     config = AppConfig(
         paths=PathsConfig(
@@ -553,11 +546,12 @@ def test_ingest_round_robin_selector_distributes_across_roots(tmp_path: Path) ->
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
-        ingest=IngestConfig(enabled=True, min_age_seconds=0, selector="round_robin"),
+        ingest=IngestConfig(enabled=True, min_age_seconds=0),
     )
 
-    service = LibrariArrService(config)
-    service.reconcile()
-
-    assert (nested_a / "Movie A (2020)").exists()
-    assert (nested_b / "Movie B (2021)").exists()
+    try:
+        LibrariArrService(config)
+    except ValueError as exc:
+        assert "Ingest requires a 1:1 mapping" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for ambiguous ingest root mappings")

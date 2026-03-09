@@ -54,7 +54,7 @@ def test_ingestor_collision_skip_leaves_source_folder(tmp_path: Path) -> None:
     assert not incoming.is_symlink()
 
 
-def test_ingestor_round_robin_selector_distributes_targets(tmp_path: Path) -> None:
+def test_ingestor_skips_when_shadow_root_maps_to_multiple_nested_roots(tmp_path: Path) -> None:
     shadow_root = tmp_path / "radarr_library"
     nested_a = tmp_path / "nested_a"
     nested_b = tmp_path / "nested_b"
@@ -67,7 +67,7 @@ def test_ingestor_round_robin_selector_distributes_targets(tmp_path: Path) -> No
     (movie_b / "movie.b.2021.mkv").write_text("x", encoding="utf-8")
 
     ingestor = ShadowIngestor(
-        config=IngestConfig(enabled=True, min_age_seconds=0, selector="round_robin"),
+        config=IngestConfig(enabled=True, min_age_seconds=0),
         video_exts={".mkv"},
         shadow_roots=[shadow_root],
         shadow_to_nested_roots={shadow_root: [nested_a, nested_b]},
@@ -75,6 +75,6 @@ def test_ingestor_round_robin_selector_distributes_targets(tmp_path: Path) -> No
 
     ingested = ingestor.run()
 
-    assert ingested == 2
-    assert (nested_a / "Movie A (2020)").exists()
-    assert (nested_b / "Movie B (2021)").exists()
+    assert ingested == 0
+    assert movie_a.exists()
+    assert movie_b.exists()

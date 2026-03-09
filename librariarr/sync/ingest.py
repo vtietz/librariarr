@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 import logging
 import os
 import shutil
@@ -10,7 +9,6 @@ from pathlib import Path
 from ..config import IngestConfig
 
 INGEST_LOCK_SUFFIX = ".librariarr-ingest.lock"
-INGEST_STATE_FILE = ".librariarr-ingest-state.json"
 INGEST_LOCK_STALE_SECONDS = 3600
 
 
@@ -175,54 +173,9 @@ class ShadowIngestor:
 
     def _select_ingest_nested_root(self, shadow_root: Path) -> Path | None:
         candidates = self.shadow_to_nested_roots.get(shadow_root, [])
-        if not candidates:
+        if len(candidates) != 1:
             return None
-        if len(candidates) == 1:
-            return candidates[0]
-
-        selector = self.config.selector
-        if selector == "largest_free":
-            return max(candidates, key=self._free_bytes_for_root)
-
-        if selector == "round_robin":
-            return self._select_round_robin_nested_root(shadow_root, candidates)
-
         return candidates[0]
-
-    def _free_bytes_for_root(self, path: Path) -> int:
-        try:
-            return shutil.disk_usage(path).free
-        except OSError:
-            return -1
-
-    def _select_round_robin_nested_root(self, shadow_root: Path, candidates: list[Path]) -> Path:
-        state = self._read_round_robin_state(shadow_root)
-        index = int(state.get("round_robin_index", 0)) % len(candidates)
-        selected = candidates[index]
-        state["round_robin_index"] = (index + 1) % len(candidates)
-        self._write_round_robin_state(shadow_root, state)
-        return selected
-
-    def _ingest_state_file(self, shadow_root: Path) -> Path:
-        return shadow_root / INGEST_STATE_FILE
-
-    def _read_round_robin_state(self, shadow_root: Path) -> dict[str, int]:
-        state_path = self._ingest_state_file(shadow_root)
-        if not state_path.exists():
-            return {}
-
-        try:
-            payload = json.loads(state_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return {}
-        return payload if isinstance(payload, dict) else {}
-
-    def _write_round_robin_state(self, shadow_root: Path, state: dict[str, int]) -> None:
-        state_path = self._ingest_state_file(shadow_root)
-        try:
-            state_path.write_text(json.dumps(state), encoding="utf-8")
-        except OSError:
-            self.log.warning("Failed to persist ingest round-robin state: %s", state_path)
 
     def _resolve_ingest_destination(self, destination: Path) -> Path | None:
         if not destination.exists() and not destination.is_symlink():

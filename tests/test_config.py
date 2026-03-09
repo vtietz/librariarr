@@ -169,4 +169,31 @@ def test_load_config_ingest_defaults(tmp_path: Path, monkeypatch) -> None:
     assert config.ingest.enabled is False
     assert config.ingest.min_age_seconds == 30
     assert config.ingest.collision_policy == "qualify"
-    assert config.ingest.selector == "first"
+
+
+def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  nested_roots:\n"
+            "    - /data/movies/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+            "ingest:\n"
+            "  enabled: true\n"
+            "  selector: first\n"
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(config_path)
+    except ValueError as exc:
+        assert "ingest.selector is no longer supported" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for deprecated ingest.selector")

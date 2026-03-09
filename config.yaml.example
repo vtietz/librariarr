@@ -30,14 +30,14 @@ ingest:
   # Disabled by default to preserve existing one-way behavior.
   # When enabled, real movie directories created in shadow roots are moved
   # into nested roots, then replaced by symlinks at the original shadow path.
+  # Ingest requires a 1:1 mapping between each shadow root and nested root.
   enabled: false
   # Candidate folder must be unchanged for at least this many seconds.
   min_age_seconds: 30
-  # qualify: keep ingesting with deterministic suffix when destination exists
-  # skip: leave source untouched when destination already exists
+  # How to handle destination name collisions in nested roots.
+  # qualify: ingest continues and destination gets a suffix like [ingest-2], [ingest-3], ...
+  # skip: ingest is skipped and the real source directory stays in the shadow root
   collision_policy: "qualify"
-  # first | round_robin | largest_free
-  selector: "first"
   # Optional absolute path used when ingest fails mid-process.
   quarantine_root: ""
 
