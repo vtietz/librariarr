@@ -251,7 +251,7 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 | `radarr.shadow_root` | `/data/radarr_library` |
 | `radarr.sync_enabled` | `true` |
 | `radarr.auto_add_unmatched` | `false` |
-| `radarr.auto_add_quality_profile_id` | `null` (auto-pick lowest profile id) |
+| `radarr.auto_add_quality_profile_id` | `null` (auto-map from `quality_map`; fallback lowest profile id) |
 | `radarr.auto_add_search_on_add` | `false` |
 | `radarr.auto_add_monitored` | `true` |
 | `ingest.enabled` | `false` |
@@ -287,6 +287,13 @@ How to find `quality_map.target_id` and auto-add profile ids:
 curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
 curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
 ```
+
+Auto-import defaults (recommended):
+
+1. Enable `radarr.auto_add_unmatched: true`.
+2. Leave `radarr.auto_add_quality_profile_id` unset unless you need a fixed profile.
+3. Leave `radarr.auto_add_search_on_add: false` if you only want import registration/path sync.
+4. Keep `radarr.auto_add_monitored: true` for normal Radarr tracking.
 
 `media_probe` details:
 

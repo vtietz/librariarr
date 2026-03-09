@@ -31,15 +31,17 @@ radarr:
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
-  # Optional: auto-add folders that do not yet exist in Radarr.
-  # Disabled by default to avoid accidental wrong matches.
+  # Optional: auto-import folders that do not yet exist in Radarr.
+  # Recommended for fully automated sync once your folder naming is stable.
   auto_add_unmatched: false
-  # Optional: explicit Radarr quality profile id used when auto-adding.
-  # If omitted, LibrariArr picks the lowest available profile id from Radarr.
+  # Optional override for Radarr quality profile id used on add.
+  # Usually leave unset: LibrariArr maps from quality_map/analysis to a profile.
+  # Fallback if no mapping is possible: lowest available profile id in Radarr.
   # auto_add_quality_profile_id: 1
-  # Optional: trigger Radarr search right after adding the movie entry.
+  # Advanced: trigger Radarr indexer search immediately after add.
+  # Keep false if you only want to register/import paths first.
   auto_add_search_on_add: false
-  # Optional: initial monitored flag for newly auto-added movies.
+  # Advanced: initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
   # Used only in legacy mode (when paths.root_mappings is not set).
   shadow_root: "/data/radarr_library"
