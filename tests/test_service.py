@@ -174,6 +174,55 @@ def test_reconcile_skips_radarr_when_sync_disabled(tmp_path: Path) -> None:
     assert fake.refreshed == []
 
 
+def test_reconcile_canonicalizes_suffix_folder_name_without_sync(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Sing (2016) FSK0"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Sing.2016.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    canonical_link = shadow_root / "Sing (2016)"
+    assert canonical_link.is_symlink()
+    assert canonical_link.resolve(strict=False) == movie_dir
+    assert not (shadow_root / "Sing (2016) FSK0").exists()
+
+
+def test_reconcile_matches_radarr_for_suffix_folder_name(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Sing (2016) FSK0"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Sing.2016.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 2,
+                "title": "Sing",
+                "year": 2016,
+                "path": "/old/path",
+                "movieFile": {"id": 12},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.get_movies_calls == 1
+    assert fake.updated_paths and fake.updated_paths[0][0] == 2
+    assert (shadow_root / "Sing (2016)").is_symlink()
+
+
 def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
     root_one = tmp_path / "age_12"
     root_two = tmp_path / "age_16"

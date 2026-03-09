@@ -16,7 +16,7 @@ from .quality import VIDEO_EXTENSIONS, map_quality_id
 from .radarr import RadarrClient
 
 LOG = logging.getLogger(__name__)
-TITLE_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*\((?P<year>\d{4})\)$")
+TITLE_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*\((?P<year>\d{4})\)(?:\s+.*)?$")
 NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
 
@@ -26,11 +26,27 @@ class MovieRef:
     year: int | None
 
 
-def parse_movie_ref(name: str) -> MovieRef:
+def extract_title_year(name: str) -> tuple[str, int] | None:
     match = TITLE_YEAR_RE.match(name.strip())
     if not match:
+        return None
+    return (match.group("title").strip(), int(match.group("year")))
+
+
+def canonical_name_from_folder(name: str) -> str:
+    parsed = extract_title_year(name)
+    if parsed is None:
+        return name.strip()
+    title, year = parsed
+    return f"{title} ({year})"
+
+
+def parse_movie_ref(name: str) -> MovieRef:
+    parsed = extract_title_year(name)
+    if parsed is None:
         return MovieRef(title=name.strip().lower(), year=None)
-    return MovieRef(title=match.group("title").strip().lower(), year=int(match.group("year")))
+    title, year = parsed
+    return MovieRef(title=title.lower(), year=year)
 
 
 def is_movie_folder(path: Path, video_exts: set[str]) -> bool:
@@ -338,7 +354,7 @@ class LibrariArrService:
 
     def _canonical_link_name(self, folder: Path, movie: dict | None) -> str:
         if movie is None:
-            return self._safe_link_name(folder)
+            return canonical_name_from_folder(self._safe_link_name(folder))
 
         title = str(movie.get("title") or "").strip() or folder.name
         year = movie.get("year")

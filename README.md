@@ -28,9 +28,10 @@ If you want age-specific Radarr roots, use `paths.root_mappings` so each source 
 
 Default naming behavior:
 
-1. When a folder matches a Radarr movie, the symlink name is canonicalized to `Title (Year)`.
-2. If no Radarr match exists, LibrariArr falls back to the source folder name.
-3. On later successful matches, stale non-canonical links are replaced by canonical names.
+1. Symlink names are canonicalized to `Title (Year)` whenever the folder name contains a parseable year token.
+2. Radarr sync mode does not control naming; it only controls whether Radarr APIs are called.
+3. When a folder matches a Radarr movie, Radarr metadata is used as canonical source of title/year.
+4. If no parseable year exists and no Radarr match exists, LibrariArr falls back to the source folder name.
 
 ## What It Actually Does
 
