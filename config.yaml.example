@@ -3,6 +3,10 @@ paths:
   # Only radarr.url and radarr.api_key can be overridden by env.
   # Use absolute in-container paths that match your Docker volume mount targets.
   # In the default compose setup those targets are /data/movies and /data/radarr_library.
+  # IMPORTANT: nested_roots and shadow_root paths must also be valid in the Radarr container.
+  # Symlink targets are written using these exact in-container paths.
+  # If Radarr maps /data/movies to a different host directory than LibrariArr,
+  # links can exist but still resolve to missing targets in Radarr.
   # Preferred for age-based layouts: map each nested source root to its own shadow root.
   # When root_mappings is set, LibrariArr uses it instead of nested_roots.
   # In this mode, radarr.shadow_root is ignored for link placement.

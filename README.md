@@ -90,8 +90,17 @@ PGID=1000
 ## Radarr Integration Requirements
 
 1. `radarr` and `librariarr` must see the same shadow-root path in-container.
-2. Add `/data/radarr_library` as a Radarr root folder.
-3. Use a valid Radarr API key.
+2. `radarr` and `librariarr` must see the same nested movie path(s) in-container (for example, `/data/movies`).
+3. Symlink targets are absolute in-container paths; Radarr must be able to resolve those exact paths.
+4. Add `/data/radarr_library` as a Radarr root folder.
+5. Use a valid Radarr API key.
+
+Common pitfall:
+
+1. LibrariArr creates links like `/data/flat/Foo (2020) -> /data/movies/...`.
+2. Radarr maps `/data/movies` to a different host source than LibrariArr.
+3. Radarr can see the link itself, but the target folder is missing in Radarr's container view.
+4. Result: scans/imports look empty even though links exist.
 
 How to retrieve Radarr API key:
 
@@ -188,6 +197,34 @@ Important:
 2. Keep container paths identical across both services.
 3. Set `LIBRARIARR_RADARR_URL=http://radarr:7878` in `.env` (or set `radarr.url` in config if you prefer file-only).
 4. For age-based roots, add each mapped path as a Radarr root folder (`/data/radarr_library/age_06`, etc.).
+
+Concrete custom-path example (`/data/flat` as shadow root):
+
+```yaml
+services:
+  radarr:
+    volumes:
+      - ${MOVIES_DIR}:/data/movies
+      - ${RADARR_FLAT_DIR}:/data/flat
+
+  librariarr:
+    volumes:
+      - ${MOVIES_DIR}:/data/movies
+      - ${RADARR_FLAT_DIR}:/data/flat
+```
+
+Matching `config.yaml` excerpt:
+
+```yaml
+paths:
+  nested_roots:
+    - /data/movies/FSK06 Kinder
+
+radarr:
+  shadow_root: /data/flat
+```
+
+Do not map `/data/movies` differently between Radarr and LibrariArr.
 
 What it means to merge with your existing compose file:
 

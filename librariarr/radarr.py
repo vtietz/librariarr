@@ -28,6 +28,10 @@ class RadarrClient:
     def get_movies(self) -> list[dict[str, Any]]:
         return self._request("GET", "/movie")
 
+    def get_system_status(self) -> dict[str, Any]:
+        status = self._request("GET", "/system/status")
+        return status if isinstance(status, dict) else {}
+
     def update_movie_path(self, movie: dict[str, Any], new_path: str) -> None:
         if movie.get("path") == new_path:
             return

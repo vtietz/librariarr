@@ -4,6 +4,7 @@ import logging
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -88,15 +89,43 @@ class LibrariArrService:
             if status_code is not None:
                 LOG.warning(
                     "Radarr API request failed while sync is enabled (status=%s). "
-                    "Review Radarr URL/API key, or disable sync for filesystem-only mode.",
+                    "Review Radarr URL/API key, or disable sync for filesystem-only mode. "
+                    "url=%s",
                     status_code,
+                    self.config.radarr.url,
                 )
                 self._sync_hint_logged = True
                 return
 
+        if isinstance(request_exc, requests.ConnectionError):
+            LOG.warning(
+                "Radarr is unreachable while sync is enabled. "
+                "Review radarr.url/network/API key, or set radarr.sync_enabled=false "
+                "for filesystem-only mode. url=%s error=%s",
+                self.config.radarr.url,
+                request_exc,
+            )
+            self._sync_hint_logged = True
+            return
+
+        if isinstance(request_exc, requests.Timeout):
+            LOG.warning(
+                "Radarr request timed out while sync is enabled. "
+                "Review radarr.url/network latency/API key, or set "
+                "radarr.sync_enabled=false for filesystem-only mode. "
+                "url=%s error=%s",
+                self.config.radarr.url,
+                request_exc,
+            )
+            self._sync_hint_logged = True
+            return
+
         LOG.warning(
             "Radarr is unreachable while sync is enabled. Review radarr.url/network/API key, "
-            "or set radarr.sync_enabled=false for filesystem-only mode."
+            "or set radarr.sync_enabled=false for filesystem-only mode. "
+            "url=%s error_type=%s",
+            self.config.radarr.url,
+            type(request_exc).__name__,
         )
         self._sync_hint_logged = True
 
@@ -176,6 +205,7 @@ class LibrariArrService:
         )
         for shadow_root in self.shadow_roots:
             shadow_root.mkdir(parents=True, exist_ok=True)
+        self._run_sync_preflight_checks()
         runtime_loop = RuntimeSyncLoop(
             nested_roots=self.nested_roots,
             shadow_roots=self.shadow_roots,
@@ -188,6 +218,52 @@ class LibrariArrService:
             logger=LOG,
         )
         runtime_loop.run()
+
+    def _run_sync_preflight_checks(self) -> None:
+        if not self.sync_enabled:
+            return
+
+        parsed_url = urlparse(self.config.radarr.url)
+        if parsed_url.scheme not in {"http", "https"} or not parsed_url.netloc:
+            LOG.warning(
+                "Radarr URL sanity check failed while sync is enabled. "
+                "Expected an absolute http(s) URL. current_url=%s",
+                self.config.radarr.url,
+            )
+
+        if not self.config.radarr.api_key.strip():
+            LOG.warning(
+                "Radarr sync is enabled but radarr.api_key is empty. "
+                "Set radarr.api_key (or LIBRARIARR_RADARR_API_KEY) or disable sync."
+            )
+
+        if parsed_url.hostname in {"localhost", "127.0.0.1", "::1"}:
+            LOG.warning(
+                "Radarr URL uses localhost while sync is enabled (url=%s). "
+                "If LibrariArr runs in Docker, localhost points to the LibrariArr container.",
+                self.config.radarr.url,
+            )
+
+        try:
+            status = self.radarr.get_system_status()
+            version = str(status.get("version", "unknown"))
+            app_name = str(status.get("appName", "Radarr"))
+            LOG.info(
+                "Radarr preflight check succeeded: app=%s version=%s url=%s",
+                app_name,
+                version,
+                self.config.radarr.url,
+            )
+        except Exception as exc:
+            self._log_sync_config_hint(exc)
+            request_exc = self._extract_request_exception(exc)
+            detail = request_exc if request_exc is not None else exc
+            LOG.warning(
+                "Radarr preflight check failed; initial reconcile may fail as well. "
+                "url=%s error=%s",
+                self.config.radarr.url,
+                detail,
+            )
 
     def reconcile(self) -> None:
         with self._lock:

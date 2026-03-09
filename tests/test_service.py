@@ -16,18 +16,32 @@ from librariarr.service import LibrariArrService
 
 
 class FakeRadarr:
-    def __init__(self, movies: list[dict] | None = None) -> None:
+    def __init__(
+        self,
+        movies: list[dict] | None = None,
+        system_status: dict | None = None,
+        system_status_error: Exception | None = None,
+    ) -> None:
         self.movies = movies or []
+        self.system_status = system_status or {"appName": "Radarr", "version": "0.0.0-test"}
+        self.system_status_error = system_status_error
         self.updated_paths: list[tuple[int, str]] = []
         self.updated_qualities: list[tuple[int, int]] = []
         self.refreshed: list[int] = []
         self.unmonitored: list[int] = []
         self.deleted: list[int] = []
         self.get_movies_calls = 0
+        self.get_system_status_calls = 0
 
     def get_movies(self) -> list[dict]:
         self.get_movies_calls += 1
         return self.movies
+
+    def get_system_status(self) -> dict:
+        self.get_system_status_calls += 1
+        if self.system_status_error is not None:
+            raise self.system_status_error
+        return self.system_status
 
     def update_movie_path(self, movie: dict, new_path: str) -> None:
         self.updated_paths.append((int(movie["id"]), new_path))
@@ -450,6 +464,58 @@ def test_sync_hint_logs_actionable_message_for_unauthorized_radarr(
     caplog.clear()
     service._log_sync_config_hint(err)
     assert caplog.text == ""
+
+
+def test_sync_hint_logs_url_for_connection_errors(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+
+    err = requests.ConnectionError("connection refused")
+
+    caplog.set_level("WARNING", logger="librariarr.service")
+    service._log_sync_config_hint(err)
+
+    assert "Radarr is unreachable while sync is enabled" in caplog.text
+    assert "url=http://radarr:7878" in caplog.text
+
+
+def test_sync_preflight_warns_for_empty_api_key(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.radarr.api_key = ""
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr()
+
+    caplog.set_level("WARNING", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert "radarr.api_key is empty" in caplog.text
+
+
+def test_sync_preflight_logs_failure_details_when_status_probe_fails(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(system_status_error=requests.ConnectionError("refused"))
+
+    caplog.set_level("WARNING", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert "Radarr preflight check failed" in caplog.text
+    assert "error=refused" in caplog.text
 
 
 def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path: Path) -> None:
