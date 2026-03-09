@@ -32,6 +32,14 @@ class RadarrClient:
         status = self._request("GET", "/system/status")
         return status if isinstance(status, dict) else {}
 
+    def get_quality_profiles(self) -> list[dict[str, Any]]:
+        profiles = self._request("GET", "/qualityprofile")
+        return profiles if isinstance(profiles, list) else []
+
+    def get_quality_definitions(self) -> list[dict[str, Any]]:
+        definitions = self._request("GET", "/qualitydefinition")
+        return definitions if isinstance(definitions, list) else []
+
     def update_movie_path(self, movie: dict[str, Any], new_path: str) -> None:
         if movie.get("path") == new_path:
             return

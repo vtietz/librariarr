@@ -278,7 +278,7 @@ How to find `target_id` and profile names:
 2. Or query Radarr API and read `id` + `name` values:
 
 ```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
+curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
 ```
 
 `media_probe` details:

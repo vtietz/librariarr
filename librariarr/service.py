@@ -254,6 +254,7 @@ class LibrariArrService:
                 version,
                 self.config.radarr.url,
             )
+            self._log_quality_mapping_diagnostics()
         except Exception as exc:
             self._log_sync_config_hint(exc)
             request_exc = self._extract_request_exception(exc)
@@ -264,6 +265,56 @@ class LibrariArrService:
                 self.config.radarr.url,
                 detail,
             )
+
+    def _format_id_name_pairs(self, items: list[dict]) -> str:
+        pairs: list[str] = []
+        for item in items:
+            item_id = item.get("id")
+            item_name = str(item.get("name") or "").strip() or "(unnamed)"
+            if isinstance(item_id, int):
+                pairs.append(f"{item_id}:{item_name}")
+        return ", ".join(pairs)
+
+    def _log_quality_mapping_diagnostics(self) -> None:
+        rule_ids = sorted({rule.target_id for rule in self.config.quality_map})
+        if not rule_ids:
+            LOG.info("quality_map is empty; default quality id fallback applies (id=4).")
+            return
+
+        try:
+            profiles = self.radarr.get_quality_profiles()
+            profile_pairs = self._format_id_name_pairs(profiles)
+            if profile_pairs:
+                LOG.info("Radarr quality profiles (id:name): %s", profile_pairs)
+        except Exception as exc:
+            LOG.warning("Unable to fetch Radarr quality profiles: %s", exc)
+
+        try:
+            definitions = self.radarr.get_quality_definitions()
+            definition_pairs = self._format_id_name_pairs(definitions)
+            if definition_pairs:
+                LOG.info("Radarr quality definitions (id:name): %s", definition_pairs)
+
+            definition_ids = {
+                definition_id
+                for definition_id in (item.get("id") for item in definitions)
+                if isinstance(definition_id, int)
+            }
+            missing_ids = [rule_id for rule_id in rule_ids if rule_id not in definition_ids]
+            if missing_ids:
+                LOG.warning(
+                    "quality_map target_id values not found in Radarr quality definitions: "
+                    "configured_ids=%s missing_ids=%s",
+                    rule_ids,
+                    missing_ids,
+                )
+            else:
+                LOG.info(
+                    "quality_map target_id values validated against Radarr quality definitions: %s",
+                    rule_ids,
+                )
+        except Exception as exc:
+            LOG.warning("Unable to fetch Radarr quality definitions: %s", exc)
 
     def reconcile(self) -> None:
         with self._lock:
@@ -305,7 +356,12 @@ class LibrariArrService:
                         self._sync_radarr_for_folder(folder, link_path, movie)
                         matched_movies += 1
                     else:
-                        LOG.warning("No Radarr match for folder: %s", folder)
+                        LOG.warning(
+                            "No Radarr match for folder: %s "
+                            "(LibrariArr does not auto-add new movies to Radarr; "
+                            "add/import in Radarr first)",
+                            folder,
+                        )
                         unmatched_movies += 1
 
             orphaned_links_removed = 0

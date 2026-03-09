@@ -51,10 +51,10 @@ ingest:
 
 quality_map:
   # How to find correct target_id/name values:
-  # 1) Radarr UI: Settings -> Profiles -> Quality.
-  # 2) API: GET /api/v3/qualityprofile and copy each profile's `id` and `name`.
+  # 1) Radarr UI: Settings -> Profiles -> Quality Definitions.
+  # 2) API: GET /api/v3/qualitydefinition and copy each definition's `id` and `name`.
   #    Example:
-  #    curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
+  #    curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
   #
   # Rules are checked top-to-bottom. First match wins.
   # Every token in `match` must exist in detected text (AND logic, case-insensitive).

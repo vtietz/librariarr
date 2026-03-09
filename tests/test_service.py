@@ -21,10 +21,14 @@ class FakeRadarr:
         movies: list[dict] | None = None,
         system_status: dict | None = None,
         system_status_error: Exception | None = None,
+        quality_profiles: list[dict] | None = None,
+        quality_definitions: list[dict] | None = None,
     ) -> None:
         self.movies = movies or []
         self.system_status = system_status or {"appName": "Radarr", "version": "0.0.0-test"}
         self.system_status_error = system_status_error
+        self.quality_profiles = quality_profiles or []
+        self.quality_definitions = quality_definitions or []
         self.updated_paths: list[tuple[int, str]] = []
         self.updated_qualities: list[tuple[int, int]] = []
         self.refreshed: list[int] = []
@@ -32,6 +36,8 @@ class FakeRadarr:
         self.deleted: list[int] = []
         self.get_movies_calls = 0
         self.get_system_status_calls = 0
+        self.get_quality_profiles_calls = 0
+        self.get_quality_definitions_calls = 0
 
     def get_movies(self) -> list[dict]:
         self.get_movies_calls += 1
@@ -42,6 +48,14 @@ class FakeRadarr:
         if self.system_status_error is not None:
             raise self.system_status_error
         return self.system_status
+
+    def get_quality_profiles(self) -> list[dict]:
+        self.get_quality_profiles_calls += 1
+        return self.quality_profiles
+
+    def get_quality_definitions(self) -> list[dict]:
+        self.get_quality_definitions_calls += 1
+        return self.quality_definitions
 
     def update_movie_path(self, movie: dict, new_path: str) -> None:
         self.updated_paths.append((int(movie["id"]), new_path))
@@ -516,6 +530,47 @@ def test_sync_preflight_logs_failure_details_when_status_probe_fails(
 
     assert "Radarr preflight check failed" in caplog.text
     assert "error=refused" in caplog.text
+
+
+def test_sync_preflight_logs_quality_catalog_and_validation(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.quality_map = [
+        QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p"),
+        QualityRule(match=["2160p"], target_id=13, name="4K"),
+    ]
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        quality_profiles=[{"id": 6, "name": "Web-DL 1080p"}],
+        quality_definitions=[{"id": 4, "name": "HDTV-1080p"}, {"id": 13, "name": "Bluray-2160p"}],
+    )
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert "Radarr quality profiles (id:name): 6:Web-DL 1080p" in caplog.text
+    assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
+    assert "quality_map target_id values validated" in caplog.text
+
+
+def test_sync_preflight_warns_when_quality_target_id_missing(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.quality_map = [QualityRule(match=["2160p"], target_id=99, name="Missing")]
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(quality_definitions=[{"id": 4, "name": "HDTV-1080p"}])
+
+    caplog.set_level("WARNING", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert "quality_map target_id values not found" in caplog.text
+    assert "missing_ids=[99]" in caplog.text
 
 
 def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path: Path) -> None:
