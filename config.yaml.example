@@ -1,28 +1,18 @@
 paths:
-  # Config-first mode: LibrariArr reads app settings from this file.
-  # Only radarr.url and radarr.api_key can be overridden by env.
-  # Use absolute in-container paths that match your Docker volume mount targets.
-  # In the default compose setup those targets are /data/movies and /data/radarr_library.
-  # IMPORTANT: nested_roots and shadow_root paths must also be valid in the Radarr container.
-  # Symlink targets are written using these exact in-container paths.
-  # If Radarr maps /data/movies to a different host directory than LibrariArr,
-  # links can exist but still resolve to missing targets in Radarr.
-  # Preferred for age-based layouts: map each nested source root to its own shadow root.
-  # When root_mappings is set, LibrariArr uses it instead of nested_roots.
-  # In this mode, radarr.shadow_root is ignored for link placement.
-  # root_mappings:
-  #   - nested_root: "/data/movies/age_06"
-  #     shadow_root: "/data/radarr_library/age_06"
-  #   - nested_root: "/data/movies/age_12"
-  #     shadow_root: "/data/radarr_library/age_12"
-  #   - nested_root: "/data/movies/age_16"
-  #     shadow_root: "/data/radarr_library/age_16"
+  # Recommended mode: map each nested source root to its own shadow root.
+  root_mappings:
+    - nested_root: "/data/movies/age_06"
+      shadow_root: "/data/radarr_library/age_06"
+    - nested_root: "/data/movies/age_12"
+      shadow_root: "/data/radarr_library/age_12"
+    - nested_root: "/data/movies/age_16"
+      shadow_root: "/data/radarr_library/age_16"
 
-  # Legacy mode: all nested roots are merged into one shared radarr.shadow_root.
-  nested_roots:
-    - "/data/movies/age_06"
-    - "/data/movies/age_12"
-    - "/data/movies/age_16"
+  # Legacy mode (optional): uncomment this and use one shared radarr.shadow_root.
+  # nested_roots:
+  #   - "/data/movies/age_06"
+  #   - "/data/movies/age_12"
+  #   - "/data/movies/age_16"
 
 radarr:
   # Optional env overrides:
@@ -43,8 +33,8 @@ radarr:
   auto_add_search_on_add: false
   # Advanced: initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
-  # Used only in legacy mode (when paths.root_mappings is not set).
-  shadow_root: "/data/radarr_library"
+  # Legacy-only shared shadow root (used with paths.nested_roots mode).
+  # shadow_root: "/data/radarr_library"
 
 ingest:
   # Disabled by default to preserve existing one-way behavior.

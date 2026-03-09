@@ -240,81 +240,24 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 
 ## Configuration Reference
 
-`config.yaml.example` is the baseline.
+`config.yaml.example` is the short baseline.
 
-| Option | Default |
-|---|---|
-| `paths.nested_roots` | Required in config example |
-| `paths.root_mappings` | `[]` |
-| `radarr.url` | Required in config example |
-| `radarr.api_key` | Required in config example |
-| `radarr.shadow_root` | `/data/radarr_library` |
-| `radarr.sync_enabled` | `true` |
-| `radarr.auto_add_unmatched` | `false` |
-| `radarr.auto_add_quality_profile_id` | `null` (auto-map from `quality_map`; fallback lowest profile id) |
-| `radarr.auto_add_search_on_add` | `false` |
-| `radarr.auto_add_monitored` | `true` |
-| `ingest.enabled` | `false` |
-| `ingest.min_age_seconds` | `30` |
-| `ingest.collision_policy` | `qualify` |
-| `ingest.quarantine_root` | `""` (disabled) |
-| `quality_map` | `[]` |
-| `cleanup.remove_orphaned_links` | `true` |
-| `cleanup.unmonitor_on_delete` | `true` |
-| `cleanup.delete_from_radarr_on_missing` | `false` |
-| `runtime.debounce_seconds` | `8` |
-| `runtime.maintenance_interval_minutes` | `1440` (`0` disables periodic maintenance scans) |
-| `runtime.scan_video_extensions` | `['.mkv','.mp4','.avi','.m2ts','.mov','.wmv','.ts']` |
-| `analysis.use_nfo` | `false` |
-| `analysis.use_media_probe` | `false` |
-| `analysis.media_probe_bin` | `ffprobe` |
+For the full option-by-option reference and examples, see `docs/configuration.md`.
 
-Quality mapping behavior:
+Configuration essentials:
 
-1. Rules are evaluated in order.
-2. Every token in `match` must be present (AND match, case-insensitive).
-3. If no rule matches, quality falls back to Radarr quality id `4`.
-4. Optional analyzers (`nfo`, `media_probe`) are only used when enabled.
-5. Matching order is: filename/folder text, then NFO text, then media probe tokens.
+1. Prefer `paths.root_mappings` over legacy `paths.nested_roots`.
+2. Keep `radarr.sync_enabled: true` for Radarr API sync.
+3. Enable `radarr.auto_add_unmatched: true` for automatic import of unmatched folders.
+4. Leave `radarr.auto_add_quality_profile_id` unset unless you need a fixed profile id.
+5. `quality_map.target_id` uses `/api/v3/qualitydefinition` ids.
+6. `radarr.auto_add_quality_profile_id` uses `/api/v3/qualityprofile` ids.
 
-How to find `quality_map.target_id` and auto-add profile ids:
-
-1. `quality_map.target_id` uses Radarr quality definitions (`/api/v3/qualitydefinition`).
-2. `radarr.auto_add_quality_profile_id` uses Radarr quality profiles (`/api/v3/qualityprofile`).
-3. Query both APIs and read `id` + `name` values:
-
-```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
-curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
-```
-
-Auto-import defaults (recommended):
-
-1. Enable `radarr.auto_add_unmatched: true`.
-2. Leave `radarr.auto_add_quality_profile_id` unset unless you need a fixed profile.
-3. Leave `radarr.auto_add_search_on_add: false` if you only want import registration/path sync.
-4. Keep `radarr.auto_add_monitored: true` for normal Radarr tracking.
-
-`media_probe` details:
-
-1. Uses the most likely main video file in a movie folder (tries to avoid `sample` or extras files).
-2. Extracts tokens from ffprobe for resolution and codec (`2160p`, `1080p`, `720p`, `x265`, `x264`, `hevc`, `h264`).
-3. Also emits optional technical tokens: HDR transfer (`hdr10`, `hlg`), bitrate buckets (`medium-bitrate`, `high-bitrate`, `remux-bitrate`, `very-high-bitrate`), and audio hints (`truehd`, `dts`, `5.1`, `7.1`) when available.
-4. Source labels like `hdtv`, `web`, and `bluray` are still most reliable from filename/NFO tags.
-
-## Config Source
-
-LibrariArr uses `config.yaml` for almost all app settings.
+Config source notes:
 
 1. App behavior is read from `config.yaml`.
-2. `.env` is used for Docker Compose interpolation (host paths, IDs, ports, optional log level).
-3. Only two runtime env overrides are supported by the app: `LIBRARIARR_RADARR_URL` and `LIBRARIARR_RADARR_API_KEY`.
-4. All other `LIBRARIARR_*` app settings must be in `config.yaml`.
-
-Root source precedence:
-
-1. `paths.root_mappings` (if non-empty).
-2. `paths.nested_roots` + one shared `radarr.shadow_root`.
+2. `.env` is for compose interpolation (paths, user ids, log level).
+3. Only `LIBRARIARR_RADARR_URL` and `LIBRARIARR_RADARR_API_KEY` override app config at runtime.
 
 ## Optional Ingest Mode
 
