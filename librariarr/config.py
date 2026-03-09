@@ -37,19 +37,12 @@ class AnalysisConfig:
 
 
 @dataclass
-class IngestExplicitMapRule:
-    shadow_prefix: str
-    nested_root: str
-
-
-@dataclass
 class IngestConfig:
     enabled: bool = False
     min_age_seconds: int = 30
     collision_policy: str = "qualify"
     quarantine_root: str = ""
     selector: str = "first"
-    explicit_map: list[IngestExplicitMapRule] = field(default_factory=list)
 
 
 @dataclass
@@ -144,22 +137,8 @@ def load_config(path: str | Path) -> AppConfig:
         raise ValueError("ingest.collision_policy must be one of: qualify, skip")
 
     selector = str(ingest_raw.get("selector", "first")).strip().lower()
-    if selector not in {"first", "round_robin", "largest_free", "explicit_map"}:
-        raise ValueError(
-            "ingest.selector must be one of: first, round_robin, largest_free, explicit_map"
-        )
-
-    explicit_map_raw = ingest_raw.get("explicit_map", [])
-    explicit_map = [
-        IngestExplicitMapRule(
-            shadow_prefix=str(_require(item, "shadow_prefix")).strip("/"),
-            nested_root=str(_require(item, "nested_root")),
-        )
-        for item in explicit_map_raw
-    ]
-
-    if selector == "explicit_map" and not explicit_map:
-        raise ValueError("ingest.explicit_map is required when ingest.selector=explicit_map")
+    if selector not in {"first", "round_robin", "largest_free"}:
+        raise ValueError("ingest.selector must be one of: first, round_robin, largest_free")
 
     ingest = IngestConfig(
         enabled=bool(ingest_raw.get("enabled", False)),
@@ -167,7 +146,6 @@ def load_config(path: str | Path) -> AppConfig:
         collision_policy=collision_policy,
         quarantine_root=str(ingest_raw.get("quarantine_root", "")).strip(),
         selector=selector,
-        explicit_map=explicit_map,
     )
 
     return AppConfig(

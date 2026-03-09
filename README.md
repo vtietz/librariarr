@@ -217,7 +217,6 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 | `ingest.collision_policy` | `qualify` |
 | `ingest.selector` | `first` |
 | `ingest.quarantine_root` | `""` (disabled) |
-| `ingest.explicit_map` | `[]` |
 | `quality_map` | `[]` |
 | `cleanup.remove_orphaned_links` | `true` |
 | `cleanup.unmonitor_on_delete` | `true` |

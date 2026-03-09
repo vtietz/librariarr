@@ -153,7 +153,7 @@ class ShadowIngestor:
             self.log.warning("Skipping ingest candidate outside shadow root: %s", source)
             return False
 
-        nested_root = self._select_ingest_nested_root(shadow_root, relative)
+        nested_root = self._select_ingest_nested_root(shadow_root)
         if nested_root is None:
             self.log.warning("No nested root target available for ingest candidate: %s", source)
             return False
@@ -173,7 +173,7 @@ class ShadowIngestor:
             self._quarantine_failed_ingest(source, shadow_root)
             return False
 
-    def _select_ingest_nested_root(self, shadow_root: Path, relative: Path) -> Path | None:
+    def _select_ingest_nested_root(self, shadow_root: Path) -> Path | None:
         candidates = self.shadow_to_nested_roots.get(shadow_root, [])
         if not candidates:
             return None
@@ -186,11 +186,6 @@ class ShadowIngestor:
 
         if selector == "round_robin":
             return self._select_round_robin_nested_root(shadow_root, candidates)
-
-        if selector == "explicit_map":
-            explicit = self._select_explicit_map_nested_root(relative, candidates)
-            if explicit is not None:
-                return explicit
 
         return candidates[0]
 
@@ -228,22 +223,6 @@ class ShadowIngestor:
             state_path.write_text(json.dumps(state), encoding="utf-8")
         except OSError:
             self.log.warning("Failed to persist ingest round-robin state: %s", state_path)
-
-    def _select_explicit_map_nested_root(
-        self,
-        relative: Path,
-        candidates: list[Path],
-    ) -> Path | None:
-        relative_text = str(relative).replace("\\", "/").strip("/")
-        for rule in self.config.explicit_map:
-            prefix = rule.shadow_prefix.strip("/")
-            if not prefix:
-                continue
-            if relative_text == prefix or relative_text.startswith(f"{prefix}/"):
-                mapped = Path(rule.nested_root)
-                if mapped in candidates:
-                    return mapped
-        return None
 
     def _resolve_ingest_destination(self, destination: Path) -> Path | None:
         if not destination.exists() and not destination.is_symlink():

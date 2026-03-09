@@ -36,14 +36,10 @@ ingest:
   # qualify: keep ingesting with deterministic suffix when destination exists
   # skip: leave source untouched when destination already exists
   collision_policy: "qualify"
-  # first | round_robin | largest_free | explicit_map
+  # first | round_robin | largest_free
   selector: "first"
   # Optional absolute path used when ingest fails mid-process.
   quarantine_root: ""
-  # Required only when selector=explicit_map.
-  # explicit_map:
-  #   - shadow_prefix: "kids"
-  #     nested_root: "/data/movies/age_06"
 
 quality_map:
   # How to find correct target_id/name values:
