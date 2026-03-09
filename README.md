@@ -92,7 +92,22 @@ PGID=1000
 2. Add `/data/radarr_library` as a Radarr root folder.
 3. Use a valid Radarr API key.
 
+How to retrieve Radarr API key:
+
+1. In Radarr UI: `Settings` -> `General` -> `Security` -> `API Key` (enable `Show Advanced` if needed).
+2. Or from container config:
+
+```bash
+docker-compose exec radarr sh -lc "grep -oPm1 '(?<=<ApiKey>)[^<]+' /config/config.xml"
+```
+
 If `radarr.sync_enabled` is `false`, LibrariArr still manages symlinks but does not call Radarr APIs.
+
+If `radarr.sync_enabled` is `true` and path mapping is wrong:
+
+1. Radarr can reject path updates when the target path is invalid for its container view or outside configured Radarr root folders.
+2. LibrariArr logs the API failure and retries on the next reconcile cycle.
+3. Fix by aligning container paths (`radarr` and `librariarr` must mount identical in-container roots) and adding the mapped shadow root(s) in Radarr (`Settings` -> `Media Management` -> `Root Folders`).
 
 Per-root shadow mapping example (age buckets):
 
@@ -141,7 +156,7 @@ services:
       - LIBRARIARR_RADARR_URL=${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       - LIBRARIARR_RADARR_API_KEY=${LIBRARIARR_RADARR_API_KEY}
     volumes:
-      - ${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro
+      - ${CONFIG_ROOT}/librariarr:/config:ro
       - ${MOVIES_DIR}:/data/movies
       - ${RADARR_LIBRARY_DIR}:/data/radarr_library
     command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
@@ -154,16 +169,15 @@ Config path gotcha (common in custom stacks):
 
 1. The image default is `--config /config/config.yaml`.
 2. If you mount to a different in-container path (for example `/app/config.yaml`), you must also override command to match that path.
-3. If you do not need a custom path, keep the standard mapping `${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro`.
+3. Recommended mapping with `CONFIG_ROOT` style vars is `${CONFIG_ROOT}/librariarr:/config:ro` (directory mount).
+4. Single-file bind is still valid if preferred: `${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro`.
 
-Synology/NAS note:
-
-Some NAS setups are more reliable with directory mounts than single-file binds. This is equivalent and valid:
+Single-file bind variant:
 
 ```yaml
 librariarr:
   volumes:
-    - ${CONFIG_ROOT}/librariarr:/config:ro
+    - ${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro
   command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
 ```
 
