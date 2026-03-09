@@ -40,6 +40,31 @@ class RadarrClient:
         definitions = self._request("GET", "/qualitydefinition")
         return definitions if isinstance(definitions, list) else []
 
+    def lookup_movies(self, term: str) -> list[dict[str, Any]]:
+        results = self._request("GET", "/movie/lookup", params={"term": term})
+        return results if isinstance(results, list) else []
+
+    def add_movie_from_lookup(
+        self,
+        lookup_movie: dict[str, Any],
+        path: str,
+        root_folder_path: str,
+        quality_profile_id: int,
+        monitored: bool,
+        search_for_movie: bool,
+    ) -> dict[str, Any]:
+        payload = dict(lookup_movie)
+        payload["id"] = 0
+        payload["path"] = path
+        payload["rootFolderPath"] = root_folder_path
+        payload["qualityProfileId"] = quality_profile_id
+        payload["monitored"] = monitored
+        payload["addOptions"] = {
+            "searchForMovie": search_for_movie,
+        }
+        added = self._request("POST", "/movie", json=payload)
+        return added if isinstance(added, dict) else {}
+
     def update_movie_path(self, movie: dict[str, Any], new_path: str) -> None:
         if movie.get("path") == new_path:
             return

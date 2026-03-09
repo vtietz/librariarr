@@ -39,10 +39,11 @@ Default naming behavior:
 2. Creates missing symlinks in the shadow root.
 3. Optional ingest mode (`ingest.enabled=true`) can move real folders created in shadow roots into configured nested roots, then replace the original shadow path with a symlink.
 4. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only fallback.
-5. Updates Radarr movie path to the symlink path.
-6. Attempts quality mapping based on configured rules.
-7. Cleans up orphaned symlinks and can unmonitor or delete from Radarr on missing source folders.
-8. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
+5. Optional auto-add mode (`radarr.auto_add_unmatched=true`) can create missing movie entries in Radarr from lookup results.
+6. Updates Radarr movie path to the symlink path.
+7. Attempts quality mapping based on configured rules.
+8. Cleans up orphaned symlinks and can unmonitor or delete from Radarr on missing source folders.
+9. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
 
 ## Docker Compose Setup
 
@@ -249,6 +250,10 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 | `radarr.api_key` | Required in config example |
 | `radarr.shadow_root` | `/data/radarr_library` |
 | `radarr.sync_enabled` | `true` |
+| `radarr.auto_add_unmatched` | `false` |
+| `radarr.auto_add_quality_profile_id` | `null` (auto-pick lowest profile id) |
+| `radarr.auto_add_search_on_add` | `false` |
+| `radarr.auto_add_monitored` | `true` |
 | `ingest.enabled` | `false` |
 | `ingest.min_age_seconds` | `30` |
 | `ingest.collision_policy` | `qualify` |
@@ -272,13 +277,15 @@ Quality mapping behavior:
 4. Optional analyzers (`nfo`, `media_probe`) are only used when enabled.
 5. Matching order is: filename/folder text, then NFO text, then media probe tokens.
 
-How to find `target_id` and profile names:
+How to find `quality_map.target_id` and auto-add profile ids:
 
-1. In Radarr UI: `Settings` -> `Profiles` -> `Quality`.
-2. Or query Radarr API and read `id` + `name` values:
+1. `quality_map.target_id` uses Radarr quality definitions (`/api/v3/qualitydefinition`).
+2. `radarr.auto_add_quality_profile_id` uses Radarr quality profiles (`/api/v3/qualityprofile`).
+3. Query both APIs and read `id` + `name` values:
 
 ```bash
 curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
+curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
 ```
 
 `media_probe` details:

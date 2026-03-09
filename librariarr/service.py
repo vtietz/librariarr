@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -29,6 +30,7 @@ class LibrariArrService:
     def __init__(self, config: AppConfig) -> None:
         self.config = config
         self.sync_enabled = config.radarr.sync_enabled
+        self.auto_add_unmatched = config.radarr.auto_add_unmatched
         self.radarr = RadarrClient(config.radarr.url, config.radarr.api_key)
         self.root_mappings = self._build_root_mappings(config)
         self.nested_roots = [nested for nested, _ in self.root_mappings]
@@ -62,6 +64,7 @@ class LibrariArrService:
         )
         self._lock = threading.Lock()
         self._sync_hint_logged = False
+        self._auto_add_quality_profile_id_cache: int | None = None
 
     def _log_sync_config_hint(self, exc: Exception) -> None:
         if not self.sync_enabled or self._sync_hint_logged:
@@ -196,10 +199,12 @@ class LibrariArrService:
     def run(self) -> None:
         LOG.info(
             "Starting LibrariArr service: shadow_roots=%s nested_roots=%s "
-            "sync_enabled=%s debounce_seconds=%s maintenance_interval_seconds=%s",
+            "sync_enabled=%s auto_add_unmatched=%s debounce_seconds=%s "
+            "maintenance_interval_seconds=%s",
             ",".join(str(root) for root in self.shadow_roots),
             ",".join(str(root) for root in self.nested_roots),
             self.sync_enabled,
+            self.auto_add_unmatched,
             self._debounce_seconds,
             self._maintenance_interval if self._maintenance_interval is not None else "disabled",
         )
@@ -300,6 +305,28 @@ class LibrariArrService:
             profile_pairs = self._format_id_name_pairs(profiles)
             if profile_pairs:
                 LOG.info("Radarr quality profiles (id:name): %s", profile_pairs)
+
+            profile_ids = {
+                profile_id
+                for profile_id in (profile.get("id") for profile in profiles)
+                if isinstance(profile_id, int)
+            }
+            configured_profile_id = self.config.radarr.auto_add_quality_profile_id
+            if configured_profile_id is not None and configured_profile_id not in profile_ids:
+                LOG.warning(
+                    "radarr.auto_add_quality_profile_id is not present in Radarr profiles: "
+                    "configured_profile_id=%s available_profile_ids=%s",
+                    configured_profile_id,
+                    sorted(profile_ids),
+                )
+            if self.auto_add_unmatched:
+                LOG.info(
+                    "Auto-add unmatched is enabled: quality_profile_id=%s monitored=%s "
+                    "search_on_add=%s",
+                    self.config.radarr.auto_add_quality_profile_id,
+                    self.config.radarr.auto_add_monitored,
+                    self.config.radarr.auto_add_search_on_add,
+                )
         except Exception as exc:
             LOG.warning("Unable to fetch Radarr quality profiles: %s", exc)
 
@@ -332,6 +359,147 @@ class LibrariArrService:
         except Exception as exc:
             LOG.warning("Unable to fetch Radarr quality definitions: %s", exc)
 
+    def _normalize_title_token(self, title: str) -> str:
+        return re.sub(r"[^a-z0-9]+", "", title.strip().lower())
+
+    def _pick_lookup_candidate(self, folder: Path, candidates: list[dict]) -> dict | None:
+        if not candidates:
+            return None
+
+        ref = parse_movie_ref(folder.name)
+        with_year = [
+            item
+            for item in candidates
+            if ref.year is not None
+            and isinstance(item.get("year"), int)
+            and item.get("year") == ref.year
+        ]
+        if ref.year is not None:
+            if not with_year:
+                return None
+            candidates = with_year
+
+        ref_norm = self._normalize_title_token(ref.title)
+        best_score = -1
+        best: dict | None = None
+
+        for item in candidates:
+            title = str(item.get("title") or "").strip()
+            if not title:
+                continue
+            candidate_norm = self._normalize_title_token(title)
+            score = 0
+            if candidate_norm == ref_norm:
+                score += 100
+            elif candidate_norm and (candidate_norm in ref_norm or ref_norm in candidate_norm):
+                score += 50
+
+            if ref.year is not None and item.get("year") == ref.year:
+                score += 20
+
+            if score > best_score:
+                best_score = score
+                best = item
+
+        return best if best_score > 0 else None
+
+    def _resolve_auto_add_quality_profile_id(self) -> int | None:
+        configured_profile_id = self.config.radarr.auto_add_quality_profile_id
+        if configured_profile_id is not None:
+            return configured_profile_id
+
+        if self._auto_add_quality_profile_id_cache is not None:
+            return self._auto_add_quality_profile_id_cache
+
+        try:
+            profiles = self.radarr.get_quality_profiles()
+        except Exception as exc:
+            LOG.warning("Unable to fetch Radarr quality profiles for auto-add: %s", exc)
+            return None
+
+        profile_ids = sorted(
+            profile_id
+            for profile_id in (profile.get("id") for profile in profiles)
+            if isinstance(profile_id, int)
+        )
+        if not profile_ids:
+            LOG.warning(
+                "No Radarr quality profiles available; set radarr.auto_add_quality_profile_id "
+                "or create profiles in Radarr."
+            )
+            return None
+
+        self._auto_add_quality_profile_id_cache = profile_ids[0]
+        LOG.info(
+            "Auto-add unmatched: using default Radarr quality profile id=%s "
+            "(lowest available profile id)",
+            self._auto_add_quality_profile_id_cache,
+        )
+        return self._auto_add_quality_profile_id_cache
+
+    def _canonical_name_from_movie(self, movie: dict, fallback_folder: Path) -> str:
+        title = str(movie.get("title") or "").strip() or fallback_folder.name
+        year = movie.get("year")
+        if isinstance(year, int):
+            return f"{title} ({year})"
+        return title
+
+    def _auto_add_movie_for_folder(self, folder: Path, shadow_root: Path) -> dict | None:
+        ref = parse_movie_ref(folder.name)
+        term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
+
+        try:
+            candidates = self.radarr.lookup_movies(term)
+        except requests.RequestException as exc:
+            LOG.warning("Radarr lookup failed for folder=%s term=%s: %s", folder, term, exc)
+            return None
+
+        candidate = self._pick_lookup_candidate(folder, candidates)
+        if candidate is None:
+            LOG.warning(
+                "No safe Radarr lookup match for folder: %s (lookup_term=%s)",
+                folder,
+                term,
+            )
+            return None
+
+        quality_profile_id = self._resolve_auto_add_quality_profile_id()
+        if quality_profile_id is None:
+            LOG.warning(
+                "Skipping auto-add for folder=%s because no quality profile id is available.",
+                folder,
+            )
+            return None
+
+        canonical_name = self._canonical_name_from_movie(candidate, folder)
+        link_path = shadow_root / canonical_name
+        try:
+            added_movie = self.radarr.add_movie_from_lookup(
+                candidate,
+                path=str(link_path),
+                root_folder_path=str(shadow_root),
+                quality_profile_id=quality_profile_id,
+                monitored=self.config.radarr.auto_add_monitored,
+                search_for_movie=self.config.radarr.auto_add_search_on_add,
+            )
+        except requests.HTTPError as exc:
+            LOG.warning(
+                "Radarr auto-add failed for folder=%s canonical=%s profile_id=%s: %s",
+                folder,
+                canonical_name,
+                quality_profile_id,
+                exc,
+            )
+            return None
+
+        LOG.info(
+            "Auto-added movie in Radarr: folder=%s canonical=%s movie_id=%s",
+            folder,
+            canonical_name,
+            added_movie.get("id"),
+        )
+        return added_movie
+
     def reconcile(self) -> None:
         with self._lock:
             started = time.time()
@@ -355,6 +523,11 @@ class LibrariArrService:
                     if self.sync_enabled
                     else None
                 )
+                if self.sync_enabled and movie is None and self.auto_add_unmatched:
+                    movie = self._auto_add_movie_for_folder(folder, shadow_root)
+                    if movie is not None:
+                        self._index_movie(index=movies_by_ref, movie=movie)
+
                 existing_links = target_to_links.get(folder, set())
                 link_path, was_created = self.link_manager.ensure_link(
                     folder,
@@ -372,12 +545,18 @@ class LibrariArrService:
                         self._sync_radarr_for_folder(folder, link_path, movie)
                         matched_movies += 1
                     else:
-                        LOG.warning(
-                            "No Radarr match for folder: %s "
-                            "(LibrariArr does not auto-add new movies to Radarr; "
-                            "add/import in Radarr first)",
-                            folder,
-                        )
+                        if self.auto_add_unmatched:
+                            LOG.warning(
+                                "No Radarr match for folder after auto-add attempt: %s",
+                                folder,
+                            )
+                        else:
+                            LOG.warning(
+                                "No Radarr match for folder: %s "
+                                "(enable radarr.auto_add_unmatched=true to auto-create, "
+                                "or add/import in Radarr first)",
+                                folder,
+                            )
                         unmatched_movies += 1
 
             orphaned_links_removed = 0
@@ -427,14 +606,19 @@ class LibrariArrService:
     def _build_movie_index(self) -> dict[MovieRef, dict]:
         index: dict[MovieRef, dict] = {}
         for movie in self.radarr.get_movies():
-            title = (movie.get("title") or "").strip().lower()
-            year = movie.get("year")
-            ref = MovieRef(title=title, year=year if isinstance(year, int) else None)
-            index[ref] = movie
-            # Fallback key: title only
-            if MovieRef(title=title, year=None) not in index:
-                index[MovieRef(title=title, year=None)] = movie
+            self._index_movie(index=index, movie=movie)
         return index
+
+    def _index_movie(self, index: dict[MovieRef, dict], movie: dict) -> None:
+        title = (movie.get("title") or "").strip().lower()
+        if not title:
+            return
+        year = movie.get("year")
+        ref = MovieRef(title=title, year=year if isinstance(year, int) else None)
+        index[ref] = movie
+        # Fallback key: title only
+        if MovieRef(title=title, year=None) not in index:
+            index[MovieRef(title=title, year=None)] = movie
 
     def _sync_radarr_for_folder(
         self,

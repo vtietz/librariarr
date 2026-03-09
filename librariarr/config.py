@@ -50,6 +50,10 @@ class RadarrConfig:
     api_key: str
     shadow_root: str = "/data/radarr_library"
     sync_enabled: bool = True
+    auto_add_unmatched: bool = False
+    auto_add_quality_profile_id: int | None = None
+    auto_add_search_on_add: bool = False
+    auto_add_monitored: bool = True
 
 
 @dataclass
@@ -103,6 +107,13 @@ def load_config(path: str | Path) -> AppConfig:
     radarr_api_key = os.getenv("LIBRARIARR_RADARR_API_KEY", str(_require(radarr, "api_key")))
     shadow_root = str(radarr.get("shadow_root", "/data/radarr_library"))
     sync_enabled = bool(radarr.get("sync_enabled", True))
+    auto_add_unmatched = bool(radarr.get("auto_add_unmatched", False))
+    auto_add_quality_profile_raw = radarr.get("auto_add_quality_profile_id")
+    auto_add_quality_profile_id = (
+        int(auto_add_quality_profile_raw) if auto_add_quality_profile_raw is not None else None
+    )
+    auto_add_search_on_add = bool(radarr.get("auto_add_search_on_add", False))
+    auto_add_monitored = bool(radarr.get("auto_add_monitored", True))
 
     quality_map = [
         QualityRule(
@@ -155,6 +166,10 @@ def load_config(path: str | Path) -> AppConfig:
             api_key=radarr_api_key,
             shadow_root=shadow_root,
             sync_enabled=sync_enabled,
+            auto_add_unmatched=auto_add_unmatched,
+            auto_add_quality_profile_id=auto_add_quality_profile_id,
+            auto_add_search_on_add=auto_add_search_on_add,
+            auto_add_monitored=auto_add_monitored,
         ),
         quality_map=quality_map,
         cleanup=CleanupConfig(

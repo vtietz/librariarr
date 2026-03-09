@@ -43,6 +43,10 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.url == "http://radarr:7878"
     assert config.radarr.api_key == "test-key"
     assert config.radarr.shadow_root == "/data/radarr_library"
+    assert config.radarr.auto_add_unmatched is False
+    assert config.radarr.auto_add_quality_profile_id is None
+    assert config.radarr.auto_add_search_on_add is False
+    assert config.radarr.auto_add_monitored is True
     assert config.quality_map[0].target_id == 7
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
@@ -197,3 +201,32 @@ def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
         assert "ingest.selector is no longer supported" in str(exc)
     else:
         raise AssertionError("Expected ValueError for deprecated ingest.selector")
+
+
+def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  nested_roots:\n"
+            "    - /data/movies/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  auto_add_unmatched: true\n"
+            "  auto_add_quality_profile_id: 7\n"
+            "  auto_add_search_on_add: true\n"
+            "  auto_add_monitored: false\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.radarr.auto_add_unmatched is True
+    assert config.radarr.auto_add_quality_profile_id == 7
+    assert config.radarr.auto_add_search_on_add is True
+    assert config.radarr.auto_add_monitored is False

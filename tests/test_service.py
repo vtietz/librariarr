@@ -23,17 +23,23 @@ class FakeRadarr:
         system_status_error: Exception | None = None,
         quality_profiles: list[dict] | None = None,
         quality_definitions: list[dict] | None = None,
+        lookup_results: list[dict] | None = None,
+        add_movie_result: dict | None = None,
     ) -> None:
         self.movies = movies or []
         self.system_status = system_status or {"appName": "Radarr", "version": "0.0.0-test"}
         self.system_status_error = system_status_error
         self.quality_profiles = quality_profiles or []
         self.quality_definitions = quality_definitions or []
+        self.lookup_results = lookup_results or []
+        self.add_movie_result = add_movie_result or {}
         self.updated_paths: list[tuple[int, str]] = []
         self.updated_qualities: list[tuple[int, int]] = []
         self.refreshed: list[int] = []
         self.unmonitored: list[int] = []
         self.deleted: list[int] = []
+        self.lookup_terms: list[str] = []
+        self.added_movies: list[dict] = []
         self.get_movies_calls = 0
         self.get_system_status_calls = 0
         self.get_quality_profiles_calls = 0
@@ -56,6 +62,31 @@ class FakeRadarr:
     def get_quality_definitions(self) -> list[dict]:
         self.get_quality_definitions_calls += 1
         return self.quality_definitions
+
+    def lookup_movies(self, term: str) -> list[dict]:
+        self.lookup_terms.append(term)
+        return self.lookup_results
+
+    def add_movie_from_lookup(
+        self,
+        lookup_movie: dict,
+        path: str,
+        root_folder_path: str,
+        quality_profile_id: int,
+        monitored: bool,
+        search_for_movie: bool,
+    ) -> dict:
+        self.added_movies.append(
+            {
+                "lookup_movie": lookup_movie,
+                "path": path,
+                "root_folder_path": root_folder_path,
+                "quality_profile_id": quality_profile_id,
+                "monitored": monitored,
+                "search_for_movie": search_for_movie,
+            }
+        )
+        return self.add_movie_result
 
     def update_movie_path(self, movie: dict, new_path: str) -> None:
         self.updated_paths.append((int(movie["id"]), new_path))
@@ -85,6 +116,8 @@ def make_config(
     shadow_root: Path,
     sync_enabled: bool = True,
     delete_from_radarr_on_missing: bool = False,
+    auto_add_unmatched: bool = False,
+    auto_add_quality_profile_id: int | None = None,
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(nested_roots=[str(nested_root)]),
@@ -93,6 +126,8 @@ def make_config(
             api_key="test",
             shadow_root=str(shadow_root),
             sync_enabled=sync_enabled,
+            auto_add_unmatched=auto_add_unmatched,
+            auto_add_quality_profile_id=auto_add_quality_profile_id,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
         cleanup=CleanupConfig(
@@ -250,6 +285,82 @@ def test_reconcile_matches_radarr_for_suffix_folder_name(tmp_path: Path) -> None
     assert fake.get_movies_calls == 1
     assert fake.updated_paths and fake.updated_paths[0][0] == 2
     assert (shadow_root / "Sing (2016)").is_symlink()
+
+
+def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+        auto_add_quality_profile_id=7,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 10,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 110},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    canonical_link = shadow_root / "Cars 3 (2017)"
+    assert canonical_link.is_symlink()
+    assert canonical_link.resolve(strict=False) == movie_dir
+    assert not (shadow_root / "Cars 3 - Evolution (2017)").exists()
+    assert fake.lookup_terms == ["cars 3 - evolution 2017"]
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
+    assert fake.updated_paths == [(10, str(canonical_link))]
+
+
+def test_reconcile_auto_add_uses_default_profile_when_not_configured(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[{"id": 3, "name": "HD-720p"}, {"id": 7, "name": "x265"}],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 11,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 111},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 3
 
 
 def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
