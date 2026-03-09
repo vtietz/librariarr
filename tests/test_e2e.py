@@ -7,6 +7,7 @@ import pytest
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
+    IngestConfig,
     PathsConfig,
     RadarrConfig,
     RootMapping,
@@ -172,3 +173,42 @@ def test_e2e_reconcile_respects_root_mappings(tmp_path: Path) -> None:
     assert not (age16_shadow / "Movie A (2020)").exists()
     assert (age16_shadow / "Movie B (2021)").is_symlink()
     assert not (age12_shadow / "Movie B (2021)").exists()
+
+
+@pytest.mark.fs_e2e
+def test_e2e_ingest_moves_shadow_folder_into_nested_root(tmp_path: Path) -> None:
+    root_base, shadow_root = _make_roots(tmp_path, "ingest_moves_shadow_to_nested")
+    nested_root = root_base / "age_12"
+    mapped_shadow = shadow_root / "age_12"
+
+    imported_dir = mapped_shadow / "Imported Movie (2024)"
+    imported_dir.mkdir(parents=True)
+    (imported_dir / "Imported.Movie.2024.1080p.mkv").write_text("stub", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(nested_root), shadow_root=str(mapped_shadow)),
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            shadow_root=str(shadow_root),
+            sync_enabled=False,
+        ),
+        quality_map=[],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+        ingest=IngestConfig(enabled=True, min_age_seconds=0),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+    _relativize_links_for_host_view(mapped_shadow)
+
+    destination = nested_root / "Imported Movie (2024)"
+    shadow_link = mapped_shadow / "Imported Movie (2024)"
+    assert destination.exists()
+    assert shadow_link.is_symlink()
+    assert shadow_link.resolve(strict=False) == destination

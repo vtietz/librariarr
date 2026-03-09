@@ -155,3 +155,82 @@ def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monke
     config = load_config(config_path)
 
     assert config.runtime.maintenance_interval_minutes == 0
+
+
+def test_load_config_ingest_defaults(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(CONFIG_CONTENT, encoding="utf-8")
+
+    monkeypatch.delenv("LIBRARIARR_RADARR_URL", raising=False)
+    monkeypatch.delenv("LIBRARIARR_RADARR_API_KEY", raising=False)
+
+    config = load_config(config_path)
+
+    assert config.ingest.enabled is False
+    assert config.ingest.min_age_seconds == 30
+    assert config.ingest.collision_policy == "qualify"
+    assert config.ingest.selector == "first"
+    assert config.ingest.explicit_map == []
+
+
+def test_load_config_ingest_explicit_map_selector_requires_rules(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  nested_roots:\n"
+            "    - /data/movies/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+            "ingest:\n"
+            "  enabled: true\n"
+            "  selector: explicit_map\n"
+        ),
+        encoding="utf-8",
+    )
+
+    try:
+        load_config(config_path)
+    except ValueError as exc:
+        assert "ingest.explicit_map is required" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError for missing ingest.explicit_map")
+
+
+def test_load_config_reads_ingest_explicit_map_rules(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/a\n"
+            "      shadow_root: /data/radarr_library\n"
+            "    - nested_root: /data/movies/b\n"
+            "      shadow_root: /data/radarr_library\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+            "ingest:\n"
+            "  enabled: true\n"
+            "  selector: explicit_map\n"
+            "  explicit_map:\n"
+            "    - shadow_prefix: kids\n"
+            "      nested_root: /data/movies/a\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.ingest.enabled is True
+    assert config.ingest.selector == "explicit_map"
+    assert len(config.ingest.explicit_map) == 1
+    assert config.ingest.explicit_map[0].shadow_prefix == "kids"
+    assert config.ingest.explicit_map[0].nested_root == "/data/movies/a"

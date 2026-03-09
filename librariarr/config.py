@@ -37,6 +37,22 @@ class AnalysisConfig:
 
 
 @dataclass
+class IngestExplicitMapRule:
+    shadow_prefix: str
+    nested_root: str
+
+
+@dataclass
+class IngestConfig:
+    enabled: bool = False
+    min_age_seconds: int = 30
+    collision_policy: str = "qualify"
+    quarantine_root: str = ""
+    selector: str = "first"
+    explicit_map: list[IngestExplicitMapRule] = field(default_factory=list)
+
+
+@dataclass
 class RadarrConfig:
     url: str
     api_key: str
@@ -64,6 +80,7 @@ class AppConfig:
     cleanup: CleanupConfig
     runtime: RuntimeConfig
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
+    ingest: IngestConfig = field(default_factory=IngestConfig)
 
 
 def _require(data: dict[str, Any], key: str) -> Any:
@@ -121,6 +138,38 @@ def load_config(path: str | Path) -> AppConfig:
         media_probe_bin=str(analysis_raw.get("media_probe_bin", "ffprobe")),
     )
 
+    ingest_raw = raw.get("ingest", {})
+    collision_policy = str(ingest_raw.get("collision_policy", "qualify")).strip().lower()
+    if collision_policy not in {"qualify", "skip"}:
+        raise ValueError("ingest.collision_policy must be one of: qualify, skip")
+
+    selector = str(ingest_raw.get("selector", "first")).strip().lower()
+    if selector not in {"first", "round_robin", "largest_free", "explicit_map"}:
+        raise ValueError(
+            "ingest.selector must be one of: first, round_robin, largest_free, explicit_map"
+        )
+
+    explicit_map_raw = ingest_raw.get("explicit_map", [])
+    explicit_map = [
+        IngestExplicitMapRule(
+            shadow_prefix=str(_require(item, "shadow_prefix")).strip("/"),
+            nested_root=str(_require(item, "nested_root")),
+        )
+        for item in explicit_map_raw
+    ]
+
+    if selector == "explicit_map" and not explicit_map:
+        raise ValueError("ingest.explicit_map is required when ingest.selector=explicit_map")
+
+    ingest = IngestConfig(
+        enabled=bool(ingest_raw.get("enabled", False)),
+        min_age_seconds=max(0, int(ingest_raw.get("min_age_seconds", 30))),
+        collision_policy=collision_policy,
+        quarantine_root=str(ingest_raw.get("quarantine_root", "")).strip(),
+        selector=selector,
+        explicit_map=explicit_map,
+    )
+
     return AppConfig(
         paths=PathsConfig(nested_roots=list(nested_roots), root_mappings=root_mappings),
         radarr=RadarrConfig(
@@ -137,4 +186,5 @@ def load_config(path: str | Path) -> AppConfig:
         ),
         runtime=runtime,
         analysis=analysis,
+        ingest=ingest,
     )

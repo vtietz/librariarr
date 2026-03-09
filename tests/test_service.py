@@ -5,6 +5,7 @@ import requests
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
+    IngestConfig,
     PathsConfig,
     QualityRule,
     RadarrConfig,
@@ -449,3 +450,114 @@ def test_sync_hint_logs_actionable_message_for_unauthorized_radarr(
     caplog.clear()
     service._log_sync_config_hint(err)
     assert caplog.text == ""
+
+
+def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    incoming = shadow_root / "Incoming Movie (2024)"
+    incoming.mkdir(parents=True)
+    (incoming / "Incoming.Movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    config.ingest = IngestConfig(enabled=True, min_age_seconds=0)
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    destination = nested_root / "Incoming Movie (2024)"
+    shadow_link = shadow_root / "Incoming Movie (2024)"
+    assert destination.exists()
+    assert shadow_link.is_symlink()
+    assert shadow_link.resolve(strict=False) == destination
+
+    # Second run should be a no-op for this already-ingested path.
+    service.reconcile()
+    assert shadow_link.is_symlink()
+    assert shadow_link.resolve(strict=False) == destination
+
+
+def test_ingest_collision_skip_policy_leaves_source_untouched(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+
+    existing = nested_root / "Collision Movie (2024)"
+    existing.mkdir(parents=True)
+    (existing / "Collision.Movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
+
+    incoming = shadow_root / "Collision Movie (2024)"
+    incoming.mkdir(parents=True)
+    (incoming / "Collision.Movie.2024.2160p.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    config.ingest = IngestConfig(enabled=True, min_age_seconds=0, collision_policy="skip")
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    assert incoming.exists()
+    assert incoming.is_dir()
+    assert not incoming.is_symlink()
+
+
+def test_ingest_collision_qualify_policy_uses_suffix(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+
+    existing = nested_root / "Collision Movie (2024)"
+    existing.mkdir(parents=True)
+    (existing / "existing.mkv").write_text("x", encoding="utf-8")
+
+    incoming = shadow_root / "Collision Movie (2024)"
+    incoming.mkdir(parents=True)
+    (incoming / "incoming.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    config.ingest = IngestConfig(enabled=True, min_age_seconds=0, collision_policy="qualify")
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    qualified_destination = nested_root / "Collision Movie (2024) [ingest-2]"
+    shadow_link = shadow_root / "Collision Movie (2024)"
+    assert qualified_destination.exists()
+    assert shadow_link.is_symlink()
+    assert shadow_link.resolve(strict=False) == qualified_destination
+
+
+def test_ingest_round_robin_selector_distributes_across_roots(tmp_path: Path) -> None:
+    shadow_root = tmp_path / "radarr_library"
+    nested_a = tmp_path / "nested_a"
+    nested_b = tmp_path / "nested_b"
+
+    incoming_a = shadow_root / "Movie A (2020)"
+    incoming_b = shadow_root / "Movie B (2021)"
+    incoming_a.mkdir(parents=True)
+    incoming_b.mkdir(parents=True)
+    (incoming_a / "movie.a.2020.mkv").write_text("x", encoding="utf-8")
+    (incoming_b / "movie.b.2021.mkv").write_text("x", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(nested_a), shadow_root=str(shadow_root)),
+                RootMapping(nested_root=str(nested_b), shadow_root=str(shadow_root)),
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            shadow_root=str(shadow_root),
+            sync_enabled=False,
+        ),
+        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+        ingest=IngestConfig(enabled=True, min_age_seconds=0, selector="round_robin"),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+
+    assert (nested_a / "Movie A (2020)").exists()
+    assert (nested_b / "Movie B (2021)").exists()

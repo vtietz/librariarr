@@ -37,11 +37,12 @@ Default naming behavior:
 
 1. Scans configured nested roots for movie folders (folder containing a video file).
 2. Creates missing symlinks in the shadow root.
-3. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only fallback.
-4. Updates Radarr movie path to the symlink path.
-5. Attempts quality mapping based on configured rules.
-6. Cleans up orphaned symlinks and can unmonitor or delete from Radarr on missing source folders.
-7. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
+3. Optional ingest mode (`ingest.enabled=true`) can move real folders created in shadow roots into configured nested roots, then replace the original shadow path with a symlink.
+4. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only fallback.
+5. Updates Radarr movie path to the symlink path.
+6. Attempts quality mapping based on configured rules.
+7. Cleans up orphaned symlinks and can unmonitor or delete from Radarr on missing source folders.
+8. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
 
 ## Docker Compose Setup
 
@@ -211,6 +212,12 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 | `radarr.api_key` | Required in config example |
 | `radarr.shadow_root` | `/data/radarr_library` |
 | `radarr.sync_enabled` | `true` |
+| `ingest.enabled` | `false` |
+| `ingest.min_age_seconds` | `30` |
+| `ingest.collision_policy` | `qualify` |
+| `ingest.selector` | `first` |
+| `ingest.quarantine_root` | `""` (disabled) |
+| `ingest.explicit_map` | `[]` |
 | `quality_map` | `[]` |
 | `cleanup.remove_orphaned_links` | `true` |
 | `cleanup.unmonitor_on_delete` | `true` |
@@ -259,6 +266,20 @@ Root source precedence:
 
 1. `paths.root_mappings` (if non-empty).
 2. `paths.nested_roots` + one shared `radarr.shadow_root`.
+
+## Optional Ingest Mode
+
+By default, LibrariArr is one-way: nested roots are scanned and projected into shadow roots as symlinks.
+
+If you enable ingest (`ingest.enabled: true`), LibrariArr also handles real directories that appear in shadow roots:
+
+1. Detects non-symlink movie directories in configured shadow roots.
+2. Waits for quiescence (`ingest.min_age_seconds`) to avoid moving in-progress writes.
+3. Selects a nested destination root using `ingest.selector`.
+4. Moves the folder into nested storage.
+5. Recreates the original shadow path as a symlink to the moved folder.
+
+This keeps Radarr-visible paths stable while preserving nested roots as the physical source of truth.
 
 ## Runtime Modes
 
