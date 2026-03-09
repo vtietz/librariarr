@@ -1,8 +1,11 @@
 paths:
   # Config-first mode: LibrariArr reads app settings from this file.
   # Only radarr.url and radarr.api_key can be overridden by env.
+  # Use absolute in-container paths that match your Docker volume mount targets.
+  # In the default compose setup those targets are /data/movies and /data/radarr_library.
   # Preferred for age-based layouts: map each nested source root to its own shadow root.
   # When root_mappings is set, LibrariArr uses it instead of nested_roots.
+  # In this mode, radarr.shadow_root is ignored for link placement.
   # root_mappings:
   #   - nested_root: "/data/movies/age_06"
   #     shadow_root: "/data/radarr_library/age_06"
@@ -23,8 +26,9 @@ radarr:
   # - LIBRARIARR_RADARR_API_KEY
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
-  shadow_root: "/data/radarr_library"
   sync_enabled: true
+  # Used only in legacy mode (when paths.root_mappings is not set).
+  shadow_root: "/data/radarr_library"
 
 ingest:
   # Disabled by default to preserve existing one-way behavior.
