@@ -287,6 +287,54 @@ def test_reconcile_matches_radarr_for_suffix_folder_name(tmp_path: Path) -> None
     assert (shadow_root / "Sing (2016)").is_symlink()
 
 
+def test_reconcile_matches_existing_radarr_movie_for_alias_title_same_year(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+        auto_add_quality_profile_id=7,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 4,
+                "title": "Cars 3",
+                "year": 2017,
+                "path": "/old/path",
+                "movieFile": {"id": 114},
+                "monitored": True,
+            }
+        ],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 4,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 114},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.lookup_terms == []
+    assert fake.added_movies == []
+    assert fake.updated_paths and fake.updated_paths[0][0] == 4
+    assert (shadow_root / "Cars 3 (2017)").is_symlink()
+    assert not (shadow_root / "Cars 3 - Evolution (2017)").exists()
+
+
 def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"

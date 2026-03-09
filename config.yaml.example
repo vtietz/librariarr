@@ -25,9 +25,10 @@ radarr:
   # Default in this example is true for convenient out-of-the-box auto import.
   # Disable if your source folders are often temporary/incomplete names.
   auto_add_unmatched: true
-  # Optional override for Radarr quality profile id used on add.
-  # Usually leave unset: LibrariArr maps from quality_map/analysis to a profile.
-  # Fallback if no mapping is possible: lowest available profile id in Radarr.
+  # Optional fixed Radarr quality profile id for auto-add.
+  # If set, this profile id is always used for newly auto-added movies.
+  # If unset, LibrariArr maps from quality_map/analysis to a profile.
+  # Fallback (only when unset and no mapping is possible): lowest profile id in Radarr.
   # auto_add_quality_profile_id: 1
   # Advanced: trigger Radarr indexer search immediately after add.
   # Keep false if you only want to register/import paths first.

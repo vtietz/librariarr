@@ -56,8 +56,9 @@ quality_map:
 
 `radarr.auto_add_quality_profile_id`:
 - Optional fixed quality profile id for auto-add.
+- If set, this profile id is always used for newly auto-added movies.
 - If omitted, LibrariArr tries to map from `quality_map`/analysis to a profile.
-- If no mapping is possible, falls back to the lowest available profile id.
+- If no mapping is possible in omitted mode, it falls back to the lowest available profile id.
 
 `radarr.auto_add_search_on_add`:
 - If true, Radarr starts indexer search immediately after add.

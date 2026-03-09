@@ -38,7 +38,7 @@ Default naming behavior:
 1. Scans configured nested roots for movie folders (folder containing a video file).
 2. Creates missing symlinks in the shadow root.
 3. Optional ingest mode (`ingest.enabled=true`) can move real folders created in shadow roots into configured nested roots, then replace the original shadow path with a symlink.
-4. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only fallback.
+4. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only, then same-year normalized title fallback.
 5. Optional auto-add mode (`radarr.auto_add_unmatched=true`) can create missing movie entries in Radarr from lookup results.
 6. Updates Radarr movie path to the symlink path.
 7. Attempts quality mapping based on configured rules.
@@ -249,7 +249,7 @@ Configuration essentials:
 1. Prefer `paths.root_mappings` over legacy `paths.nested_roots`.
 2. Keep `radarr.sync_enabled: true` for Radarr API sync.
 3. `radarr.auto_add_unmatched` is enabled in the default example for automatic import.
-4. Leave `radarr.auto_add_quality_profile_id` unset unless you need a fixed profile id.
+4. `radarr.auto_add_quality_profile_id` is a fixed override when set; leave it unset to enable auto-mapping.
 5. `quality_map.target_id` uses `/api/v3/qualitydefinition` ids.
 6. `radarr.auto_add_quality_profile_id` uses `/api/v3/qualityprofile` ids.
 

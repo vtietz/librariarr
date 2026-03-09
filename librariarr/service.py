@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from pathlib import Path
@@ -24,6 +25,7 @@ from .sync import (
 )
 
 LOG = logging.getLogger(__name__)
+TITLE_TOKEN_RE = re.compile(r"[^a-z0-9]+")
 
 
 class LibrariArrService:
@@ -378,7 +380,61 @@ class LibrariArrService:
         movies_by_ref: dict[MovieRef, dict],
     ) -> dict | None:
         ref = parse_movie_ref(folder.name)
-        return movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
+        exact_match = movies_by_ref.get(ref) or movies_by_ref.get(
+            MovieRef(title=ref.title, year=None)
+        )
+        if exact_match is not None:
+            return exact_match
+
+        # Safe fallback: same-year fuzzy title matching for folder aliases/suffixes
+        # like "Cars 3 - Evolution (2017)" vs Radarr title "Cars 3 (2017)".
+        return self._fuzzy_match_movie_for_folder(ref, movies_by_ref)
+
+    def _normalize_title_token(self, title: str) -> str:
+        return TITLE_TOKEN_RE.sub("", title.strip().lower())
+
+    def _fuzzy_match_movie_for_folder(
+        self,
+        ref: MovieRef,
+        movies_by_ref: dict[MovieRef, dict],
+    ) -> dict | None:
+        if ref.year is None:
+            return None
+
+        ref_norm = self._normalize_title_token(ref.title)
+        if not ref_norm:
+            return None
+
+        best_score = -1
+        best: dict | None = None
+        seen_ids: set[int] = set()
+
+        for movie in movies_by_ref.values():
+            movie_id = movie.get("id")
+            if not isinstance(movie_id, int) or movie_id in seen_ids:
+                continue
+            seen_ids.add(movie_id)
+
+            year = movie.get("year")
+            if not isinstance(year, int) or year != ref.year:
+                continue
+
+            movie_title = str(movie.get("title") or "").strip()
+            movie_norm = self._normalize_title_token(movie_title)
+            if not movie_norm:
+                continue
+
+            score = 0
+            if movie_norm == ref_norm:
+                score += 100
+            elif movie_norm in ref_norm or ref_norm in movie_norm:
+                score += 50
+
+            if score > best_score:
+                best_score = score
+                best = movie
+
+        return best if best_score > 0 else None
 
     def _build_movie_index(self) -> dict[MovieRef, dict]:
         index: dict[MovieRef, dict] = {}
