@@ -39,7 +39,7 @@ ingest:
   # skip: ingest is skipped and the real source directory stays in the shadow root
   collision_policy: "qualify"
   # Optional absolute path used when ingest fails mid-process.
-  quarantine_root: ""
+  quarantine_root: "/data/movies/.librariarr/quarantine"
 
 quality_map:
   # How to find correct target_id/name values:
