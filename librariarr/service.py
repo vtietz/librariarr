@@ -76,7 +76,11 @@ class LibrariArrService:
         self.video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
 
         self._debounce_seconds = max(1, config.runtime.debounce_seconds)
-        self._maintenance_interval = max(60, config.runtime.maintenance_interval_minutes * 60)
+        maintenance_minutes = config.runtime.maintenance_interval_minutes
+        # 0 or negative disables periodic maintenance; startup + FS events still run.
+        self._maintenance_interval = (
+            None if maintenance_minutes <= 0 else max(60, maintenance_minutes * 60)
+        )
         self._last_event = 0.0
         self._last_sync = 0.0
         self._lock = threading.Lock()
@@ -112,7 +116,7 @@ class LibrariArrService:
             ",".join(str(root) for root in self.nested_roots),
             self.sync_enabled,
             self._debounce_seconds,
-            self._maintenance_interval,
+            self._maintenance_interval if self._maintenance_interval is not None else "disabled",
         )
         for shadow_root in self.shadow_roots:
             shadow_root.mkdir(parents=True, exist_ok=True)
@@ -133,7 +137,9 @@ class LibrariArrService:
 
             while True:
                 now = time.time()
-                should_maintenance = (now - self._last_sync) >= self._maintenance_interval
+                should_maintenance = self._maintenance_interval is not None and (
+                    (now - self._last_sync) >= self._maintenance_interval
+                )
                 should_event_sync = self._last_event and (
                     (now - self._last_event) >= self._debounce_seconds
                 )

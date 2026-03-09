@@ -129,3 +129,29 @@ def test_root_mappings_take_precedence_over_nested_roots(tmp_path: Path, monkeyp
 
     assert config.paths.nested_roots == ["/data/movies/other"]
     assert len(config.paths.root_mappings) == 1
+
+
+def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monkeypatch) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  nested_roots:\n"
+            "    - /data/movies/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime:\n"
+            "  maintenance_interval_minutes: 0\n"
+        ),
+        encoding="utf-8",
+    )
+
+    monkeypatch.delenv("LIBRARIARR_RADARR_URL", raising=False)
+    monkeypatch.delenv("LIBRARIARR_RADARR_API_KEY", raising=False)
+
+    config = load_config(config_path)
+
+    assert config.runtime.maintenance_interval_minutes == 0

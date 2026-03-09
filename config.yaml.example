@@ -64,6 +64,8 @@ cleanup:
 
 runtime:
   debounce_seconds: 8
+  # Set to 0 to disable periodic full maintenance scans after startup.
+  # With 0, LibrariArr runs one startup reconcile and then reacts to filesystem events only.
   maintenance_interval_minutes: 1440
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]
 

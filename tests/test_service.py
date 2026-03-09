@@ -348,3 +348,26 @@ def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
     canonical_link = shadow_root / "Star Wars (1977)"
     assert canonical_link.is_symlink()
     assert not stale_link.exists()
+
+
+def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = AppConfig(
+        paths=PathsConfig(nested_roots=[str(nested_root)]),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            shadow_root=str(shadow_root),
+            sync_enabled=False,
+        ),
+        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=0),
+    )
+
+    service = LibrariArrService(config)
+
+    assert service._maintenance_interval is None

@@ -184,7 +184,7 @@ For age-based roots, add all mapped roots in Radarr instead of only one.
 | `cleanup.unmonitor_on_delete` | `true` |
 | `cleanup.delete_from_radarr_on_missing` | `false` |
 | `runtime.debounce_seconds` | `8` |
-| `runtime.maintenance_interval_minutes` | `1440` |
+| `runtime.maintenance_interval_minutes` | `1440` (`0` disables periodic maintenance scans) |
 | `runtime.scan_video_extensions` | `['.mkv','.mp4','.avi','.m2ts','.mov','.wmv','.ts']` |
 | `analysis.use_nfo` | `false` |
 | `analysis.use_media_probe` | `false` |
