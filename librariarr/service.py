@@ -269,11 +269,25 @@ class LibrariArrService:
     def _format_id_name_pairs(self, items: list[dict]) -> str:
         pairs: list[str] = []
         for item in items:
-            item_id = item.get("id")
-            item_name = str(item.get("name") or "").strip() or "(unnamed)"
-            if isinstance(item_id, int):
+            item_id, item_name = self._extract_quality_id_name(item)
+            if item_id is not None:
                 pairs.append(f"{item_id}:{item_name}")
         return ", ".join(pairs)
+
+    def _extract_quality_id_name(self, item: dict) -> tuple[int | None, str]:
+        quality = item.get("quality")
+        if isinstance(quality, dict):
+            quality_id = quality.get("id")
+            quality_name = str(quality.get("name") or "").strip()
+            if isinstance(quality_id, int):
+                return quality_id, (quality_name or "(unnamed)")
+
+        item_id = item.get("id")
+        item_name = str(item.get("name") or "").strip() or "(unnamed)"
+        if isinstance(item_id, int):
+            return item_id, item_name
+
+        return None, "(unnamed)"
 
     def _log_quality_mapping_diagnostics(self) -> None:
         rule_ids = sorted({rule.target_id for rule in self.config.quality_map})
@@ -297,8 +311,10 @@ class LibrariArrService:
 
             definition_ids = {
                 definition_id
-                for definition_id in (item.get("id") for item in definitions)
-                if isinstance(definition_id, int)
+                for definition_id, _ in (
+                    self._extract_quality_id_name(item) for item in definitions
+                )
+                if definition_id is not None
             }
             missing_ids = [rule_id for rule_id in rule_ids if rule_id not in definition_ids]
             if missing_ids:

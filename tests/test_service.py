@@ -573,6 +573,28 @@ def test_sync_preflight_warns_when_quality_target_id_missing(tmp_path: Path, cap
     assert "missing_ids=[99]" in caplog.text
 
 
+def test_sync_preflight_parses_nested_quality_definition_shape(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.quality_map = [QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p")]
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        quality_definitions=[
+            {"id": 901, "quality": {"id": 4, "name": "HDTV-1080p"}},
+            {"id": 902, "quality": {"id": 13, "name": "Bluray-2160p"}},
+        ]
+    )
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
+    assert "quality_map target_id values validated" in caplog.text
+
+
 def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
