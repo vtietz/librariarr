@@ -248,7 +248,7 @@ Configuration essentials:
 
 1. Prefer `paths.root_mappings` over legacy `paths.nested_roots`.
 2. Keep `radarr.sync_enabled: true` for Radarr API sync.
-3. Enable `radarr.auto_add_unmatched: true` for automatic import of unmatched folders.
+3. `radarr.auto_add_unmatched` is enabled in the default example for automatic import.
 4. Leave `radarr.auto_add_quality_profile_id` unset unless you need a fixed profile id.
 5. `quality_map.target_id` uses `/api/v3/qualitydefinition` ids.
 6. `radarr.auto_add_quality_profile_id` uses `/api/v3/qualityprofile` ids.

@@ -51,6 +51,8 @@ quality_map:
 
 `radarr.auto_add_unmatched`:
 - If true, unmatched folders can be auto-added to Radarr.
+- Recommended for normal automation.
+- Disable if your source folder names are frequently temporary/incomplete.
 
 `radarr.auto_add_quality_profile_id`:
 - Optional fixed quality profile id for auto-add.

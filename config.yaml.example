@@ -22,8 +22,9 @@ radarr:
   api_key: "YOUR_API_KEY"
   sync_enabled: true
   # Optional: auto-import folders that do not yet exist in Radarr.
-  # Recommended for fully automated sync once your folder naming is stable.
-  auto_add_unmatched: false
+  # Default in this example is true for convenient out-of-the-box auto import.
+  # Disable if your source folders are often temporary/incomplete names.
+  auto_add_unmatched: true
   # Optional override for Radarr quality profile id used on add.
   # Usually leave unset: LibrariArr maps from quality_map/analysis to a profile.
   # Fallback if no mapping is possible: lowest available profile id in Radarr.
