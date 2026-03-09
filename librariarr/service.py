@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
+import requests
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -84,6 +85,56 @@ class LibrariArrService:
         self._last_event = 0.0
         self._last_sync = 0.0
         self._lock = threading.Lock()
+        self._sync_hint_logged = False
+
+    def _log_sync_config_hint(self, exc: Exception) -> None:
+        if not self.sync_enabled or self._sync_hint_logged:
+            return
+
+        request_exc = self._extract_request_exception(exc)
+        if request_exc is None:
+            return
+
+        if isinstance(request_exc, requests.HTTPError):
+            status_code = (
+                request_exc.response.status_code if request_exc.response is not None else None
+            )
+            if status_code in (401, 403):
+                LOG.error(
+                    "Radarr API auth failed while sync is enabled (status=%s). "
+                    "Review radarr.url/radarr.api_key (or LIBRARIARR_RADARR_URL/"
+                    "LIBRARIARR_RADARR_API_KEY), or set radarr.sync_enabled=false "
+                    "for filesystem-only mode.",
+                    status_code,
+                )
+                self._sync_hint_logged = True
+                return
+
+            if status_code is not None:
+                LOG.warning(
+                    "Radarr API request failed while sync is enabled (status=%s). "
+                    "Review Radarr URL/API key, or disable sync for filesystem-only mode.",
+                    status_code,
+                )
+                self._sync_hint_logged = True
+                return
+
+        LOG.warning(
+            "Radarr is unreachable while sync is enabled. Review radarr.url/network/API key, "
+            "or set radarr.sync_enabled=false for filesystem-only mode."
+        )
+        self._sync_hint_logged = True
+
+    def _extract_request_exception(self, exc: Exception) -> requests.RequestException | None:
+        current: BaseException | None = exc
+        seen: set[int] = set()
+
+        while current is not None and id(current) not in seen:
+            seen.add(id(current))
+            if isinstance(current, requests.RequestException):
+                return current
+            current = current.__cause__ or current.__context__
+        return None
 
     def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
         mappings: list[tuple[Path, Path]] = []
@@ -132,7 +183,8 @@ class LibrariArrService:
         try:
             try:
                 self.reconcile()
-            except Exception:
+            except Exception as exc:
+                self._log_sync_config_hint(exc)
                 LOG.exception("Initial reconcile failed")
 
             while True:
@@ -151,7 +203,8 @@ class LibrariArrService:
                         LOG.info("Running event-triggered reconcile")
                     try:
                         self.reconcile()
-                    except Exception:
+                    except Exception as exc:
+                        self._log_sync_config_hint(exc)
                         LOG.exception("Reconcile failed; will retry on next cycle")
                     self._last_event = 0.0
                 time.sleep(1)

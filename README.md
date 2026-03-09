@@ -149,6 +149,23 @@ services:
       - radarr
 ```
 
+Config path gotcha (common in custom stacks):
+
+1. The image default is `--config /config/config.yaml`.
+2. If you mount to a different in-container path (for example `/app/config.yaml`), you must also override command to match that path.
+3. If you do not need a custom path, keep the standard mapping `${CONFIG_ROOT}/librariarr/config.yaml:/config/config.yaml:ro`.
+
+Synology/NAS note:
+
+Some NAS setups are more reliable with directory mounts than single-file binds. This is equivalent and valid:
+
+```yaml
+librariarr:
+  volumes:
+    - ${CONFIG_ROOT}/librariarr:/config:ro
+  command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
+```
+
 Important:
 
 1. In Radarr, set root folder to `/data/radarr_library`.

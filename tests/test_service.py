@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import requests
+
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
@@ -371,3 +373,30 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
     service = LibrariArrService(config)
 
     assert service._maintenance_interval is None
+
+
+def test_sync_hint_logs_actionable_message_for_unauthorized_radarr(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+
+    response = requests.Response()
+    response.status_code = 401
+    response.url = "http://radarr:7878/api/v3/movie"
+    err = requests.HTTPError("401 Client Error: Unauthorized", response=response)
+
+    caplog.set_level("ERROR", logger="librariarr.service")
+    service._log_sync_config_hint(err)
+
+    assert "Radarr API auth failed while sync is enabled" in caplog.text
+    assert "set radarr.sync_enabled=false for filesystem-only mode" in caplog.text
+
+    caplog.clear()
+    service._log_sync_config_hint(err)
+    assert caplog.text == ""
