@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from pathlib import Path
 
@@ -8,6 +9,22 @@ from .config import QualityRule
 
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"}
 SAMPLE_HINTS = {"sample", "trailer", "extras", "featurette", "behindthescenes"}
+TOKEN_EQUIVALENTS = (
+    frozenset({"x265", "h265", "hevc"}),
+    frozenset({"x264", "h264", "avc"}),
+)
+
+
+def _normalize_audio_language(tag: str) -> tuple[str, str] | None:
+    normalized = tag.strip().lower()
+    if not normalized:
+        return None
+
+    if normalized in {"de", "deu", "ger", "german", "deutsch"}:
+        return ("german", "lang-de")
+    if normalized in {"en", "eng", "english"}:
+        return ("english", "lang-en")
+    return None
 
 
 def collect_movie_text(movie_dir: Path) -> str:
@@ -93,6 +110,8 @@ def _video_probe_tokens(video_stream: dict) -> list[str]:
 
 def _audio_probe_tokens(audio_streams: list[dict]) -> list[str]:
     tokens: list[str] = []
+    detected_languages: set[str] = set()
+
     for audio_stream in audio_streams:
         audio_codec = str(audio_stream.get("codec_name") or "").lower()
         if audio_codec:
@@ -103,6 +122,24 @@ def _audio_probe_tokens(audio_streams: list[dict]) -> list[str]:
             tokens.append("7.1")
         elif channels >= 6:
             tokens.append("5.1")
+
+        tags = audio_stream.get("tags")
+        if not isinstance(tags, dict):
+            continue
+
+        raw_language = str(tags.get("language") or tags.get("LANGUAGE") or "")
+        language_tokens = _normalize_audio_language(raw_language)
+        if language_tokens is None:
+            continue
+
+        spoken_language, language_code = language_tokens
+        detected_languages.add(spoken_language)
+        tokens.append(spoken_language)
+        tokens.append(language_code)
+
+    if len(detected_languages) >= 2:
+        tokens.extend(["multi-language", "dual-language"])
+
     return tokens
 
 
@@ -145,10 +182,22 @@ def collect_media_probe_text(movie_dir: Path, probe_bin: str = "ffprobe") -> str
 
 
 def _match_quality_id(haystack: str, rules: list[QualityRule]) -> int | None:
+    tokens = {token for token in re.split(r"[^a-z0-9]+", haystack.lower()) if token}
+
+    def _keyword_matches(keyword: str) -> bool:
+        if keyword in tokens:
+            return True
+
+        for equivalent_group in TOKEN_EQUIVALENTS:
+            if keyword in equivalent_group and tokens.intersection(equivalent_group):
+                return True
+
+        return False
+
     for rule in rules:
         if not rule.match:
             continue
-        if all(keyword.lower() in haystack for keyword in rule.match):
+        if all(_keyword_matches(keyword.lower()) for keyword in rule.match):
             return rule.target_id
     return None
 

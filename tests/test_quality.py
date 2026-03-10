@@ -77,6 +77,30 @@ def test_collect_media_probe_text_extracts_extended_tokens(tmp_path: Path) -> No
     assert "7.1" in text
 
 
+def test_collect_media_probe_text_extracts_audio_language_tokens(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Lang Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Lang.Demo.2024.mkv").write_text("x", encoding="utf-8")
+
+    probe_json = (
+        '{"streams":['
+        '{"codec_type":"video","height":1080,"codec_name":"hevc"},'
+        '{"codec_type":"audio","codec_name":"ac3","channels":6,"tags":{"language":"deu"}},'
+        '{"codec_type":"audio","codec_name":"aac","channels":2,"tags":{"language":"eng"}}'
+        "]}"
+    )
+
+    with patch("subprocess.check_output", return_value=probe_json):
+        text = collect_media_probe_text(movie_dir)
+
+    assert "german" in text
+    assert "english" in text
+    assert "lang-de" in text
+    assert "lang-en" in text
+    assert "multi-language" in text
+    assert "dual-language" in text
+
+
 def test_map_quality_id_uses_larger_non_sample_video_for_probe(tmp_path: Path) -> None:
     movie_dir = tmp_path / "Demo (2024)"
     movie_dir.mkdir()
@@ -97,3 +121,23 @@ def test_map_quality_id_uses_larger_non_sample_video_for_probe(tmp_path: Path) -
         result = map_quality_id(movie_dir, rules, default_id=4, use_media_probe=True)
 
     assert result == 13
+
+
+def test_map_quality_id_treats_x265_h265_hevc_as_equivalent(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Codec Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Codec.Demo.2024.1080p.h265.mkv").write_text("x", encoding="utf-8")
+
+    rules = [QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+
+    assert map_quality_id(movie_dir, rules, default_id=4) == 7
+
+
+def test_map_quality_id_treats_x264_h264_avc_as_equivalent(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Codec Demo AVC (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Codec.Demo.AVC.2024.1080p.mkv").write_text("x", encoding="utf-8")
+
+    rules = [QualityRule(match=["1080p", "h264"], target_id=9, name="HDTV-1080p")]
+
+    assert map_quality_id(movie_dir, rules, default_id=4) == 9
