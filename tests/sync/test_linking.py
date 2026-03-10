@@ -23,16 +23,16 @@ def test_link_manager_creates_canonical_link_without_movie(tmp_path: Path) -> No
 def test_link_manager_uses_movie_metadata_name(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    folder = nested_root / "Star Wars"
+    folder = nested_root / "Fixture Legacy"
     folder.mkdir(parents=True)
     shadow_root.mkdir(parents=True)
 
-    movie = {"title": "Star Wars", "year": 1977}
+    movie = {"title": "Fixture Legacy", "year": 1977}
     manager = ShadowLinkManager([nested_root])
 
     link, _ = manager.ensure_link(folder, shadow_root, existing_links=set(), movie=movie)
 
-    assert link.name == "Star Wars (1977)"
+    assert link.name == "Fixture Legacy (1977)"
     assert link.is_symlink()
 
 

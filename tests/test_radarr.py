@@ -13,7 +13,7 @@ def test_try_update_moviefile_quality_skips_when_already_set(monkeypatch) -> Non
 
     movie = {
         "id": 1,
-        "title": "Cars",
+        "title": "Fixture",
         "movieFile": {
             "id": 11,
             "quality": {
@@ -40,7 +40,7 @@ def test_try_update_moviefile_quality_updates_when_different(monkeypatch) -> Non
 
     movie = {
         "id": 1,
-        "title": "Cars",
+        "title": "Fixture",
         "movieFile": {
             "id": 11,
             "quality": {
@@ -66,15 +66,15 @@ def test_parse_title_calls_parse_endpoint(monkeypatch) -> None:
 
     def _fake_request(method: str, path: str, **kwargs):
         calls.append((method, path, kwargs))
-        return {"title": "Cars", "customFormats": [{"id": 42, "name": "German"}]}
+        return {"title": "Fixture", "customFormats": [{"id": 42, "name": "German"}]}
 
     monkeypatch.setattr(client, "_request", _fake_request)
 
-    parsed = client.parse_title("Cars.3.2017.1080p.x265")
+    parsed = client.parse_title("Fixture.Title.2017.1080p.x265")
 
-    assert parsed["title"] == "Cars"
+    assert parsed["title"] == "Fixture"
     assert len(calls) == 1
     method, path, kwargs = calls[0]
     assert method == "GET"
     assert path == "/parse"
-    assert kwargs["params"]["title"] == "Cars.3.2017.1080p.x265"
+    assert kwargs["params"]["title"] == "Fixture.Title.2017.1080p.x265"

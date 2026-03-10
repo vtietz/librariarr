@@ -50,26 +50,26 @@ def test_format_id_name_pairs_handles_quality_and_plain_shapes() -> None:
 
 
 def test_parse_candidates_for_folder_uses_name_then_first_video(tmp_path: Path) -> None:
-    folder = tmp_path / "Cars 3 - Evolution (2017)"
+    folder = tmp_path / "Fixture Title - Variant (2017)"
     folder.mkdir()
     (folder / "notes.txt").write_text("x", encoding="utf-8")
-    (folder / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (folder / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     candidates = parse_candidates_for_folder(folder, {".mkv"})
 
-    assert candidates[0] == "Cars 3 - Evolution (2017)"
-    assert "Cars.3.2017.1080p.x265" in candidates
-    assert "Cars.3.2017.1080p.x265.mkv" in candidates
+    assert candidates[0] == "Fixture Title - Variant (2017)"
+    assert "Fixture.Title.2017.1080p.x265" in candidates
+    assert "Fixture.Title.2017.1080p.x265.mkv" in candidates
 
 
 def test_pick_lookup_candidate_prefers_year_and_best_title_match(tmp_path: Path) -> None:
-    folder = tmp_path / "Cars 3 - Evolution (2017)"
+    folder = tmp_path / "Fixture Title - Variant (2017)"
     folder.mkdir()
 
     candidates = [
-        {"title": "Cars 3", "year": 2017, "tmdbId": 1},
-        {"title": "Cars", "year": 2017, "tmdbId": 2},
-        {"title": "Cars 3", "year": 2018, "tmdbId": 3},
+        {"title": "Fixture Title", "year": 2017, "tmdbId": 1},
+        {"title": "Fixture", "year": 2017, "tmdbId": 2},
+        {"title": "Fixture Title", "year": 2018, "tmdbId": 3},
     ]
 
     selected = pick_lookup_candidate(folder, candidates)

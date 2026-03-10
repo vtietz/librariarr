@@ -158,7 +158,7 @@ def make_config(
 def test_reconcile_creates_symlink_for_movie_folder(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie = nested_root / "Big Buck Bunny (2008)"
+    movie = nested_root / "Fixture Catalog A (2008)"
     movie.mkdir(parents=True)
     (movie / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
@@ -167,7 +167,7 @@ def test_reconcile_creates_symlink_for_movie_folder(tmp_path: Path) -> None:
 
     service.reconcile()
 
-    link = shadow_root / "Big Buck Bunny (2008)"
+    link = shadow_root / "Fixture Catalog A (2008)"
     assert link.is_symlink()
     assert link.resolve(strict=False) == movie
 
@@ -193,7 +193,7 @@ def test_reconcile_removes_orphaned_symlink(tmp_path: Path) -> None:
 def test_reconcile_syncs_radarr_when_enabled(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Big Buck Bunny (2008)"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
     movie_dir.mkdir(parents=True)
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
@@ -204,7 +204,7 @@ def test_reconcile_syncs_radarr_when_enabled(tmp_path: Path) -> None:
         movies=[
             {
                 "id": 1,
-                "title": "Big Buck Bunny",
+                "title": "Fixture Catalog A",
                 "year": 2008,
                 "path": "/old/path",
                 "movieFile": {"id": 11},
@@ -225,7 +225,7 @@ def test_reconcile_syncs_radarr_when_enabled(tmp_path: Path) -> None:
 def test_reconcile_skips_radarr_when_sync_disabled(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Big Buck Bunny (2008)"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
     movie_dir.mkdir(parents=True)
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
@@ -236,7 +236,7 @@ def test_reconcile_skips_radarr_when_sync_disabled(tmp_path: Path) -> None:
         movies=[
             {
                 "id": 1,
-                "title": "Big Buck Bunny",
+                "title": "Fixture Catalog A",
                 "year": 2008,
                 "path": "/old/path",
                 "movieFile": {"id": 11},
@@ -306,9 +306,9 @@ def test_reconcile_matches_radarr_for_suffix_folder_name(tmp_path: Path) -> None
 def test_reconcile_matches_existing_radarr_movie_for_alias_title_same_year(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -323,19 +323,19 @@ def test_reconcile_matches_existing_radarr_movie_for_alias_title_same_year(tmp_p
         movies=[
             {
                 "id": 4,
-                "title": "Cars 3",
+                "title": "Fixture Title",
                 "year": 2017,
                 "path": "/old/path",
                 "movieFile": {"id": 114},
                 "monitored": True,
             }
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 4,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 114},
             "monitored": True,
         },
@@ -347,16 +347,16 @@ def test_reconcile_matches_existing_radarr_movie_for_alias_title_same_year(tmp_p
     assert fake.lookup_terms == []
     assert fake.added_movies == []
     assert fake.updated_paths and fake.updated_paths[0][0] == 4
-    assert (shadow_root / "Cars 3 (2017)").is_symlink()
-    assert not (shadow_root / "Cars 3 - Evolution (2017)").exists()
+    assert (shadow_root / "Fixture Title (2017)").is_symlink()
+    assert not (shadow_root / "Fixture Title - Variant (2017)").exists()
 
 
 def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -369,12 +369,12 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
 
     fake = FakeRadarr(
         movies=[],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 10,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 110},
             "monitored": True,
         },
@@ -383,11 +383,11 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
 
     service.reconcile()
 
-    canonical_link = shadow_root / "Cars 3 (2017)"
+    canonical_link = shadow_root / "Fixture Title (2017)"
     assert canonical_link.is_symlink()
     assert canonical_link.resolve(strict=False) == movie_dir
-    assert not (shadow_root / "Cars 3 - Evolution (2017)").exists()
-    assert fake.lookup_terms == ["cars 3 - evolution 2017"]
+    assert not (shadow_root / "Fixture Title - Variant (2017)").exists()
+    assert fake.lookup_terms == ["fixture title - variant 2017"]
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
     assert fake.updated_paths == [(10, str(canonical_link))]
 
@@ -408,13 +408,13 @@ def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path:
     )
     service = LibrariArrService(config)
 
-    canonical_link = shadow_root / "The Fox and the Hound (1981)"
+    canonical_link = shadow_root / "Fixture Canonical (1981)"
     fake = FakeRadarr(
         movies=[],
-        lookup_results=[{"title": "The Fox and the Hound", "year": 1981, "tmdbId": 10957}],
+        lookup_results=[{"title": "Fixture Canonical", "year": 1981, "tmdbId": 10957}],
         add_movie_result={
             "id": 21,
-            "title": "The Fox and the Hound",
+            "title": "Fixture Canonical",
             "year": 1981,
             "path": str(canonical_link),
             "movieFile": {"id": 121},
@@ -430,7 +430,7 @@ def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path:
     fake.movies = [
         {
             "id": 21,
-            "title": "The Fox and the Hound",
+            "title": "Fixture Canonical",
             "year": 1981,
             "path": str(canonical_link),
             "movieFile": {"id": 121},
@@ -448,9 +448,9 @@ def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path:
 def test_reconcile_auto_add_uses_mapped_profile_when_not_configured(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -474,12 +474,12 @@ def test_reconcile_auto_add_uses_mapped_profile_when_not_configured(tmp_path: Pa
                 "items": [{"quality": {"id": 7, "name": "Bluray-1080p"}}],
             },
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 11,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 111},
             "monitored": True,
         },
@@ -494,9 +494,9 @@ def test_reconcile_auto_add_uses_mapped_profile_when_not_configured(tmp_path: Pa
 def test_reconcile_auto_add_uses_custom_format_map_when_parse_is_empty(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.german.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.german.mkv").write_text("x", encoding="utf-8")
     (movie_dir / "movie.nfo").write_text("language: german", encoding="utf-8")
 
     config = make_config(
@@ -532,14 +532,14 @@ def test_reconcile_auto_add_uses_custom_format_map_when_parse_is_empty(tmp_path:
         ],
         parse_results={
             # Simulate Radarr parse not yielding useful custom format matches.
-            "Cars 3 - Evolution (2017)": {"customFormats": []},
+            "Fixture Title - Variant (2017)": {"customFormats": []},
         },
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 17,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 117},
             "monitored": True,
         },
@@ -554,9 +554,9 @@ def test_reconcile_auto_add_uses_custom_format_map_when_parse_is_empty(tmp_path:
 def test_reconcile_auto_add_uses_parse_custom_formats_without_quality_map(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -586,16 +586,16 @@ def test_reconcile_auto_add_uses_parse_custom_formats_without_quality_map(tmp_pa
             },
         ],
         parse_results={
-            "Cars 3 - Evolution (2017)": {
+            "Fixture Title - Variant (2017)": {
                 "customFormats": [{"id": 99, "name": "Preferred Release"}],
             }
         },
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 18,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 118},
             "monitored": True,
         },
@@ -610,9 +610,9 @@ def test_reconcile_auto_add_uses_parse_custom_formats_without_quality_map(tmp_pa
 def test_reconcile_auto_add_prefers_cutoff_exact_profile(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -642,12 +642,12 @@ def test_reconcile_auto_add_prefers_cutoff_exact_profile(tmp_path: Path) -> None
             {"id": 6, "name": "Web-DL 1080p"},
             {"id": 7, "name": "Bluray-1080p"},
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 111,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 211},
             "monitored": True,
         },
@@ -662,9 +662,9 @@ def test_reconcile_auto_add_prefers_cutoff_exact_profile(tmp_path: Path) -> None
 def test_reconcile_auto_add_prefers_specific_profile_over_any(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -701,12 +701,12 @@ def test_reconcile_auto_add_prefers_specific_profile_over_any(tmp_path: Path) ->
             {"id": 7, "name": "Bluray-1080p"},
             {"id": 19, "name": "Bluray-2160p"},
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 114,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 214},
             "monitored": True,
         },
@@ -721,9 +721,9 @@ def test_reconcile_auto_add_prefers_specific_profile_over_any(tmp_path: Path) ->
 def test_reconcile_auto_add_skips_disallowed_profile_items(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -758,12 +758,12 @@ def test_reconcile_auto_add_skips_disallowed_profile_items(tmp_path: Path) -> No
             {"id": 6, "name": "Web-DL 1080p"},
             {"id": 7, "name": "Bluray-1080p"},
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 112,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 212},
             "monitored": True,
         },
@@ -778,9 +778,9 @@ def test_reconcile_auto_add_skips_disallowed_profile_items(tmp_path: Path) -> No
 def test_reconcile_auto_add_prefers_higher_nearest_cutoff(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -811,12 +811,12 @@ def test_reconcile_auto_add_prefers_higher_nearest_cutoff(tmp_path: Path) -> Non
             {"id": 7, "name": "Bluray-1080p"},
             {"id": 8, "name": "Bluray-1080p Remux"},
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 113,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 213},
             "monitored": True,
         },
@@ -831,9 +831,9 @@ def test_reconcile_auto_add_prefers_higher_nearest_cutoff(tmp_path: Path) -> Non
 def test_reconcile_auto_add_falls_back_to_lowest_profile_when_unmapped(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
         nested_root,
@@ -857,12 +857,12 @@ def test_reconcile_auto_add_falls_back_to_lowest_profile_when_unmapped(tmp_path:
                 "items": [{"quality": {"id": 6, "name": "Web-DL 1080p"}}],
             },
         ],
-        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
         add_movie_result={
             "id": 12,
-            "title": "Cars 3",
+            "title": "Fixture Title",
             "year": 2017,
-            "path": str(shadow_root / "Cars 3 (2017)"),
+            "path": str(shadow_root / "Fixture Title (2017)"),
             "movieFile": {"id": 112},
             "monitored": True,
         },
@@ -995,7 +995,7 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
 def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Star Wars"
+    movie_dir = nested_root / "Fixture Legacy"
     movie_dir.mkdir(parents=True)
     (movie_dir / "Star.Wars.1977.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
@@ -1005,7 +1005,7 @@ def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
         movies=[
             {
                 "id": 1,
-                "title": "Star Wars",
+                "title": "Fixture Legacy",
                 "year": 1977,
                 "path": "/old/path",
                 "movieFile": {"id": 11},
@@ -1017,15 +1017,15 @@ def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
 
     service.reconcile()
 
-    canonical_link = shadow_root / "Star Wars (1977)"
+    canonical_link = shadow_root / "Fixture Legacy (1977)"
     assert canonical_link.is_symlink()
-    assert not (shadow_root / "Star Wars").exists()
+    assert not (shadow_root / "Fixture Legacy").exists()
 
 
 def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Big Buck Bunny (2008)"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
     movie_dir.mkdir(parents=True)
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
@@ -1037,7 +1037,7 @@ def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -
         movies=[
             {
                 "id": 1,
-                "title": "Big Buck Bunny",
+                "title": "Fixture Catalog A",
                 "year": 2008,
                 "path": "/old/path",
                 "movieFile": {"id": 11},
@@ -1057,11 +1057,11 @@ def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -
 def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Star Wars"
+    movie_dir = nested_root / "Fixture Legacy"
     movie_dir.mkdir(parents=True)
     (movie_dir / "Star.Wars.1977.1080p.x265.mkv").write_text("x", encoding="utf-8")
     shadow_root.mkdir(parents=True)
-    stale_link = shadow_root / "Star Wars"
+    stale_link = shadow_root / "Fixture Legacy"
     stale_link.symlink_to(movie_dir, target_is_directory=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
@@ -1070,7 +1070,7 @@ def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
         movies=[
             {
                 "id": 1,
-                "title": "Star Wars",
+                "title": "Fixture Legacy",
                 "year": 1977,
                 "path": "/old/path",
                 "movieFile": {"id": 11},
@@ -1082,7 +1082,7 @@ def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
 
     service.reconcile()
 
-    canonical_link = shadow_root / "Star Wars (1977)"
+    canonical_link = shadow_root / "Fixture Legacy (1977)"
     assert canonical_link.is_symlink()
     assert not stale_link.exists()
 

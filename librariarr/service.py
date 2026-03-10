@@ -398,7 +398,7 @@ class LibrariArrService:
             return link_match
 
         # Safe fallback: same-year fuzzy title matching for folder aliases/suffixes
-        # like "Cars 3 - Evolution (2017)" vs Radarr title "Cars 3 (2017)".
+        # like "Fixture Title - Variant (2017)" vs Radarr title "Fixture Title (2017)".
         return self._fuzzy_match_movie_for_folder(ref, movies_by_ref)
 
     def _normalize_fs_path(self, value: str) -> str:

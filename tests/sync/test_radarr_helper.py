@@ -70,9 +70,9 @@ def _make_config(
 
 
 def test_resolve_auto_add_profile_prefers_custom_format_signal(tmp_path: Path) -> None:
-    folder = tmp_path / "Cars 3 - Evolution (2017)"
+    folder = tmp_path / "Fixture Title - Variant (2017)"
     folder.mkdir()
-    (folder / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (folder / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = _make_config(
         tmp_path,
@@ -97,7 +97,7 @@ def test_resolve_auto_add_profile_prefers_custom_format_signal(tmp_path: Path) -
         ],
         quality_definitions=[{"quality": {"id": 7, "name": "Bluray-1080p"}}],
         parse_results={
-            "Cars 3 - Evolution (2017)": {
+            "Fixture Title - Variant (2017)": {
                 "customFormats": [{"id": 42, "name": "German Audio"}],
             }
         },
@@ -137,9 +137,9 @@ def test_resolve_auto_add_profile_falls_back_to_lowest_without_signals(tmp_path:
 
 
 def test_resolve_auto_add_profile_uses_parse_quality_when_maps_empty(tmp_path: Path) -> None:
-    folder = tmp_path / "Interstellar (2014)"
+    folder = tmp_path / "Fixture Parse Quality (2014)"
     folder.mkdir()
-    (folder / "Interstellar.2014.1080p.BluRay.mkv").write_text("x", encoding="utf-8")
+    (folder / "Fixture Parse Quality.2014.1080p.BluRay.mkv").write_text("x", encoding="utf-8")
 
     config = _make_config(tmp_path)
     fake = FakeRadarr(
@@ -162,7 +162,7 @@ def test_resolve_auto_add_profile_uses_parse_quality_when_maps_empty(tmp_path: P
             {"quality": {"id": 7, "name": "Bluray-1080p"}},
         ],
         parse_results={
-            "Interstellar (2014)": {
+            "Fixture Parse Quality (2014)": {
                 "quality": {
                     "quality": {"id": 7, "name": "Bluray-1080p"},
                 }

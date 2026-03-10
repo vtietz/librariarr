@@ -56,6 +56,8 @@ def _wait_for_radarr(base_url: str, api_key: str, timeout_seconds: int = 180) ->
 
 
 def _seed_movie_or_skip(session: requests.Session, base_url: str, shadow_root: Path) -> dict:
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
     profiles_resp = session.get(f"{base_url}/api/v3/qualityprofile", timeout=20)
     profiles_resp.raise_for_status()
     profiles = profiles_resp.json()
@@ -84,14 +86,14 @@ def _seed_movie_or_skip(session: requests.Session, base_url: str, shadow_root: P
             )
 
     payload = {
-        "title": "Star Wars",
+        "title": "Fixture Legacy",
         "qualityProfileId": profile_id,
-        "titleSlug": "star-wars-1977",
+        "titleSlug": "fixture-legacy-1977",
         "images": [],
         "tmdbId": 11,
         "year": 1977,
         "rootFolderPath": shadow_root_str,
-        "path": f"{shadow_root_str}/old-star-wars-path",
+        "path": f"{shadow_root_str}/old-fixture-legacy-path",
         "monitored": True,
         "minimumAvailability": "released",
         "addOptions": {"searchForMovie": False},
@@ -123,6 +125,14 @@ def _find_movie_by_tmdb_or_none(
     return None
 
 
+def _canonical_name_from_seeded_movie(movie: dict) -> str:
+    title = str(movie.get("title") or "Fixture Seeded Title").strip() or "Fixture Seeded Title"
+    year = movie.get("year")
+    if isinstance(year, int):
+        return f"{title} ({year})"
+    return title
+
+
 @pytest.mark.e2e
 def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
@@ -130,16 +140,18 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"
-    movie_folder = nested_root / "Star Wars (1977)"
-    movie_folder.mkdir(parents=True, exist_ok=True)
+    nested_root.mkdir(parents=True, exist_ok=True)
     shadow_root.mkdir(parents=True, exist_ok=True)
-    (movie_folder / "Star.Wars.1977.1080p.x265.mkv").write_text("stub", encoding="utf-8")
 
     radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
     seeded_movie = _seed_movie_or_skip(session, radarr_url, shadow_root)
+    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
+    movie_folder = nested_root / canonical_name
+    movie_folder.mkdir(parents=True, exist_ok=True)
+    (movie_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
 
     config = AppConfig(
         paths=PathsConfig(
@@ -163,7 +175,7 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     service = LibrariArrService(config)
     service.reconcile()
 
-    expected_link = shadow_root / "Star Wars (1977)"
+    expected_link = shadow_root / canonical_name
     assert expected_link.is_symlink()
 
     movie_id = int(seeded_movie["id"])
@@ -182,15 +194,17 @@ def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
     nested_root = case_root / "movies" / "age_12"
     shadow_root = case_root / "radarr_library"
     mapped_shadow_root = shadow_root / "age_12"
-    imported_folder = mapped_shadow_root / "Star Wars (1977)"
-    imported_folder.mkdir(parents=True, exist_ok=True)
-    (imported_folder / "Star.Wars.1977.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+    mapped_shadow_root.mkdir(parents=True, exist_ok=True)
 
     radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
     seeded_movie = _seed_movie_or_skip(session, radarr_url, mapped_shadow_root)
+    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
+    imported_folder = mapped_shadow_root / canonical_name
+    imported_folder.mkdir(parents=True, exist_ok=True)
+    (imported_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
 
     config = AppConfig(
         paths=PathsConfig(
@@ -215,8 +229,8 @@ def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
     service = LibrariArrService(config)
     service.reconcile()
 
-    expected_destination = nested_root / "Star Wars (1977)"
-    expected_link = mapped_shadow_root / "Star Wars (1977)"
+    expected_destination = nested_root / canonical_name
+    expected_link = mapped_shadow_root / canonical_name
     assert expected_destination.exists()
     assert expected_link.is_symlink()
     assert expected_link.resolve(strict=False) == expected_destination
@@ -238,23 +252,24 @@ def test_radarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
     shadow_root = case_root / "radarr_library"
     mapped_shadow_root = shadow_root / "age_12"
 
-    # Create a colliding destination path in nested storage, but without video content,
-    # so no movie folder is discovered from nested roots.
-    existing_destination = nested_root / "Star Wars (1977)"
-    existing_destination.mkdir(parents=True, exist_ok=True)
-    (existing_destination / "note.txt").write_text("placeholder", encoding="utf-8")
-
-    incoming_folder = mapped_shadow_root / "Star Wars (1977)"
-    incoming_folder.mkdir(parents=True, exist_ok=True)
-    (incoming_folder / "Star.Wars.1977.1080p.x265.mkv").write_text("stub", encoding="utf-8")
-
     radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
     seeded_movie = _seed_movie_or_skip(session, radarr_url, mapped_shadow_root)
+    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
     movie_id = int(seeded_movie["id"])
     baseline_path = str(seeded_movie.get("path") or "")
+
+    # Create a colliding destination path in nested storage, but without video content,
+    # so no movie folder is discovered from nested roots.
+    existing_destination = nested_root / canonical_name
+    existing_destination.mkdir(parents=True, exist_ok=True)
+    (existing_destination / "note.txt").write_text("placeholder", encoding="utf-8")
+
+    incoming_folder = mapped_shadow_root / canonical_name
+    incoming_folder.mkdir(parents=True, exist_ok=True)
+    (incoming_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
 
     config = AppConfig(
         paths=PathsConfig(
@@ -298,20 +313,21 @@ def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path(
     shadow_root = case_root / "radarr_library"
     mapped_shadow_root = shadow_root / "age_12"
 
-    # Force an ingest destination collision.
-    existing_destination = nested_root / "Star Wars (1977)"
-    existing_destination.mkdir(parents=True, exist_ok=True)
-    (existing_destination / "note.txt").write_text("placeholder", encoding="utf-8")
-
-    incoming_folder = mapped_shadow_root / "Star Wars (1977)"
-    incoming_folder.mkdir(parents=True, exist_ok=True)
-    (incoming_folder / "Star.Wars.1977.1080p.x265.mkv").write_text("stub", encoding="utf-8")
-
     radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
     seeded_movie = _seed_movie_or_skip(session, radarr_url, mapped_shadow_root)
+    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
+
+    # Force an ingest destination collision.
+    existing_destination = nested_root / canonical_name
+    existing_destination.mkdir(parents=True, exist_ok=True)
+    (existing_destination / "note.txt").write_text("placeholder", encoding="utf-8")
+
+    incoming_folder = mapped_shadow_root / canonical_name
+    incoming_folder.mkdir(parents=True, exist_ok=True)
+    (incoming_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
 
     config = AppConfig(
         paths=PathsConfig(
@@ -336,8 +352,8 @@ def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path(
     service = LibrariArrService(config)
     service.reconcile()
 
-    qualified_destination = nested_root / "Star Wars (1977) [ingest-2]"
-    expected_link = mapped_shadow_root / "Star Wars (1977)"
+    qualified_destination = nested_root / f"{canonical_name} [ingest-2]"
+    expected_link = mapped_shadow_root / canonical_name
     assert qualified_destination.exists()
     assert expected_link.is_symlink()
     assert expected_link.resolve(strict=False) == qualified_destination

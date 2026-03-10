@@ -6,7 +6,7 @@ from librariarr.quality import collect_media_probe_text, map_custom_format_ids, 
 
 
 def test_map_quality_id_matches_and_rule(tmp_path: Path) -> None:
-    movie_dir = tmp_path / "Big Buck Bunny (2008)"
+    movie_dir = tmp_path / "Fixture Catalog A (2008)"
     movie_dir.mkdir()
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 

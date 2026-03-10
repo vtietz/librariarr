@@ -49,7 +49,7 @@ def _relativize_links_for_host_view(shadow_root: Path) -> None:
 def test_e2e_reconcile_creates_expected_symlink_layout(tmp_path: Path) -> None:
     nested_root, shadow_root = _make_roots(tmp_path, "creates_symlink_layout")
 
-    movie_a = nested_root / "age_12" / "Blender" / "Big Buck Bunny (2008)"
+    movie_a = nested_root / "age_12" / "Blender" / "Fixture Catalog A (2008)"
     movie_b = nested_root / "age_16" / "OpenFilms" / "Sintel (2010)"
     movie_a.mkdir(parents=True)
     movie_b.mkdir(parents=True)
@@ -75,7 +75,7 @@ def test_e2e_reconcile_creates_expected_symlink_layout(tmp_path: Path) -> None:
     service.reconcile()
     _relativize_links_for_host_view(shadow_root)
 
-    link_a = shadow_root / "Big Buck Bunny (2008)"
+    link_a = shadow_root / "Fixture Catalog A (2008)"
     link_b = shadow_root / "Sintel (2010)"
 
     assert link_a.is_symlink()
