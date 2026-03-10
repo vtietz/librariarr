@@ -98,13 +98,29 @@ class RadarrClient:
     def refresh_movie(self, movie_id: int) -> None:
         self._request("POST", "/command", json={"name": "RefreshMovie", "movieIds": [movie_id]})
 
-    def try_update_moviefile_quality(self, movie: dict[str, Any], quality_id: int) -> None:
+    def _moviefile_quality_id(self, movie_file: dict[str, Any]) -> int | None:
+        quality = movie_file.get("quality")
+        if not isinstance(quality, dict):
+            return None
+
+        quality_item = quality.get("quality")
+        if not isinstance(quality_item, dict):
+            return None
+
+        current_id = quality_item.get("id")
+        return current_id if isinstance(current_id, int) else None
+
+    def try_update_moviefile_quality(self, movie: dict[str, Any], quality_id: int) -> bool:
         movie_file = movie.get("movieFile")
         if not movie_file:
-            return
+            return False
         movie_file_id = movie_file.get("id")
         if not movie_file_id:
-            return
+            return False
+
+        current_quality_id = self._moviefile_quality_id(movie_file)
+        if current_quality_id == quality_id:
+            return False
 
         payload = {
             "movieFileIds": [movie_file_id],
@@ -117,6 +133,8 @@ class RadarrClient:
         try:
             self._request("PUT", "/moviefile/editor", json=payload)
             LOG.info("Set quality id=%s for movie=%s", quality_id, movie.get("title"))
+            return True
         except requests.HTTPError as exc:
             # Radarr endpoints vary by version. Keep path sync even if quality update fails.
             LOG.warning("Quality update failed for movie=%s: %s", movie.get("title"), exc)
+            return False

@@ -377,6 +377,59 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
     assert fake.updated_paths == [(10, str(canonical_link))]
 
 
+def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cap und Capper (1981) FSK0"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cap.und.Capper.1981.1080p.h265.AC3.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+        auto_add_quality_profile_id=1,
+    )
+    service = LibrariArrService(config)
+
+    canonical_link = shadow_root / "The Fox and the Hound (1981)"
+    fake = FakeRadarr(
+        movies=[],
+        lookup_results=[{"title": "The Fox and the Hound", "year": 1981, "tmdbId": 10957}],
+        add_movie_result={
+            "id": 21,
+            "title": "The Fox and the Hound",
+            "year": 1981,
+            "path": str(canonical_link),
+            "movieFile": {"id": 121},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+    assert canonical_link.is_symlink()
+
+    # Emulate Radarr state after a successful add so the next reconcile sees the movie.
+    fake.movies = [
+        {
+            "id": 21,
+            "title": "The Fox and the Hound",
+            "year": 1981,
+            "path": str(canonical_link),
+            "movieFile": {"id": 121},
+            "monitored": True,
+        }
+    ]
+
+    service.reconcile()
+
+    assert len(fake.added_movies) == 1
+    assert canonical_link.is_symlink()
+    assert not (shadow_root / "Cap und Capper (1981)").exists()
+
+
 def test_reconcile_auto_add_uses_mapped_profile_when_not_configured(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"

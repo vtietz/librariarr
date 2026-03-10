@@ -283,14 +283,23 @@ class LibrariArrService:
             movie_folders = self._all_movie_folders()
             target_to_links = collect_current_links(self.shadow_roots)
             movies_by_ref = self._build_movie_index() if self.sync_enabled else {}
+            movies_by_path = (
+                self._build_movie_path_index(movies_by_ref) if self.sync_enabled else {}
+            )
             expected_links: set[Path] = set()
             created_links = 0
             matched_movies = 0
             unmatched_movies = 0
 
             for folder, shadow_root in sorted(movie_folders.items()):
+                existing_links = target_to_links.get(folder, set())
                 movie = (
-                    self._match_movie_for_folder(folder, movies_by_ref)
+                    self._match_movie_for_folder(
+                        folder,
+                        movies_by_ref,
+                        movies_by_path,
+                        existing_links,
+                    )
                     if self.sync_enabled
                     else None
                 )
@@ -298,8 +307,8 @@ class LibrariArrService:
                     movie = self.radarr_sync.auto_add_movie_for_folder(folder, shadow_root)
                     if movie is not None:
                         self._index_movie(index=movies_by_ref, movie=movie)
+                        self._index_movie_path(index=movies_by_path, movie=movie)
 
-                existing_links = target_to_links.get(folder, set())
                 link_path, was_created = self.link_manager.ensure_link(
                     folder,
                     shadow_root,
@@ -370,6 +379,8 @@ class LibrariArrService:
         self,
         folder: Path,
         movies_by_ref: dict[MovieRef, dict],
+        movies_by_path: dict[str, dict],
+        existing_links: set[Path],
     ) -> dict | None:
         ref = parse_movie_ref(folder.name)
         exact_match = movies_by_ref.get(ref) or movies_by_ref.get(
@@ -378,9 +389,40 @@ class LibrariArrService:
         if exact_match is not None:
             return exact_match
 
+        link_match = self._match_movie_for_existing_links(
+            existing_links,
+            movies_by_ref,
+            movies_by_path,
+        )
+        if link_match is not None:
+            return link_match
+
         # Safe fallback: same-year fuzzy title matching for folder aliases/suffixes
         # like "Cars 3 - Evolution (2017)" vs Radarr title "Cars 3 (2017)".
         return self._fuzzy_match_movie_for_folder(ref, movies_by_ref)
+
+    def _normalize_fs_path(self, value: str) -> str:
+        return value.rstrip("/")
+
+    def _match_movie_for_existing_links(
+        self,
+        existing_links: set[Path],
+        movies_by_ref: dict[MovieRef, dict],
+        movies_by_path: dict[str, dict],
+    ) -> dict | None:
+        for link in sorted(existing_links):
+            linked_movie = movies_by_path.get(self._normalize_fs_path(str(link)))
+            if linked_movie is not None:
+                return linked_movie
+
+            ref = parse_movie_ref(link.name.split("--", 1)[0])
+            named_movie = movies_by_ref.get(ref) or movies_by_ref.get(
+                MovieRef(title=ref.title, year=None)
+            )
+            if named_movie is not None:
+                return named_movie
+
+        return None
 
     def _normalize_title_token(self, title: str) -> str:
         return TITLE_TOKEN_RE.sub("", title.strip().lower())
@@ -434,6 +476,17 @@ class LibrariArrService:
             self._index_movie(index=index, movie=movie)
         return index
 
+    def _build_movie_path_index(self, movies_by_ref: dict[MovieRef, dict]) -> dict[str, dict]:
+        index: dict[str, dict] = {}
+        seen_ids: set[int] = set()
+        for movie in movies_by_ref.values():
+            movie_id = movie.get("id")
+            if not isinstance(movie_id, int) or movie_id in seen_ids:
+                continue
+            seen_ids.add(movie_id)
+            self._index_movie_path(index=index, movie=movie)
+        return index
+
     def _index_movie(self, index: dict[MovieRef, dict], movie: dict) -> None:
         title = (movie.get("title") or "").strip().lower()
         if not title:
@@ -444,6 +497,13 @@ class LibrariArrService:
         # Fallback key: title only
         if MovieRef(title=title, year=None) not in index:
             index[MovieRef(title=title, year=None)] = movie
+
+    def _index_movie_path(self, index: dict[str, dict], movie: dict) -> None:
+        path_raw = movie.get("path")
+        path = str(path_raw).strip() if path_raw is not None else ""
+        if not path:
+            return
+        index[self._normalize_fs_path(path)] = movie
 
     def _sync_radarr_for_folder(
         self,
