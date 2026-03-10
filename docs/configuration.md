@@ -67,15 +67,17 @@ Configuration interaction for auto-add/profile behavior:
 
 1. If `radarr.auto_add_quality_profile_id` is set, that fixed profile is always used.
 2. If it is not set, LibrariArr first uses custom-format signal from Radarr parse and local `custom_format_map`.
-3. If no custom-format signal is available, LibrariArr falls back to `quality_map`.
-4. If neither mapping path yields a profile, LibrariArr falls back to the lowest available Radarr profile id.
+3. If no custom-format signal is available, LibrariArr tries parse-derived quality-definition signal from Radarr (`quality`/`qualityDefinition`).
+4. If there is still no parse quality signal (or it does not map), LibrariArr falls back to `quality_map`.
+5. If neither mapping path yields a profile, LibrariArr falls back to the lowest available Radarr profile id.
 5. `analysis.use_nfo` and `analysis.use_media_probe` feed token extraction for both `custom_format_map` and `quality_map` matching.
 6. `quality_map` is optional and can be short (or empty) when you primarily rely on custom-format-based mapping.
 
 Why Radarr parse is title-based:
 - Radarr `/api/v3/parse` accepts a `title` parameter, so parse-based custom format detection is driven by folder/file title strings.
 - LibrariArr tries multiple title candidates (folder name, video stem, video filename), not only one title string.
-- Deeper local analysis (NFO + ffprobe + filename tokens) can still influence profile selection, but only through `custom_format_map` because those signals are token-level and do not map to Radarr custom format IDs automatically.
+- Parse output can also include quality-definition signal, which LibrariArr can use as a fallback for profile mapping.
+- Deeper local analysis (NFO + ffprobe + filename tokens) can still influence profile selection, but custom-format-based influence requires `custom_format_map` because token-level signals do not map to Radarr custom format IDs automatically.
 
 ## Paths
 
@@ -107,9 +109,10 @@ Why Radarr parse is title-based:
   1. Try Radarr parse (`/api/v3/parse`) on folder/file titles and collect matched `customFormats`.
   2. Add optional local `custom_format_map` matches from filename/folder text, optional NFO, and optional ffprobe tokens.
   3. Score Radarr profiles by `formatItems` scores and select the best profile.
-  4. If there is still no custom-format signal, use `quality_map` fallback scoring (`target_id` against profile cutoffs/allowed qualities).
-  5. If no profile can be mapped from either signal, fall back to the lowest available profile id.
-  6. If multiple profiles tie, prefer specific profile names over generic profiles (`Any`, `All`, `Default`).
+  4. If there is still no custom-format signal, try parse-derived quality-definition fallback.
+  5. If parse quality is unavailable or cannot be mapped, use `quality_map` fallback scoring (`target_id` against profile cutoffs/allowed qualities).
+  6. If no profile can be mapped from either signal, fall back to the lowest available profile id.
+  7. If multiple profiles tie, prefer specific profile names over generic profiles (`Any`, `All`, `Default`).
 
 `radarr.auto_add_search_on_add`:
 - If true, Radarr starts indexer search immediately after add.

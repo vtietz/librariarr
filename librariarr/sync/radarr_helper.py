@@ -14,6 +14,7 @@ from .radarr_diagnostics import log_quality_mapping_diagnostics
 from .radarr_mapping import (
     extract_id_name,
     extract_parse_custom_format_ids,
+    extract_parse_quality_definition_id,
     parse_candidates_for_folder,
     pick_lookup_candidate,
 )
@@ -122,6 +123,60 @@ class RadarrSyncHelper:
         self._auto_add_profiles_cache = profiles
         return profiles
 
+    def _detect_parse_quality_definition_id(self, folder: Path) -> int | None:
+        for candidate in parse_candidates_for_folder(folder, VIDEO_EXTENSIONS):
+            if not candidate.strip():
+                continue
+            try:
+                parse_result = self._radarr().parse_title(candidate)
+            except Exception as exc:
+                self.log.debug("Radarr parse failed for title=%s: %s", candidate, exc)
+                continue
+
+            quality_definition_id = extract_parse_quality_definition_id(parse_result)
+            if quality_definition_id is not None:
+                return quality_definition_id
+
+        return None
+
+    def _resolve_profile_from_quality_definition_id(
+        self,
+        folder: Path,
+        profiles: list[dict],
+        desired_quality_id: int,
+        source: str,
+    ) -> int | None:
+        if desired_quality_id in self._auto_add_profile_by_quality_cache:
+            return self._auto_add_profile_by_quality_cache[desired_quality_id]
+
+        rank_map = self._get_quality_definition_rank_map()
+        ranked_profiles: list[tuple[tuple[int, int, int, int, int, int], int, str]] = []
+        for profile in profiles:
+            ranked = score_profile_for_quality(profile, desired_quality_id, rank_map)
+            if ranked is None:
+                continue
+            score, reason = ranked
+            profile_id = profile.get("id")
+            if isinstance(profile_id, int):
+                ranked_profiles.append((score, profile_id, reason))
+
+        if not ranked_profiles:
+            return None
+
+        ranked_profiles.sort(key=lambda item: item[0])
+        _, selected_profile_id, selection_reason = ranked_profiles[0]
+        self._auto_add_profile_by_quality_cache[desired_quality_id] = selected_profile_id
+        self.log.info(
+            "Auto-add unmatched: mapped folder=%s quality_definition_id=%s "
+            "to quality_profile_id=%s selection_reason=%s source=%s",
+            folder,
+            desired_quality_id,
+            selected_profile_id,
+            selection_reason,
+            source,
+        )
+        return selected_profile_id
+
     def _fallback_to_lowest_profile(
         self,
         profiles: list[dict],
@@ -185,9 +240,28 @@ class RadarrSyncHelper:
 
     def _resolve_profile_from_quality_map(self, folder: Path, profiles: list[dict]) -> int | None:
         if not self.config.quality_map:
+            parse_quality_id = self._detect_parse_quality_definition_id(folder)
+            if parse_quality_id is not None:
+                parse_profile_id = self._resolve_profile_from_quality_definition_id(
+                    folder,
+                    profiles,
+                    parse_quality_id,
+                    source="radarr_parse_quality",
+                )
+                if parse_profile_id is not None:
+                    return parse_profile_id
+                return self._fallback_to_lowest_profile(
+                    profiles,
+                    f"Auto-add unmatched: parse returned quality_definition_id={parse_quality_id} "
+                    "but no profile mapped and no quality_map fallback is configured; "
+                    "using lowest profile id=%s",
+                    level="warning",
+                )
+
             return self._fallback_to_lowest_profile(
                 profiles,
-                "Auto-add unmatched: no custom format signal and no quality_map; "
+                "Auto-add unmatched: no custom format signal, no parse quality signal, "
+                "and no quality_map; "
                 "using lowest profile id=%s",
             )
 
@@ -199,32 +273,13 @@ class RadarrSyncHelper:
             media_probe_bin=self.config.analysis.media_probe_bin,
         )
 
-        if desired_quality_id in self._auto_add_profile_by_quality_cache:
-            return self._auto_add_profile_by_quality_cache[desired_quality_id]
-
-        rank_map = self._get_quality_definition_rank_map()
-        ranked_profiles: list[tuple[tuple[int, int, int, int, int, int], int, str]] = []
-        for profile in profiles:
-            ranked = score_profile_for_quality(profile, desired_quality_id, rank_map)
-            if ranked is None:
-                continue
-            score, reason = ranked
-            profile_id = profile.get("id")
-            if isinstance(profile_id, int):
-                ranked_profiles.append((score, profile_id, reason))
-
-        if ranked_profiles:
-            ranked_profiles.sort(key=lambda item: item[0])
-            _, selected_profile_id, selection_reason = ranked_profiles[0]
-            self._auto_add_profile_by_quality_cache[desired_quality_id] = selected_profile_id
-            self.log.info(
-                "Auto-add unmatched: mapped folder=%s quality_definition_id=%s "
-                "to quality_profile_id=%s selection_reason=%s",
-                folder,
-                desired_quality_id,
-                selected_profile_id,
-                selection_reason,
-            )
+        selected_profile_id = self._resolve_profile_from_quality_definition_id(
+            folder,
+            profiles,
+            desired_quality_id,
+            source="quality_map",
+        )
+        if selected_profile_id is not None:
             return selected_profile_id
 
         return self._fallback_to_lowest_profile(

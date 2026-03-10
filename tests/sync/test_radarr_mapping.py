@@ -2,6 +2,7 @@ from pathlib import Path
 
 from librariarr.sync.radarr_mapping import (
     extract_parse_custom_format_ids,
+    extract_parse_quality_definition_id,
     format_id_name_pairs,
     parse_candidates_for_folder,
     pick_lookup_candidate,
@@ -17,6 +18,26 @@ def test_extract_parse_custom_format_ids_reads_ids() -> None:
     }
 
     assert extract_parse_custom_format_ids(parse_result) == {42, 99}
+
+
+def test_extract_parse_quality_definition_id_reads_quality_shape() -> None:
+    parse_result = {
+        "quality": {
+            "quality": {"id": 7, "name": "Bluray-1080p"},
+        }
+    }
+
+    assert extract_parse_quality_definition_id(parse_result) == 7
+
+
+def test_extract_parse_quality_definition_id_reads_parsed_movie_info_shape() -> None:
+    parse_result = {
+        "parsedMovieInfo": {
+            "qualityDefinition": {"id": 19, "name": "Bluray-2160p"},
+        }
+    }
+
+    assert extract_parse_quality_definition_id(parse_result) == 19
 
 
 def test_format_id_name_pairs_handles_quality_and_plain_shapes() -> None:

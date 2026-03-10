@@ -35,7 +35,8 @@ ingest:
 
 quality_map:
   # Optional fallback map for quality-definition IDs.
-  # Used when auto profile mapping has no custom-format signal.
+  # Used when auto profile mapping has no custom-format signal and
+  # parse-based quality-definition signal is unavailable or not mappable.
   # Keep this short; first match wins; all tokens in `match` must be present.
   # target_id values are Radarr quality definition IDs.
   - match: ["2160p", "x265"]

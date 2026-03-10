@@ -134,3 +134,47 @@ def test_resolve_auto_add_profile_falls_back_to_lowest_without_signals(tmp_path:
     profile_id = helper._resolve_auto_add_quality_profile_id(folder)
 
     assert profile_id == 3
+
+
+def test_resolve_auto_add_profile_uses_parse_quality_when_maps_empty(tmp_path: Path) -> None:
+    folder = tmp_path / "Interstellar (2014)"
+    folder.mkdir()
+    (folder / "Interstellar.2014.1080p.BluRay.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(tmp_path)
+    fake = FakeRadarr(
+        quality_profiles=[
+            {
+                "id": 3,
+                "name": "HD Fallback",
+                "cutoff": {"id": 5},
+                "items": [{"quality": {"id": 5}, "allowed": True}],
+            },
+            {
+                "id": 7,
+                "name": "1080p Profile",
+                "cutoff": {"id": 7},
+                "items": [{"quality": {"id": 7}, "allowed": True}],
+            },
+        ],
+        quality_definitions=[
+            {"quality": {"id": 5, "name": "WEBDL-720p"}},
+            {"quality": {"id": 7, "name": "Bluray-1080p"}},
+        ],
+        parse_results={
+            "Interstellar (2014)": {
+                "quality": {
+                    "quality": {"id": 7, "name": "Bluray-1080p"},
+                }
+            }
+        },
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    profile_id = helper._resolve_auto_add_quality_profile_id(folder)
+
+    assert profile_id == 7

@@ -50,6 +50,41 @@ def extract_parse_custom_format_ids(parse_result: dict) -> set[int]:
     return ids
 
 
+def _extract_quality_definition_id(value: object) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict):
+        nested_quality = value.get("quality")
+        if isinstance(nested_quality, dict):
+            nested_quality_id = nested_quality.get("id")
+            if isinstance(nested_quality_id, int):
+                return nested_quality_id
+        quality_id = value.get("id")
+        if isinstance(quality_id, int):
+            return quality_id
+    return None
+
+
+def extract_parse_quality_definition_id(parse_result: dict) -> int | None:
+    direct_quality_id = _extract_quality_definition_id(parse_result.get("quality"))
+    if direct_quality_id is not None:
+        return direct_quality_id
+
+    parsed_movie_info = parse_result.get("parsedMovieInfo")
+    if isinstance(parsed_movie_info, dict):
+        parsed_quality_id = _extract_quality_definition_id(parsed_movie_info.get("quality"))
+        if parsed_quality_id is not None:
+            return parsed_quality_id
+
+        parsed_definition_id = _extract_quality_definition_id(
+            parsed_movie_info.get("qualityDefinition")
+        )
+        if parsed_definition_id is not None:
+            return parsed_definition_id
+
+    return None
+
+
 def parse_candidates_for_folder(folder: Path, video_extensions: set[str]) -> list[str]:
     candidates = [folder.name]
     for child in sorted(folder.iterdir()):
