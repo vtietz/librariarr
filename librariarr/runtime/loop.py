@@ -2,10 +2,11 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-from watchdog.events import FileSystemEventHandler
+from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
 
@@ -35,21 +36,23 @@ class ReconcileSchedule:
 
 
 class _SyncEventHandler(FileSystemEventHandler):
-    def __init__(self, trigger: callable) -> None:
+    def __init__(self, trigger: Callable[[FileSystemEvent], None]) -> None:
         self.trigger = trigger
 
     def on_any_event(self, event):  # type: ignore[override]
-        self.trigger()
+        self.trigger(event)
 
 
 class RuntimeSyncLoop:
+    _NOISY_EVENT_TYPES = frozenset({"opened", "closed", "closed_no_write"})
+
     def __init__(
         self,
         nested_roots: list[Path],
         shadow_roots: list[Path],
         schedule: ReconcileSchedule,
-        reconcile: callable,
-        on_reconcile_error: callable,
+        reconcile: Callable[[], None],
+        on_reconcile_error: Callable[[Exception], None],
         logger: logging.Logger,
     ) -> None:
         self.nested_roots = nested_roots
@@ -95,13 +98,27 @@ class RuntimeSyncLoop:
             observer.stop()
             observer.join()
 
-    def mark_dirty(self) -> None:
+    def mark_dirty(self, event: FileSystemEvent | None = None) -> None:
+        if event is not None and not self._should_trigger_for_event(event):
+            return
+
         if self.schedule.last_event == 0.0:
             self.log.info(
                 "Filesystem change detected; reconciling in ~%ss after debounce",
                 self.schedule.debounce_seconds,
             )
         self.schedule.mark_event()
+
+    def _should_trigger_for_event(self, event: FileSystemEvent) -> bool:
+        if event.event_type in self._NOISY_EVENT_TYPES:
+            return False
+
+        # Recursive watches generate frequent directory metadata updates during scans.
+        # create/delete/move still produce their own concrete events.
+        if event.is_directory and event.event_type == "modified":
+            return False
+
+        return True
 
     def _run_reconcile_with_handling(self, error_log_message: str) -> None:
         # Preserve existing semantics: sync time updates when a reconcile attempt starts.

@@ -1,4 +1,5 @@
 import logging
+from types import SimpleNamespace
 
 from librariarr.runtime.loop import ReconcileSchedule, RuntimeSyncLoop
 
@@ -42,6 +43,51 @@ def test_runtime_sync_loop_mark_dirty_sets_event() -> None:
 
     assert schedule.last_event == 0.0
     loop.mark_dirty()
+    assert schedule.last_event > 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_ignores_opened_event() -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda: None,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    loop.mark_dirty(SimpleNamespace(event_type="opened", is_directory=False))
+    assert schedule.last_event == 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_ignores_directory_modified_event() -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda: None,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    loop.mark_dirty(SimpleNamespace(event_type="modified", is_directory=True))
+    assert schedule.last_event == 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda: None,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    loop.mark_dirty(SimpleNamespace(event_type="modified", is_directory=False))
     assert schedule.last_event > 0.0
 
 
