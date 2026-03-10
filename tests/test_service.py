@@ -120,11 +120,12 @@ def make_config(
     auto_add_quality_profile_id: int | None = None,
 ) -> AppConfig:
     return AppConfig(
-        paths=PathsConfig(nested_roots=[str(nested_root)]),
+        paths=PathsConfig(
+            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))]
+        ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=sync_enabled,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
@@ -422,6 +423,168 @@ def test_reconcile_auto_add_uses_mapped_profile_when_not_configured(tmp_path: Pa
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
 
 
+def test_reconcile_auto_add_prefers_cutoff_exact_profile(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[
+            {
+                "id": 2,
+                "name": "Broad 1080p",
+                "cutoff": {"id": 6, "name": "Web-DL 1080p"},
+                "items": [{"quality": {"id": 7, "name": "Bluray-1080p"}}],
+            },
+            {
+                "id": 9,
+                "name": "Exact 1080p",
+                "cutoff": {"id": 7, "name": "Bluray-1080p"},
+                "items": [{"quality": {"id": 7, "name": "Bluray-1080p"}}],
+            },
+        ],
+        quality_definitions=[
+            {"id": 6, "name": "Web-DL 1080p"},
+            {"id": 7, "name": "Bluray-1080p"},
+        ],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 111,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 211},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 9
+
+
+def test_reconcile_auto_add_skips_disallowed_profile_items(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[
+            {
+                "id": 1,
+                "name": "Disallowed 1080p",
+                "cutoff": {"id": 7, "name": "Bluray-1080p"},
+                "items": [
+                    {
+                        "quality": {"id": 7, "name": "Bluray-1080p"},
+                        "allowed": False,
+                    }
+                ],
+            },
+            {
+                "id": 8,
+                "name": "Allowed 1080p",
+                "cutoff": {"id": 6, "name": "Web-DL 1080p"},
+                "items": [{"quality": {"id": 7, "name": "Bluray-1080p"}}],
+            },
+        ],
+        quality_definitions=[
+            {"id": 6, "name": "Web-DL 1080p"},
+            {"id": 7, "name": "Bluray-1080p"},
+        ],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 112,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 212},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 8
+
+
+def test_reconcile_auto_add_prefers_higher_nearest_cutoff(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[
+            {
+                "id": 4,
+                "name": "Below cutoff",
+                "cutoff": {"id": 6, "name": "Web-DL 1080p"},
+                "items": [{"quality": {"id": 7, "name": "Bluray-1080p"}}],
+            },
+            {
+                "id": 5,
+                "name": "Above cutoff",
+                "cutoff": {"id": 8, "name": "Bluray-1080p Remux"},
+                "items": [{"quality": {"id": 7, "name": "Bluray-1080p"}}],
+            },
+        ],
+        quality_definitions=[
+            {"id": 6, "name": "Web-DL 1080p"},
+            {"id": 7, "name": "Bluray-1080p"},
+            {"id": 8, "name": "Bluray-1080p Remux"},
+        ],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 113,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 213},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 5
+
+
 def test_reconcile_auto_add_falls_back_to_lowest_profile_when_unmapped(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
@@ -481,11 +644,15 @@ def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
     (movie_two / "Sintel.2010.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = AppConfig(
-        paths=PathsConfig(nested_roots=[str(root_one), str(root_two)]),
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(root_one), shadow_root=str(shadow_root)),
+                RootMapping(nested_root=str(root_two), shadow_root=str(shadow_root)),
+            ]
+        ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
@@ -566,7 +733,6 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(tmp_path / "unused_default_shadow"),
             sync_enabled=False,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
@@ -652,11 +818,12 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
     nested_root.mkdir(parents=True)
 
     config = AppConfig(
-        paths=PathsConfig(nested_roots=[str(nested_root)]),
+        paths=PathsConfig(
+            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))]
+        ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
@@ -899,7 +1066,6 @@ def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],

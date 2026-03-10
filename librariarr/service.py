@@ -150,17 +150,9 @@ class LibrariArrService:
         return None
 
     def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
-        mappings: list[tuple[Path, Path]] = []
-
-        if config.paths.root_mappings:
-            for item in config.paths.root_mappings:
-                mappings.append((Path(item.nested_root), Path(item.shadow_root)))
-            return mappings
-
-        default_shadow_root = Path(config.radarr.shadow_root)
-        for nested_root in config.paths.nested_roots:
-            mappings.append((Path(nested_root), default_shadow_root))
-        return mappings
+        return [
+            (Path(item.nested_root), Path(item.shadow_root)) for item in config.paths.root_mappings
+        ]
 
     def _unique_paths(self, paths: list[Path]) -> list[Path]:
         seen: set[Path] = set()

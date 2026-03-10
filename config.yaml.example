@@ -1,5 +1,5 @@
 paths:
-  # Recommended mode: map each nested source root to its own shadow root.
+  # Map nested source roots to Radarr shadow roots.
   root_mappings:
     - nested_root: "/data/movies/age_06"
       shadow_root: "/data/radarr_library/age_06"
@@ -8,81 +8,47 @@ paths:
     - nested_root: "/data/movies/age_16"
       shadow_root: "/data/radarr_library/age_16"
 
-  # Legacy mode (optional): uncomment this and use one shared radarr.shadow_root.
-  # nested_roots:
-  #   - "/data/movies/age_06"
-  #   - "/data/movies/age_12"
-  #   - "/data/movies/age_16"
-
 radarr:
-  # Optional env overrides:
-  # - LIBRARIARR_RADARR_URL
-  # - LIBRARIARR_RADARR_API_KEY
+  # Env overrides: LIBRARIARR_RADARR_URL, LIBRARIARR_RADARR_API_KEY.
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
-  # Optional: auto-import folders that do not yet exist in Radarr.
-  # Default in this example is true for convenient out-of-the-box auto import.
-  # Disable if your source folders are often temporary/incomplete names.
+  # Auto-add unmatched folders to Radarr.
   auto_add_unmatched: true
-  # Optional fixed Radarr quality profile id for auto-add.
-  # If set, this profile id is always used for newly auto-added movies.
-  # If unset, LibrariArr maps from quality_map/analysis to a profile.
-  # Fallback (only when unset and no mapping is possible): lowest profile id in Radarr.
+  # Optional fixed profile ID; leave commented to auto-map.
   # auto_add_quality_profile_id: 1
-  # Advanced: trigger Radarr indexer search immediately after add.
-  # Keep false if you only want to register/import paths first.
+  # Trigger indexer search immediately after add.
   auto_add_search_on_add: false
-  # Advanced: initial monitored flag for newly auto-added movies.
+  # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
-  # Legacy-only shared shadow root (used with paths.nested_roots mode).
-  # shadow_root: "/data/radarr_library"
 
 ingest:
-  # Disabled by default to preserve existing one-way behavior.
-  # When enabled, real movie directories created in shadow roots are moved
-  # into nested roots, then replaced by symlinks at the original shadow path.
-  # Ingest requires a 1:1 mapping between each shadow root and nested root.
-  enabled: false
-  # Candidate folder must be unchanged for at least this many seconds.
-  min_age_seconds: 30
-  # How to handle destination name collisions in nested roots.
-  # qualify: ingest continues and destination gets a suffix like [ingest-2], [ingest-3], ...
-  # skip: ingest is skipped and the real source directory stays in the shadow root
+  # Move real folders from shadow roots back into nested roots.
+  # Requires a 1:1 mapping between each shadow_root and nested_root.
+  enabled: true
+  # Minimum stable age before ingest.
+  min_age_seconds: 300
+  # Collision policy: qualify appends [ingest-N], skip leaves source in shadow.
   collision_policy: "qualify"
-  # Optional absolute path used when ingest fails mid-process.
+  # Optional path for failed ingest recovery.
   quarantine_root: "/data/movies/.librariarr/quarantine"
 
 quality_map:
-  # How to find correct target_id/name values:
-  # 1) Radarr UI: Settings -> Profiles -> Quality Definitions.
-  # 2) API: GET /api/v3/qualitydefinition and copy each definition's `id` and `name`.
-  #    Example:
-  #    curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
-  #
-  # Rules are checked top-to-bottom. First match wins.
-  # Every token in `match` must exist in detected text (AND logic, case-insensitive).
-  - match: ["2160p", "bluray", "remux"]
+  # First match wins; all tokens in `match` must be present.
+  # Keep rules short and probe-friendly.
+  # See docs/configuration.md for target_id lookup.
+  - match: ["2160p", "x265"]
     target_id: 13
-    name: "4K Bluray"
-  - match: ["2160p", "remux-bitrate"]
-    target_id: 13
-    name: "4K Remux (Probe Fallback)"
-  - match: ["1080p", "bluray", "x265"]
+    name: "4K HEVC"
+  - match: ["1080p", "x265"]
     target_id: 7
-    name: "Bluray-1080p"
-  - match: ["1080p", "web"]
+    name: "1080p HEVC"
+  - match: ["1080p"]
     target_id: 6
-    name: "Web-DL 1080p"
-  - match: ["720p", "web"]
+    name: "1080p"
+  - match: ["720p"]
     target_id: 5
-    name: "Web-DL 720p"
-  - match: ["1080p", "hdtv"]
-    target_id: 4
-    name: "HDTV-1080p"
-  - match: ["720p", "hdtv"]
-    target_id: 4
-    name: "HDTV-720p"
+    name: "720p"
 
 cleanup:
   remove_orphaned_links: true
@@ -90,13 +56,17 @@ cleanup:
   delete_from_radarr_on_missing: false
 
 runtime:
+  # Debounce window for filesystem event bursts (seconds).
   debounce_seconds: 8
-  # Set to 0 to disable periodic full maintenance scans after startup.
-  # With 0, LibrariArr runs one startup reconcile and then reacts to filesystem events only.
-  maintenance_interval_minutes: 1440
+  # Minutes between full maintenance reconciles (0 = startup-only + events).
+  maintenance_interval_minutes: 0
+  # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]
 
 analysis:
+  # Include NFO text in quality detection.
   use_nfo: false
-  use_media_probe: false
+  # Include ffprobe tokens in quality detection.
+  use_media_probe: true
+  # ffprobe executable name or absolute path.
   media_probe_bin: "ffprobe"

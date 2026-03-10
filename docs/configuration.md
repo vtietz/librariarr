@@ -19,23 +19,45 @@ radarr:
   api_key: "YOUR_API_KEY"
   sync_enabled: true
   auto_add_unmatched: true
+  auto_add_search_on_add: false
+
+ingest:
+  enabled: true
+  min_age_seconds: 300
+  collision_policy: "qualify"
+
+analysis:
+  use_nfo: false
+  use_media_probe: true
 
 quality_map:
-  - match: ["1080p", "bluray", "x265"]
+  - match: ["2160p", "x265"]
+    target_id: 13
+  - match: ["1080p", "x265"]
     target_id: 7
+  - match: ["1080p"]
+    target_id: 6
+  - match: ["720p"]
+    target_id: 5
 ```
+
+## Example Notes
+
+`config.yaml.example` is intentionally brief. Use this section for the longer rationale:
+
+- `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
+- Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
+- Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping from detected quality. Set it only when you want strict, fixed-profile behavior.
+- Example ingest defaults (`enabled=true`, `min_age_seconds=300`) favor safe move-back behavior and reduce the risk of ingesting partially written folders.
+- `ingest.collision_policy=qualify` keeps ingest moving by appending a deterministic suffix like `[ingest-2]`; `skip` leaves the source directory in the shadow root.
+- Keep `quality_map` short. Start with resolution and codec signals, then add rules only when needed for your library.
+- Enable `analysis.use_media_probe=true` for more reliable quality detection when filenames are inconsistent.
 
 ## Paths
 
 `paths.root_mappings`:
-- Recommended mode.
 - Each nested source root maps to one shadow root.
 - Avoids ambiguity and works best with ingest.
-
-`paths.nested_roots`:
-- Legacy mode.
-- All nested roots share one `radarr.shadow_root`.
-- Use only if you intentionally want one merged shadow library.
 
 ## Radarr
 
@@ -58,7 +80,11 @@ quality_map:
 - Optional fixed quality profile id for auto-add.
 - If set, this profile id is always used for newly auto-added movies.
 - If omitted, LibrariArr tries to map from `quality_map`/analysis to a profile.
-- If no mapping is possible in omitted mode, it falls back to the lowest available profile id.
+- Auto-mapping preference when omitted:
+  1. Profile with `cutoff.id` equal to detected quality definition id.
+  2. Profile that allows the detected id with nearest cutoff tier (prefers same-or-higher tier).
+  3. Any profile that allows the detected id.
+- If no profile allows the detected id, it falls back to the lowest available profile id.
 
 `radarr.auto_add_search_on_add`:
 - If true, Radarr starts indexer search immediately after add.
@@ -66,10 +92,6 @@ quality_map:
 
 `radarr.auto_add_monitored`:
 - Initial Radarr monitored flag for newly auto-added entries.
-
-`radarr.shadow_root`:
-- Legacy-only shared shadow root.
-- Used only with `paths.nested_roots`.
 
 ## Quality Mapping
 

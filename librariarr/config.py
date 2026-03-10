@@ -48,7 +48,6 @@ class IngestConfig:
 class RadarrConfig:
     url: str
     api_key: str
-    shadow_root: str = "/data/radarr_library"
     sync_enabled: bool = True
     auto_add_unmatched: bool = False
     auto_add_quality_profile_id: int | None = None
@@ -58,7 +57,6 @@ class RadarrConfig:
 
 @dataclass
 class PathsConfig:
-    nested_roots: list[str] = field(default_factory=list)
     root_mappings: list[RootMapping] = field(default_factory=list)
 
 
@@ -92,8 +90,12 @@ def load_config(path: str | Path) -> AppConfig:
     paths = _require(raw, "paths")
     radarr = _require(raw, "radarr")
 
-    nested_roots = paths.get("nested_roots", [])
-    root_mappings_raw = paths.get("root_mappings", [])
+    root_mappings_raw = paths.get("root_mappings")
+    if not root_mappings_raw:
+        raise ValueError(
+            "paths.root_mappings is required. The legacy paths.nested_roots mode "
+            "has been removed; use paths.root_mappings with per-root shadow_root values."
+        )
     root_mappings = [
         RootMapping(
             nested_root=str(_require(item, "nested_root")),
@@ -105,7 +107,6 @@ def load_config(path: str | Path) -> AppConfig:
     # Deployment-only overrides: allow URL and API key from env.
     radarr_url = os.getenv("LIBRARIARR_RADARR_URL", str(_require(radarr, "url")).rstrip("/"))
     radarr_api_key = os.getenv("LIBRARIARR_RADARR_API_KEY", str(_require(radarr, "api_key")))
-    shadow_root = str(radarr.get("shadow_root", "/data/radarr_library"))
     sync_enabled = bool(radarr.get("sync_enabled", True))
     auto_add_unmatched = bool(radarr.get("auto_add_unmatched", False))
     auto_add_quality_profile_raw = radarr.get("auto_add_quality_profile_id")
@@ -160,11 +161,10 @@ def load_config(path: str | Path) -> AppConfig:
     )
 
     return AppConfig(
-        paths=PathsConfig(nested_roots=list(nested_roots), root_mappings=root_mappings),
+        paths=PathsConfig(root_mappings=root_mappings),
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=radarr_api_key,
-            shadow_root=shadow_root,
             sync_enabled=sync_enabled,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,

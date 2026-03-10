@@ -26,6 +26,7 @@ class RadarrSyncHelper:
         self._auto_add_quality_profile_id_cache: int | None = None
         self._auto_add_profile_by_quality_cache: dict[int, int] = {}
         self._auto_add_profiles_cache: list[dict] | None = None
+        self._quality_definition_rank_cache: dict[int, int] | None = None
         self._cached_radarr_client_id: int | None = None
 
     def _radarr(self) -> RadarrClient:
@@ -36,6 +37,7 @@ class RadarrSyncHelper:
             self._auto_add_quality_profile_id_cache = None
             self._auto_add_profile_by_quality_cache = {}
             self._auto_add_profiles_cache = None
+            self._quality_definition_rank_cache = None
         return client
 
     def _format_id_name_pairs(self, items: list[dict]) -> str:
@@ -138,12 +140,79 @@ class RadarrSyncHelper:
         for item in items:
             if not isinstance(item, dict):
                 continue
+            if not bool(item.get("allowed", True)):
+                continue
             quality = item.get("quality")
             if isinstance(quality, dict):
                 quality_id = quality.get("id")
                 if isinstance(quality_id, int):
                     ids.add(quality_id)
         return ids
+
+    def _extract_profile_cutoff_quality_definition_id(self, profile: dict) -> int | None:
+        cutoff = profile.get("cutoff")
+        if isinstance(cutoff, int):
+            return cutoff
+        if isinstance(cutoff, dict):
+            cutoff_id = cutoff.get("id")
+            if isinstance(cutoff_id, int):
+                return cutoff_id
+        return None
+
+    def _get_quality_definition_rank_map(self) -> dict[int, int]:
+        if self._quality_definition_rank_cache is not None:
+            return self._quality_definition_rank_cache
+
+        try:
+            definitions = self._radarr().get_quality_definitions()
+        except Exception as exc:
+            self.log.warning(
+                "Unable to fetch Radarr quality definitions for auto-add profile ranking: %s",
+                exc,
+            )
+            self._quality_definition_rank_cache = {}
+            return self._quality_definition_rank_cache
+
+        definition_ids = sorted(
+            definition_id
+            for definition_id, _ in (self._extract_quality_id_name(item) for item in definitions)
+            if definition_id is not None
+        )
+        self._quality_definition_rank_cache = {
+            definition_id: rank for rank, definition_id in enumerate(definition_ids)
+        }
+        return self._quality_definition_rank_cache
+
+    def _quality_rank(self, quality_definition_id: int, rank_map: dict[int, int]) -> int:
+        # Fallback to numeric id ordering when no definition rank is available.
+        return rank_map.get(quality_definition_id, quality_definition_id)
+
+    def _score_profile_for_quality(
+        self,
+        profile: dict,
+        desired_quality_id: int,
+        rank_map: dict[int, int],
+    ) -> tuple[tuple[int, int, int, int, int], str] | None:
+        profile_id = profile.get("id")
+        if not isinstance(profile_id, int):
+            return None
+
+        allowed_quality_ids = self._extract_profile_quality_definition_ids(profile)
+        if desired_quality_id not in allowed_quality_ids:
+            return None
+
+        cutoff_quality_id = self._extract_profile_cutoff_quality_definition_id(profile)
+        if cutoff_quality_id == desired_quality_id:
+            return (0, 0, 0, 0, profile_id), "cutoff_exact"
+
+        if cutoff_quality_id is None:
+            return (2, 1, 1, 1_000_000, profile_id), "allowed_only"
+
+        desired_rank = self._quality_rank(desired_quality_id, rank_map)
+        cutoff_rank = self._quality_rank(cutoff_quality_id, rank_map)
+        cutoff_below_desired = 0 if cutoff_rank >= desired_rank else 1
+        cutoff_distance = abs(cutoff_rank - desired_rank)
+        return (1, 0, cutoff_below_desired, cutoff_distance, profile_id), "nearest_cutoff"
 
     def _get_auto_add_profiles(self) -> list[dict]:
         if self._auto_add_profiles_cache is not None:
@@ -216,23 +285,28 @@ class RadarrSyncHelper:
         if desired_quality_id in self._auto_add_profile_by_quality_cache:
             return self._auto_add_profile_by_quality_cache[desired_quality_id]
 
-        matching_profile_ids = sorted(
-            profile_id
-            for profile in profiles
-            for profile_id in [profile.get("id")]
-            if isinstance(profile_id, int)
-            and desired_quality_id in self._extract_profile_quality_definition_ids(profile)
-        )
+        rank_map = self._get_quality_definition_rank_map()
+        ranked_profiles: list[tuple[tuple[int, int, int, int, int], int, str]] = []
+        for profile in profiles:
+            ranked = self._score_profile_for_quality(profile, desired_quality_id, rank_map)
+            if ranked is None:
+                continue
+            score, reason = ranked
+            profile_id = profile.get("id")
+            if isinstance(profile_id, int):
+                ranked_profiles.append((score, profile_id, reason))
 
-        if matching_profile_ids:
-            selected_profile_id = matching_profile_ids[0]
+        if ranked_profiles:
+            ranked_profiles.sort(key=lambda item: item[0])
+            _, selected_profile_id, selection_reason = ranked_profiles[0]
             self._auto_add_profile_by_quality_cache[desired_quality_id] = selected_profile_id
             self.log.info(
                 "Auto-add unmatched: mapped folder=%s quality_definition_id=%s "
-                "to quality_profile_id=%s",
+                "to quality_profile_id=%s selection_reason=%s",
                 folder,
                 desired_quality_id,
                 selected_profile_id,
+                selection_reason,
             )
             return selected_profile_id
 
