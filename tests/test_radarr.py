@@ -58,3 +58,23 @@ def test_try_update_moviefile_quality_updates_when_different(monkeypatch) -> Non
     assert path == "/moviefile/editor"
     assert kwargs["json"]["movieFileIds"] == [11]
     assert kwargs["json"]["quality"]["quality"]["id"] == 9
+
+
+def test_parse_title_calls_parse_endpoint(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+    calls: list[tuple[str, str, dict]] = []
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return {"title": "Cars", "customFormats": [{"id": 42, "name": "German"}]}
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    parsed = client.parse_title("Cars.3.2017.1080p.x265")
+
+    assert parsed["title"] == "Cars"
+    assert len(calls) == 1
+    method, path, kwargs = calls[0]
+    assert method == "GET"
+    assert path == "/parse"
+    assert kwargs["params"]["title"] == "Cars.3.2017.1080p.x265"

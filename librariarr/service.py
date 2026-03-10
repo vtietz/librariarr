@@ -12,10 +12,10 @@ import requests
 from .config import AppConfig
 from .quality import VIDEO_EXTENSIONS, map_quality_id
 from .radarr import RadarrClient
-from .radarr_sync import RadarrSyncHelper
 from .runtime import ReconcileSchedule, RuntimeSyncLoop
 from .sync import (
     MovieRef,
+    RadarrSyncHelper,
     ShadowCleanupManager,
     ShadowIngestor,
     ShadowLinkManager,
@@ -512,14 +512,15 @@ class LibrariArrService:
         movie: dict,
     ) -> None:
         self.radarr.update_movie_path(movie, str(link))
-        quality_id = map_quality_id(
-            folder,
-            self.config.quality_map,
-            use_nfo=self.config.analysis.use_nfo,
-            use_media_probe=self.config.analysis.use_media_probe,
-            media_probe_bin=self.config.analysis.media_probe_bin,
-        )
-        self.radarr.try_update_moviefile_quality(movie, quality_id)
+        if self.config.quality_map:
+            quality_id = map_quality_id(
+                folder,
+                self.config.quality_map,
+                use_nfo=self.config.analysis.use_nfo,
+                use_media_probe=self.config.analysis.use_media_probe,
+                media_probe_bin=self.config.analysis.media_probe_bin,
+            )
+            self.radarr.try_update_moviefile_quality(movie, quality_id)
         self.radarr.refresh_movie(int(movie["id"]))
 
     def _resolve_movie_for_link_name(

@@ -142,11 +142,17 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     seeded_movie = _seed_movie_or_skip(session, radarr_url, shadow_root)
 
     config = AppConfig(
-        paths=PathsConfig(nested_roots=[str(nested_root)]),
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(
+                    nested_root=str(nested_root),
+                    shadow_root=str(shadow_root),
+                )
+            ]
+        ),
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
-            shadow_root=str(shadow_root),
             sync_enabled=True,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
@@ -198,7 +204,6 @@ def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
-            shadow_root=str(shadow_root),
             sync_enabled=True,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
@@ -263,7 +268,6 @@ def test_radarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
-            shadow_root=str(shadow_root),
             sync_enabled=True,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
@@ -321,7 +325,6 @@ def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path(
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
-            shadow_root=str(shadow_root),
             sync_enabled=True,
         ),
         quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],

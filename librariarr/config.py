@@ -16,6 +16,13 @@ class QualityRule:
 
 
 @dataclass
+class CustomFormatRule:
+    match: list[str]
+    format_id: int
+    name: str = ""
+
+
+@dataclass
 class CleanupConfig:
     remove_orphaned_links: bool = True
     unmonitor_on_delete: bool = True
@@ -73,6 +80,7 @@ class AppConfig:
     quality_map: list[QualityRule]
     cleanup: CleanupConfig
     runtime: RuntimeConfig
+    custom_format_map: list[CustomFormatRule] = field(default_factory=list)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
 
@@ -123,6 +131,15 @@ def load_config(path: str | Path) -> AppConfig:
             name=item.get("name", ""),
         )
         for item in raw.get("quality_map", [])
+    ]
+
+    custom_format_map = [
+        CustomFormatRule(
+            match=item.get("match", []),
+            format_id=int(item["format_id"] if "format_id" in item else item["format"]),
+            name=item.get("name", ""),
+        )
+        for item in raw.get("custom_format_map", [])
     ]
 
     cleanup_raw = raw.get("cleanup", {})
@@ -178,6 +195,7 @@ def load_config(path: str | Path) -> AppConfig:
             delete_from_radarr_on_missing=delete_from_radarr_on_missing,
         ),
         runtime=runtime,
+        custom_format_map=custom_format_map,
         analysis=analysis,
         ingest=ingest,
     )

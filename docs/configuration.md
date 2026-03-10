@@ -32,13 +32,19 @@ analysis:
 
 quality_map:
   - match: ["2160p", "x265"]
-    target_id: 13
+    target_id: 19
   - match: ["1080p", "x265"]
     target_id: 7
   - match: ["1080p"]
-    target_id: 6
+    target_id: 9
   - match: ["720p"]
     target_id: 5
+
+custom_format_map:
+  - match: ["german"]
+    format_id: 42
+  - match: ["2160p", "x265"]
+    format_id: 99
 ```
 
 ## Example Notes
@@ -47,11 +53,29 @@ quality_map:
 
 - `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
-- Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping from detected quality. Set it only when you want strict, fixed-profile behavior.
+- Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
 - Example ingest defaults (`enabled=true`, `min_age_seconds=300`) favor safe move-back behavior and reduce the risk of ingesting partially written folders.
 - `ingest.collision_policy=qualify` keeps ingest moving by appending a deterministic suffix like `[ingest-2]`; `skip` leaves the source directory in the shadow root.
-- Keep `quality_map` short. Start with resolution and codec signals, then add rules only when needed for your library.
+- `custom_format_map` is optional and useful when Radarr parse cannot infer enough custom-format signal from release title alone.
+- Keep `quality_map` short if you use it as fallback; start with resolution and codec signals.
 - Enable `analysis.use_media_probe=true` for more reliable quality detection when filenames are inconsistent.
+- On startup preflight, LibrariArr logs configured `custom_format_map` ids and the Radarr custom format catalog (`id:name`) to make id verification easier.
+
+## How It Fits Together
+
+Configuration interaction for auto-add/profile behavior:
+
+1. If `radarr.auto_add_quality_profile_id` is set, that fixed profile is always used.
+2. If it is not set, LibrariArr first uses custom-format signal from Radarr parse and local `custom_format_map`.
+3. If no custom-format signal is available, LibrariArr falls back to `quality_map`.
+4. If neither mapping path yields a profile, LibrariArr falls back to the lowest available Radarr profile id.
+5. `analysis.use_nfo` and `analysis.use_media_probe` feed token extraction for both `custom_format_map` and `quality_map` matching.
+6. `quality_map` is optional and can be short (or empty) when you primarily rely on custom-format-based mapping.
+
+Why Radarr parse is title-based:
+- Radarr `/api/v3/parse` accepts a `title` parameter, so parse-based custom format detection is driven by folder/file title strings.
+- LibrariArr tries multiple title candidates (folder name, video stem, video filename), not only one title string.
+- Deeper local analysis (NFO + ffprobe + filename tokens) can still influence profile selection, but only through `custom_format_map` because those signals are token-level and do not map to Radarr custom format IDs automatically.
 
 ## Paths
 
@@ -79,12 +103,13 @@ quality_map:
 `radarr.auto_add_quality_profile_id`:
 - Optional fixed quality profile id for auto-add.
 - If set, this profile id is always used for newly auto-added movies.
-- If omitted, LibrariArr tries to map from `quality_map`/analysis to a profile.
-- Auto-mapping preference when omitted:
-  1. Profile with `cutoff.id` equal to detected quality definition id.
-  2. Profile that allows the detected id with nearest cutoff tier (prefers same-or-higher tier).
-  3. Any profile that allows the detected id.
-- If no profile allows the detected id, it falls back to the lowest available profile id.
+- If omitted, LibrariArr maps automatically using this workflow:
+  1. Try Radarr parse (`/api/v3/parse`) on folder/file titles and collect matched `customFormats`.
+  2. Add optional local `custom_format_map` matches from filename/folder text, optional NFO, and optional ffprobe tokens.
+  3. Score Radarr profiles by `formatItems` scores and select the best profile.
+  4. If there is still no custom-format signal, use `quality_map` fallback scoring (`target_id` against profile cutoffs/allowed qualities).
+  5. If no profile can be mapped from either signal, fall back to the lowest available profile id.
+  6. If multiple profiles tie, prefer specific profile names over generic profiles (`Any`, `All`, `Default`).
 
 `radarr.auto_add_search_on_add`:
 - If true, Radarr starts indexer search immediately after add.
@@ -96,10 +121,18 @@ quality_map:
 ## Quality Mapping
 
 `quality_map` rules:
+- Optional fallback map (can be empty).
 - Checked top-to-bottom.
 - All tokens in `match` must be present (AND logic).
 - First match wins.
 - If no match, fallback quality definition id is `4`.
+
+`custom_format_map` rules:
+- Optional and additive (all matching rules are collected).
+- Uses the same token sources as quality mapping: filename/folder text, optional NFO, optional ffprobe tokens.
+- `format_id` must be a valid Radarr custom format id.
+- Helps preserve deeper local analysis signals (for example language/audio hints) when Radarr parse relies mostly on release title text.
+- Without `custom_format_map`, deeper analytics still run for `quality_map`, but they do not create Radarr custom format IDs on their own.
 
 `quality_map.target_id` uses Radarr quality definitions:
 
@@ -111,6 +144,12 @@ curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
 
 ```bash
 curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
+```
+
+`custom_format_map.format_id` uses Radarr custom formats:
+
+```bash
+curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/customformat
 ```
 
 ## Analysis

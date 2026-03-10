@@ -225,3 +225,33 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
     assert config.radarr.auto_add_quality_profile_id == 7
     assert config.radarr.auto_add_search_on_add is True
     assert config.radarr.auto_add_monitored is False
+
+
+def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "custom_format_map:\n"
+            "  - match: [german, x265]\n"
+            "    format_id: 42\n"
+            "    name: German HEVC\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert len(config.custom_format_map) == 1
+    assert config.custom_format_map[0].match == ["german", "x265"]
+    assert config.custom_format_map[0].format_id == 42
+    assert config.custom_format_map[0].name == "German HEVC"

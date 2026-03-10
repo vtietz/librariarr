@@ -40,9 +40,17 @@ class RadarrClient:
         definitions = self._request("GET", "/qualitydefinition")
         return definitions if isinstance(definitions, list) else []
 
+    def get_custom_formats(self) -> list[dict[str, Any]]:
+        formats = self._request("GET", "/customformat")
+        return formats if isinstance(formats, list) else []
+
     def lookup_movies(self, term: str) -> list[dict[str, Any]]:
         results = self._request("GET", "/movie/lookup", params={"term": term})
         return results if isinstance(results, list) else []
+
+    def parse_title(self, title: str) -> dict[str, Any]:
+        parsed = self._request("GET", "/parse", params={"title": title})
+        return parsed if isinstance(parsed, dict) else {}
 
     def add_movie_from_lookup(
         self,

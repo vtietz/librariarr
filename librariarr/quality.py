@@ -5,7 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .config import QualityRule
+from .config import CustomFormatRule, QualityRule
 
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"}
 SAMPLE_HINTS = {"sample", "trailer", "extras", "featurette", "behindthescenes"}
@@ -202,6 +202,29 @@ def _match_quality_id(haystack: str, rules: list[QualityRule]) -> int | None:
     return None
 
 
+def _match_custom_format_ids(haystack: str, rules: list[CustomFormatRule]) -> set[int]:
+    tokens = {token for token in re.split(r"[^a-z0-9]+", haystack.lower()) if token}
+
+    def _keyword_matches(keyword: str) -> bool:
+        if keyword in tokens:
+            return True
+
+        for equivalent_group in TOKEN_EQUIVALENTS:
+            if keyword in equivalent_group and tokens.intersection(equivalent_group):
+                return True
+
+        return False
+
+    matched_ids: set[int] = set()
+    for rule in rules:
+        if not rule.match:
+            continue
+        if all(_keyword_matches(keyword.lower()) for keyword in rule.match):
+            matched_ids.add(rule.format_id)
+
+    return matched_ids
+
+
 def map_quality_id(
     movie_dir: Path,
     rules: list[QualityRule],
@@ -225,3 +248,27 @@ def map_quality_id(
             return probe_match
 
     return default_id
+
+
+def map_custom_format_ids(
+    movie_dir: Path,
+    rules: list[CustomFormatRule],
+    use_nfo: bool = False,
+    use_media_probe: bool = False,
+    media_probe_bin: str = "ffprobe",
+) -> set[int]:
+    if not rules:
+        return set()
+
+    haystacks = [collect_movie_text(movie_dir)]
+    if use_nfo:
+        haystacks.append(collect_nfo_text(movie_dir))
+    if use_media_probe:
+        haystacks.append(collect_media_probe_text(movie_dir, media_probe_bin))
+
+    matched_ids: set[int] = set()
+    for haystack in haystacks:
+        if haystack:
+            matched_ids.update(_match_custom_format_ids(haystack, rules))
+
+    return matched_ids

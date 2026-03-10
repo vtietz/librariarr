@@ -5,6 +5,7 @@ import requests
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
+    CustomFormatRule,
     IngestConfig,
     PathsConfig,
     QualityRule,
@@ -23,6 +24,8 @@ class FakeRadarr:
         system_status_error: Exception | None = None,
         quality_profiles: list[dict] | None = None,
         quality_definitions: list[dict] | None = None,
+        custom_formats: list[dict] | None = None,
+        parse_results: dict[str, dict] | None = None,
         lookup_results: list[dict] | None = None,
         add_movie_result: dict | None = None,
     ) -> None:
@@ -31,6 +34,8 @@ class FakeRadarr:
         self.system_status_error = system_status_error
         self.quality_profiles = quality_profiles or []
         self.quality_definitions = quality_definitions or []
+        self.custom_formats = custom_formats or []
+        self.parse_results = parse_results or {}
         self.lookup_results = lookup_results or []
         self.add_movie_result = add_movie_result or {}
         self.updated_paths: list[tuple[int, str]] = []
@@ -39,11 +44,13 @@ class FakeRadarr:
         self.unmonitored: list[int] = []
         self.deleted: list[int] = []
         self.lookup_terms: list[str] = []
+        self.parse_titles: list[str] = []
         self.added_movies: list[dict] = []
         self.get_movies_calls = 0
         self.get_system_status_calls = 0
         self.get_quality_profiles_calls = 0
         self.get_quality_definitions_calls = 0
+        self.get_custom_formats_calls = 0
 
     def get_movies(self) -> list[dict]:
         self.get_movies_calls += 1
@@ -63,9 +70,17 @@ class FakeRadarr:
         self.get_quality_definitions_calls += 1
         return self.quality_definitions
 
+    def get_custom_formats(self) -> list[dict]:
+        self.get_custom_formats_calls += 1
+        return self.custom_formats
+
     def lookup_movies(self, term: str) -> list[dict]:
         self.lookup_terms.append(term)
         return self.lookup_results
+
+    def parse_title(self, title: str) -> dict:
+        self.parse_titles.append(title)
+        return self.parse_results.get(title, {})
 
     def add_movie_from_lookup(
         self,
@@ -474,6 +489,122 @@ def test_reconcile_auto_add_uses_mapped_profile_when_not_configured(tmp_path: Pa
     service.reconcile()
 
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
+
+
+def test_reconcile_auto_add_uses_custom_format_map_when_parse_is_empty(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.german.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "movie.nfo").write_text("language: german", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    config.quality_map = []
+    config.analysis.use_nfo = True
+    config.custom_format_map = [
+        CustomFormatRule(match=["german"], format_id=42, name="German Audio")
+    ]
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[
+            {
+                "id": 1,
+                "name": "Any",
+                "formatItems": [
+                    {"format": 42, "name": "German Audio", "score": 10},
+                ],
+            },
+            {
+                "id": 7,
+                "name": "German HEVC",
+                "formatItems": [
+                    {"format": 42, "name": "German Audio", "score": 100},
+                ],
+            },
+        ],
+        parse_results={
+            # Simulate Radarr parse not yielding useful custom format matches.
+            "Cars 3 - Evolution (2017)": {"customFormats": []},
+        },
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 17,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 117},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
+
+
+def test_reconcile_auto_add_uses_parse_custom_formats_without_quality_map(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    config.quality_map = []
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[
+            {
+                "id": 1,
+                "name": "Any",
+                "formatItems": [
+                    {"format": 99, "name": "Preferred Release", "score": 10},
+                ],
+            },
+            {
+                "id": 8,
+                "name": "Specific Preferred",
+                "formatItems": [
+                    {"format": 99, "name": "Preferred Release", "score": 100},
+                ],
+            },
+        ],
+        parse_results={
+            "Cars 3 - Evolution (2017)": {
+                "customFormats": [{"id": 99, "name": "Preferred Release"}],
+            }
+        },
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 18,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 118},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 8
 
 
 def test_reconcile_auto_add_prefers_cutoff_exact_profile(tmp_path: Path) -> None:
@@ -891,6 +1022,38 @@ def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
     assert not (shadow_root / "Star Wars").exists()
 
 
+def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Big Buck Bunny (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.quality_map = []
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Big Buck Bunny",
+                "year": 2008,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.updated_paths and fake.updated_paths[0][0] == 1
+    assert fake.updated_qualities == []
+    assert fake.refreshed == [1]
+
+
 def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
@@ -1088,6 +1251,51 @@ def test_sync_preflight_parses_nested_quality_definition_shape(tmp_path: Path, c
 
     assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
     assert "quality_map target_id values validated" in caplog.text
+
+
+def test_sync_preflight_logs_custom_format_catalog_and_validation(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.custom_format_map = [
+        CustomFormatRule(match=["german"], format_id=42, name="German Audio"),
+        CustomFormatRule(match=["x265"], format_id=99, name="HEVC"),
+    ]
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        custom_formats=[
+            {"id": 42, "name": "German Audio"},
+            {"id": 99, "name": "HEVC"},
+        ]
+    )
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert (
+        "custom_format_map contains format ids for local analysis fallback: [42, 99]" in caplog.text
+    )
+    assert "Radarr custom formats (id:name): 42:German Audio, 99:HEVC" in caplog.text
+    assert "custom_format_map format_id values validated" in caplog.text
+
+
+def test_sync_preflight_warns_when_custom_format_id_missing(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.custom_format_map = [CustomFormatRule(match=["german"], format_id=999, name="Missing")]
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(custom_formats=[{"id": 42, "name": "German Audio"}])
+
+    caplog.set_level("WARNING", logger="librariarr.service")
+    service._run_sync_preflight_checks()
+
+    assert "custom_format_map format_id values not found" in caplog.text
+    assert "missing_ids=[999]" in caplog.text
 
 
 def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path: Path) -> None:
