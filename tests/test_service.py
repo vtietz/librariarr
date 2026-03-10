@@ -528,6 +528,65 @@ def test_reconcile_auto_add_prefers_cutoff_exact_profile(tmp_path: Path) -> None
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 9
 
 
+def test_reconcile_auto_add_prefers_specific_profile_over_any(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Cars 3 - Evolution (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Cars.3.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        quality_profiles=[
+            {
+                "id": 1,
+                "name": "Any",
+                "cutoff": {"id": 7, "name": "Bluray-1080p"},
+                "items": [
+                    {"quality": {"id": 4, "name": "HDTV-1080p"}},
+                    {"quality": {"id": 7, "name": "Bluray-1080p"}},
+                    {"quality": {"id": 19, "name": "Bluray-2160p"}},
+                ],
+            },
+            {
+                "id": 7,
+                "name": "1080p German x265",
+                "cutoff": {"id": 7, "name": "Bluray-1080p"},
+                "items": [
+                    {"quality": {"id": 7, "name": "Bluray-1080p"}},
+                ],
+            },
+        ],
+        quality_definitions=[
+            {"id": 4, "name": "HDTV-1080p"},
+            {"id": 7, "name": "Bluray-1080p"},
+            {"id": 19, "name": "Bluray-2160p"},
+        ],
+        lookup_results=[{"title": "Cars 3", "year": 2017, "tmdbId": 260514}],
+        add_movie_result={
+            "id": 114,
+            "title": "Cars 3",
+            "year": 2017,
+            "path": str(shadow_root / "Cars 3 (2017)"),
+            "movieFile": {"id": 214},
+            "monitored": True,
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
+
+
 def test_reconcile_auto_add_skips_disallowed_profile_items(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"

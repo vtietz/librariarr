@@ -131,6 +131,11 @@ class RadarrSyncHelper:
     def _normalize_title_token(self, title: str) -> str:
         return re.sub(r"[^a-z0-9]+", "", title.strip().lower())
 
+    def _profile_is_generic(self, profile: dict) -> bool:
+        name = str(profile.get("name") or "").strip().lower()
+        normalized = re.sub(r"[^a-z0-9]+", "", name)
+        return normalized in {"any", "all", "default"}
+
     def _extract_profile_quality_definition_ids(self, profile: dict) -> set[int]:
         items = profile.get("items")
         if not isinstance(items, list):
@@ -192,7 +197,7 @@ class RadarrSyncHelper:
         profile: dict,
         desired_quality_id: int,
         rank_map: dict[int, int],
-    ) -> tuple[tuple[int, int, int, int, int], str] | None:
+    ) -> tuple[tuple[int, int, int, int, int, int], str] | None:
         profile_id = profile.get("id")
         if not isinstance(profile_id, int):
             return None
@@ -201,18 +206,28 @@ class RadarrSyncHelper:
         if desired_quality_id not in allowed_quality_ids:
             return None
 
+        generic_penalty = 1 if self._profile_is_generic(profile) else 0
+        allowed_count = len(allowed_quality_ids)
+
         cutoff_quality_id = self._extract_profile_cutoff_quality_definition_id(profile)
         if cutoff_quality_id == desired_quality_id:
-            return (0, 0, 0, 0, profile_id), "cutoff_exact"
+            return (0, 0, 0, generic_penalty, allowed_count, profile_id), "cutoff_exact"
 
         if cutoff_quality_id is None:
-            return (2, 1, 1, 1_000_000, profile_id), "allowed_only"
+            return (2, 1, 1_000_000, generic_penalty, allowed_count, profile_id), "allowed_only"
 
         desired_rank = self._quality_rank(desired_quality_id, rank_map)
         cutoff_rank = self._quality_rank(cutoff_quality_id, rank_map)
         cutoff_below_desired = 0 if cutoff_rank >= desired_rank else 1
         cutoff_distance = abs(cutoff_rank - desired_rank)
-        return (1, 0, cutoff_below_desired, cutoff_distance, profile_id), "nearest_cutoff"
+        return (
+            1,
+            cutoff_below_desired,
+            cutoff_distance,
+            generic_penalty,
+            allowed_count,
+            profile_id,
+        ), "nearest_cutoff"
 
     def _get_auto_add_profiles(self) -> list[dict]:
         if self._auto_add_profiles_cache is not None:
@@ -286,7 +301,7 @@ class RadarrSyncHelper:
             return self._auto_add_profile_by_quality_cache[desired_quality_id]
 
         rank_map = self._get_quality_definition_rank_map()
-        ranked_profiles: list[tuple[tuple[int, int, int, int, int], int, str]] = []
+        ranked_profiles: list[tuple[tuple[int, int, int, int, int, int], int, str]] = []
         for profile in profiles:
             ranked = self._score_profile_for_quality(profile, desired_quality_id, rank_map)
             if ranked is None:
