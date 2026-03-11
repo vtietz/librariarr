@@ -38,6 +38,7 @@ def test_cleanup_manager_removes_orphan_and_unmonitors_movie(tmp_path: Path) -> 
         sync_enabled=True,
         unmonitor_on_delete=True,
         delete_from_radarr_on_missing=False,
+        missing_grace_seconds=0,
         get_radarr_client=lambda: radarr,
         resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
@@ -75,6 +76,7 @@ def test_cleanup_manager_removes_orphan_and_deletes_movie_when_configured(tmp_pa
         sync_enabled=True,
         unmonitor_on_delete=True,
         delete_from_radarr_on_missing=True,
+        missing_grace_seconds=0,
         get_radarr_client=lambda: radarr,
         resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
@@ -90,4 +92,128 @@ def test_cleanup_manager_removes_orphan_and_deletes_movie_when_configured(tmp_pa
     assert removed == 1
     assert radarr.deleted == [88]
     assert radarr.unmonitored == []
+    assert radarr.refreshed == []
+
+
+def test_cleanup_manager_defers_missing_action_until_grace_expires(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    shadow_root = tmp_path / "radarr_library"
+    nested_root = tmp_path / "nested"
+    shadow_root.mkdir(parents=True)
+    nested_root.mkdir(parents=True)
+
+    missing_target = nested_root / "Tears of Steel (2012)"
+    orphan_link = shadow_root / "Tears of Steel (2012)"
+    orphan_link.symlink_to(missing_target, target_is_directory=True)
+
+    radarr = FakeRadarr()
+    movies = {"Tears of Steel (2012)": {"id": 99}}
+
+    manager = ShadowCleanupManager(
+        shadow_roots=[shadow_root],
+        sync_enabled=True,
+        unmonitor_on_delete=True,
+        delete_from_radarr_on_missing=False,
+        missing_grace_seconds=60,
+        get_radarr_client=lambda: radarr,
+        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+            link_name.split("--", 1)[0]
+        ),
+    )
+
+    current_time = 1000.0
+
+    def fake_time() -> float:
+        return current_time
+
+    monkeypatch.setattr("librariarr.sync.cleanup.time.time", fake_time)
+
+    manager.cleanup_orphans(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+    )
+    assert radarr.unmonitored == []
+    assert radarr.deleted == []
+
+    current_time = 1059.0
+    manager.cleanup_orphans(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+    )
+    assert radarr.unmonitored == []
+    assert radarr.deleted == []
+
+    current_time = 1061.0
+    manager.cleanup_orphans(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+    )
+    assert radarr.unmonitored == [99]
+    assert radarr.deleted == []
+    assert radarr.refreshed == [99]
+
+
+def test_cleanup_manager_clears_pending_missing_when_movie_rematches(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    shadow_root = tmp_path / "radarr_library"
+    nested_root = tmp_path / "nested"
+    shadow_root.mkdir(parents=True)
+    nested_root.mkdir(parents=True)
+
+    missing_target = nested_root / "Tears of Steel (2012)"
+    orphan_link = shadow_root / "Tears of Steel (2012)"
+    orphan_link.symlink_to(missing_target, target_is_directory=True)
+
+    radarr = FakeRadarr()
+    movies = {"Tears of Steel (2012)": {"id": 101}}
+
+    manager = ShadowCleanupManager(
+        shadow_roots=[shadow_root],
+        sync_enabled=True,
+        unmonitor_on_delete=True,
+        delete_from_radarr_on_missing=False,
+        missing_grace_seconds=60,
+        get_radarr_client=lambda: radarr,
+        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+            link_name.split("--", 1)[0]
+        ),
+    )
+
+    current_time = 2000.0
+
+    def fake_time() -> float:
+        return current_time
+
+    monkeypatch.setattr("librariarr.sync.cleanup.time.time", fake_time)
+
+    manager.cleanup_orphans(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+    )
+
+    current_time = 2100.0
+    manager.cleanup_orphans(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+        matched_movie_ids={101},
+    )
+
+    current_time = 2200.0
+    manager.cleanup_orphans(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+    )
+
+    assert radarr.unmonitored == []
+    assert radarr.deleted == []
     assert radarr.refreshed == []

@@ -27,6 +27,8 @@ class CleanupConfig:
     remove_orphaned_links: bool = True
     unmonitor_on_delete: bool = True
     delete_from_radarr_on_missing: bool = False
+    radarr_action_on_missing: str = "unmonitor"
+    missing_grace_seconds: int = 3600
 
 
 @dataclass
@@ -145,7 +147,29 @@ def load_config(path: str | Path) -> AppConfig:
     ]
 
     cleanup_raw = raw.get("cleanup", {})
-    delete_from_radarr_on_missing = bool(cleanup_raw.get("delete_from_radarr_on_missing", False))
+    configured_missing_action = str(cleanup_raw.get("radarr_action_on_missing", "")).strip().lower()
+    if configured_missing_action:
+        if configured_missing_action not in {"none", "unmonitor", "delete"}:
+            raise ValueError(
+                "cleanup.radarr_action_on_missing must be one of: none, unmonitor, delete"
+            )
+
+        unmonitor_on_delete = configured_missing_action in {"unmonitor", "delete"}
+        delete_from_radarr_on_missing = configured_missing_action == "delete"
+        resolved_missing_action = configured_missing_action
+    else:
+        unmonitor_on_delete = bool(cleanup_raw.get("unmonitor_on_delete", True))
+        delete_from_radarr_on_missing = bool(
+            cleanup_raw.get("delete_from_radarr_on_missing", False)
+        )
+        if not unmonitor_on_delete:
+            resolved_missing_action = "none"
+        elif delete_from_radarr_on_missing:
+            resolved_missing_action = "delete"
+        else:
+            resolved_missing_action = "unmonitor"
+
+    missing_grace_seconds = max(0, int(cleanup_raw.get("missing_grace_seconds", 3600)))
     runtime_raw = raw.get("runtime", {})
 
     runtime = RuntimeConfig(
@@ -194,8 +218,10 @@ def load_config(path: str | Path) -> AppConfig:
         quality_map=quality_map,
         cleanup=CleanupConfig(
             remove_orphaned_links=bool(cleanup_raw.get("remove_orphaned_links", True)),
-            unmonitor_on_delete=bool(cleanup_raw.get("unmonitor_on_delete", True)),
+            unmonitor_on_delete=unmonitor_on_delete,
             delete_from_radarr_on_missing=delete_from_radarr_on_missing,
+            radarr_action_on_missing=resolved_missing_action,
+            missing_grace_seconds=missing_grace_seconds,
         ),
         runtime=runtime,
         custom_format_map=custom_format_map,

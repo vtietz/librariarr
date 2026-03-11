@@ -51,6 +51,8 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.auto_add_search_on_add is False
     assert config.radarr.auto_add_monitored is True
     assert config.quality_map[0].target_id == 7
+    assert config.cleanup.radarr_action_on_missing == "unmonitor"
+    assert config.cleanup.missing_grace_seconds == 3600
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
     assert config.analysis.media_probe_bin == "ffprobe"
@@ -258,3 +260,54 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     assert config.custom_format_map[0].match == ["german", "x265"]
     assert config.custom_format_map[0].format_id == 42
     assert config.custom_format_map[0].name == "German HEVC"
+
+
+def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup:\n"
+            "  radarr_action_on_missing: none\n"
+            "  missing_grace_seconds: 7200\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.cleanup.radarr_action_on_missing == "none"
+    assert config.cleanup.unmonitor_on_delete is False
+    assert config.cleanup.delete_from_radarr_on_missing is False
+    assert config.cleanup.missing_grace_seconds == 7200
+
+
+def test_load_config_rejects_invalid_cleanup_action(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup:\n"
+            "  radarr_action_on_missing: pause\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cleanup.radarr_action_on_missing"):
+        load_config(config_path)

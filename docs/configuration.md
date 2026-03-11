@@ -62,6 +62,7 @@ custom_format_map:
 - Keep `quality_map` short if you use it as fallback; start with resolution and codec signals.
 - Enable `analysis.use_media_probe=true` for more reliable quality detection when filenames are inconsistent.
 - On startup preflight, LibrariArr logs configured `custom_format_map` ids and the Radarr custom format catalog (`id:name`) to make id verification easier.
+- Prefer `cleanup.radarr_action_on_missing=none` with a non-zero `cleanup.missing_grace_seconds` when libraries may be temporarily unavailable.
 
 ## How It Fits Together
 
@@ -208,11 +209,19 @@ Note:
 `cleanup.remove_orphaned_links`:
 - Removes links whose source no longer exists.
 
-`cleanup.unmonitor_on_delete`:
-- Unmonitors Radarr entry when source disappears.
+`cleanup.radarr_action_on_missing`:
+- Controls Radarr behavior when source disappears.
+- `none`: leave Radarr state untouched (recommended for transient disconnects/renames).
+- `unmonitor`: unmonitor after `cleanup.missing_grace_seconds`.
+- `delete`: delete from Radarr after `cleanup.missing_grace_seconds`.
 
-`cleanup.delete_from_radarr_on_missing`:
-- Deletes Radarr entry instead of unmonitoring.
+`cleanup.missing_grace_seconds`:
+- Delay before `unmonitor` or `delete` is applied.
+- Helps avoid false actions during temporary storage/network outages.
+
+Legacy compatibility keys (prefer `cleanup.radarr_action_on_missing`):
+- `cleanup.unmonitor_on_delete`
+- `cleanup.delete_from_radarr_on_missing`
 
 ## Runtime
 

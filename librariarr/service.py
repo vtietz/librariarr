@@ -26,6 +26,20 @@ from .sync import (
 
 LOG = logging.getLogger(__name__)
 TITLE_TOKEN_RE = re.compile(r"[^a-z0-9]+")
+IMDB_ID_RE = re.compile(r"\btt\d{5,10}\b", re.IGNORECASE)
+IMDB_NEAR_TOKEN_RE = re.compile(r"(?:imdb)(?:id)?[^a-z0-9]{0,16}(tt\d{5,10})", re.IGNORECASE)
+TMDB_ID_RE = re.compile(
+    r"(?:tmdb|themoviedb)(?:id)?[^0-9]{0,16}(\d{2,})",
+    re.IGNORECASE,
+)
+TMDB_UNIQUE_ID_RE = re.compile(
+    r"<\s*uniqueid[^>]*type\s*=\s*[\"']tmdb[\"'][^>]*>\s*(\d{2,})\s*<",
+    re.IGNORECASE,
+)
+IMDB_UNIQUE_ID_RE = re.compile(
+    r"<\s*uniqueid[^>]*type\s*=\s*[\"']imdb[\"'][^>]*>\s*(tt\d{5,10})\s*<",
+    re.IGNORECASE,
+)
 
 
 class LibrariArrService:
@@ -62,6 +76,7 @@ class LibrariArrService:
             sync_enabled=self.sync_enabled,
             unmonitor_on_delete=config.cleanup.unmonitor_on_delete,
             delete_from_radarr_on_missing=config.cleanup.delete_from_radarr_on_missing,
+            missing_grace_seconds=config.cleanup.missing_grace_seconds,
             get_radarr_client=lambda: self.radarr,
             resolve_movie_for_link_name=self._resolve_movie_for_link_name,
             logger=LOG,
@@ -293,11 +308,15 @@ class LibrariArrService:
             movies_by_path = (
                 self._build_movie_path_index(movies_by_ref) if self.sync_enabled else {}
             )
+            movies_by_external_id = (
+                self._build_movie_external_id_index(movies_by_ref) if self.sync_enabled else {}
+            )
             expected_links: set[Path] = set()
             created_links = 0
             matched_movies = 0
             unmatched_movies = 0
             auto_added_movie_ids: set[int] = set()
+            matched_movie_ids: set[int] = set()
 
             for folder, shadow_root in sorted(movie_folders.items()):
                 existing_links = target_to_links.get(folder, set())
@@ -306,6 +325,7 @@ class LibrariArrService:
                         folder,
                         movies_by_ref,
                         movies_by_path,
+                        movies_by_external_id,
                         existing_links,
                     )
                     if self.sync_enabled
@@ -314,11 +334,10 @@ class LibrariArrService:
                 if self.sync_enabled and movie is None and self.auto_add_unmatched:
                     movie = self.radarr_sync.auto_add_movie_for_folder(folder, shadow_root)
                     if movie is not None:
-                        movie_id = movie.get("id")
-                        if isinstance(movie_id, int):
-                            auto_added_movie_ids.add(movie_id)
+                        self._add_movie_id_if_present(auto_added_movie_ids, movie)
                         self._index_movie(index=movies_by_ref, movie=movie)
                         self._index_movie_path(index=movies_by_path, movie=movie)
+                        self._index_movie_external_ids(index=movies_by_external_id, movie=movie)
 
                 link_path, was_created = self.link_manager.ensure_link(
                     folder,
@@ -333,13 +352,12 @@ class LibrariArrService:
 
                 if self.sync_enabled:
                     if movie is not None:
-                        movie_id = movie.get("id")
+                        movie_id = self._add_movie_id_if_present(matched_movie_ids, movie)
                         self._sync_radarr_for_folder(
                             folder,
                             link_path,
                             movie,
-                            force_refresh=isinstance(movie_id, int)
-                            and movie_id in auto_added_movie_ids,
+                            force_refresh=movie_id is not None and movie_id in auto_added_movie_ids,
                         )
                         matched_movies += 1
                     else:
@@ -363,6 +381,7 @@ class LibrariArrService:
                     set(movie_folders.keys()),
                     movies_by_ref,
                     expected_links,
+                    matched_movie_ids=matched_movie_ids,
                 )
 
             duration_seconds = round(time.time() - started, 2)
@@ -401,8 +420,13 @@ class LibrariArrService:
         folder: Path,
         movies_by_ref: dict[MovieRef, dict],
         movies_by_path: dict[str, dict],
+        movies_by_external_id: dict[str, dict],
         existing_links: set[Path],
     ) -> dict | None:
+        external_id_match = self._match_movie_for_external_ids(folder, movies_by_external_id)
+        if external_id_match is not None:
+            return external_id_match
+
         ref = parse_movie_ref(folder.name)
         exact_match = movies_by_ref.get(ref) or movies_by_ref.get(
             MovieRef(title=ref.title, year=None)
@@ -508,6 +532,20 @@ class LibrariArrService:
             self._index_movie_path(index=index, movie=movie)
         return index
 
+    def _build_movie_external_id_index(
+        self,
+        movies_by_ref: dict[MovieRef, dict],
+    ) -> dict[str, dict]:
+        index: dict[str, dict] = {}
+        seen_ids: set[int] = set()
+        for movie in movies_by_ref.values():
+            movie_id = movie.get("id")
+            if not isinstance(movie_id, int) or movie_id in seen_ids:
+                continue
+            seen_ids.add(movie_id)
+            self._index_movie_external_ids(index=index, movie=movie)
+        return index
+
     def _index_movie(self, index: dict[MovieRef, dict], movie: dict) -> None:
         title = (movie.get("title") or "").strip().lower()
         if not title:
@@ -525,6 +563,87 @@ class LibrariArrService:
         if not path:
             return
         index[self._normalize_fs_path(path)] = movie
+
+    def _add_movie_id_if_present(self, target: set[int], movie: dict) -> int | None:
+        movie_id = movie.get("id")
+        if isinstance(movie_id, int):
+            target.add(movie_id)
+            return movie_id
+        return None
+
+    def _index_movie_external_ids(self, index: dict[str, dict], movie: dict) -> None:
+        tmdb_id = movie.get("tmdbId")
+        if isinstance(tmdb_id, int):
+            index.setdefault(f"tmdb:{tmdb_id}", movie)
+
+        imdb_raw = movie.get("imdbId")
+        imdb_id = str(imdb_raw).strip().lower() if imdb_raw is not None else ""
+        if imdb_id.startswith("tt"):
+            index.setdefault(f"imdb:{imdb_id}", movie)
+
+    def _collect_folder_identity_text(self, folder: Path) -> str:
+        parts = [folder.name]
+        try:
+            for child in sorted(folder.iterdir()):
+                if not child.is_file():
+                    continue
+
+                parts.append(child.name)
+                if child.suffix.lower() != ".nfo":
+                    continue
+
+                try:
+                    parts.append(child.read_text(encoding="utf-8", errors="ignore"))
+                except OSError:
+                    continue
+        except OSError:
+            return " ".join(parts).lower()
+
+        return " ".join(parts).lower()
+
+    def _extract_external_ids_from_text(self, text: str) -> tuple[int | None, str | None]:
+        tmdb_id: int | None = None
+        imdb_id: str | None = None
+
+        tmdb_match = TMDB_UNIQUE_ID_RE.search(text) or TMDB_ID_RE.search(text)
+        if tmdb_match is not None:
+            try:
+                tmdb_id = int(tmdb_match.group(1))
+            except (TypeError, ValueError):
+                tmdb_id = None
+
+        imdb_match = (
+            IMDB_UNIQUE_ID_RE.search(text)
+            or IMDB_NEAR_TOKEN_RE.search(text)
+            or IMDB_ID_RE.search(text)
+        )
+        if imdb_match is not None:
+            imdb_id = (
+                imdb_match.group(1).lower() if imdb_match.lastindex else imdb_match.group(0).lower()
+            )
+
+        return tmdb_id, imdb_id
+
+    def _match_movie_for_external_ids(
+        self,
+        folder: Path,
+        movies_by_external_id: dict[str, dict],
+    ) -> dict | None:
+        if not movies_by_external_id:
+            return None
+
+        identity_text = self._collect_folder_identity_text(folder)
+        tmdb_id, imdb_id = self._extract_external_ids_from_text(identity_text)
+
+        if tmdb_id is not None:
+            tmdb_match = movies_by_external_id.get(f"tmdb:{tmdb_id}")
+            if tmdb_match is not None:
+                return tmdb_match
+
+        if imdb_id is not None:
+            return movies_by_external_id.get(f"imdb:{imdb_id}")
+
+        return None
 
     def _sync_radarr_for_folder(
         self,

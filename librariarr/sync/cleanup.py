@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -13,6 +14,7 @@ class ShadowCleanupManager:
         sync_enabled: bool,
         unmonitor_on_delete: bool,
         delete_from_radarr_on_missing: bool,
+        missing_grace_seconds: int,
         get_radarr_client: Callable[[], Any],
         resolve_movie_for_link_name: Callable[[str, dict[Any, dict]], dict | None],
         logger: logging.Logger | None = None,
@@ -21,16 +23,97 @@ class ShadowCleanupManager:
         self.sync_enabled = sync_enabled
         self.unmonitor_on_delete = unmonitor_on_delete
         self.delete_from_radarr_on_missing = delete_from_radarr_on_missing
+        self.missing_grace_seconds = max(0, int(missing_grace_seconds))
         self.get_radarr_client = get_radarr_client
         self.resolve_movie_for_link_name = resolve_movie_for_link_name
         self.log = logger or logging.getLogger(__name__)
+        self._missing_since_by_movie_id: dict[int, float] = {}
+
+    def _build_movies_by_id(self, movies_by_ref: dict[Any, dict]) -> dict[int, dict]:
+        movies_by_id: dict[int, dict] = {}
+        for movie in movies_by_ref.values():
+            movie_id = movie.get("id")
+            if isinstance(movie_id, int):
+                movies_by_id.setdefault(movie_id, movie)
+        return movies_by_id
+
+    def _queue_missing_movie(self, movie_id: int) -> None:
+        self._missing_since_by_movie_id.setdefault(movie_id, time.time())
+
+    def _clear_pending_missing(self, movie_id: int) -> None:
+        self._missing_since_by_movie_id.pop(movie_id, None)
+
+    def _apply_pending_missing_actions(
+        self,
+        movies_by_ref: dict[Any, dict],
+        matched_movie_ids: set[int],
+    ) -> None:
+        if not self.sync_enabled or not self.unmonitor_on_delete:
+            self._missing_since_by_movie_id.clear()
+            return
+
+        if not self._missing_since_by_movie_id:
+            return
+
+        movies_by_id = self._build_movies_by_id(movies_by_ref)
+        now = time.time()
+        radarr = None
+
+        for movie_id, first_missing_at in list(self._missing_since_by_movie_id.items()):
+            if movie_id in matched_movie_ids:
+                self._clear_pending_missing(movie_id)
+                continue
+
+            movie = movies_by_id.get(movie_id)
+            if movie is None:
+                self._clear_pending_missing(movie_id)
+                continue
+
+            elapsed = now - first_missing_at
+            if elapsed < self.missing_grace_seconds:
+                continue
+
+            if radarr is None:
+                radarr = self.get_radarr_client()
+
+            if self.delete_from_radarr_on_missing:
+                radarr.delete_movie(movie_id, delete_files=False)
+            else:
+                radarr.unmonitor_movie(movie)
+                radarr.refresh_movie(movie_id)
+            self._clear_pending_missing(movie_id)
+
+    def _queue_missing_action_for_link(
+        self,
+        link_name: str,
+        movies_by_ref: dict[Any, dict],
+        matched_movie_ids: set[int],
+    ) -> None:
+        if not self.sync_enabled or not self.unmonitor_on_delete:
+            return
+
+        movie = self.resolve_movie_for_link_name(link_name, movies_by_ref)
+        if not movie:
+            return
+
+        movie_id = movie.get("id")
+        if not isinstance(movie_id, int):
+            return
+
+        if movie_id in matched_movie_ids:
+            self._clear_pending_missing(movie_id)
+            return
+
+        self._queue_missing_movie(movie_id)
 
     def cleanup_orphans(
         self,
         existing_folders: set[Path],
         movies_by_ref: dict[Any, dict],
         expected_links: set[Path],
+        matched_movie_ids: set[int] | None = None,
     ) -> int:
+        matched_ids = matched_movie_ids or set()
         removed_count = 0
         for shadow_root in self.shadow_roots:
             if not shadow_root.exists():
@@ -56,20 +139,15 @@ class ShadowCleanupManager:
 
                 if target_exists:
                     continue
-                if not self.sync_enabled:
-                    continue
-                if not self.unmonitor_on_delete:
-                    continue
+                self._queue_missing_action_for_link(
+                    link_name=child.name,
+                    movies_by_ref=movies_by_ref,
+                    matched_movie_ids=matched_ids,
+                )
 
-                radarr = self.get_radarr_client()
-                movie = self.resolve_movie_for_link_name(child.name, movies_by_ref)
-                if not movie:
-                    continue
-
-                if self.delete_from_radarr_on_missing:
-                    radarr.delete_movie(int(movie["id"]), delete_files=False)
-                    continue
-                radarr.unmonitor_movie(movie)
-                radarr.refresh_movie(int(movie["id"]))
+        self._apply_pending_missing_actions(
+            movies_by_ref=movies_by_ref,
+            matched_movie_ids=matched_ids,
+        )
 
         return removed_count

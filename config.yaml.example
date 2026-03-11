@@ -67,8 +67,16 @@ custom_format_map:
 
 cleanup:
   remove_orphaned_links: true
-  unmonitor_on_delete: true
-  delete_from_radarr_on_missing: false
+  # What to do in Radarr when a source folder is missing:
+  #   none      -> do not touch Radarr state (recommended for transient outages/renames)
+  #   unmonitor -> unmonitor after grace window
+  #   delete    -> delete from Radarr after grace window
+  radarr_action_on_missing: "none"
+  # Grace period before unmonitor/delete action is applied.
+  missing_grace_seconds: 21600
+  # Legacy compatibility keys (prefer radarr_action_on_missing above):
+  # unmonitor_on_delete: true
+  # delete_from_radarr_on_missing: false
 
 runtime:
   # Debounce window for filesystem event bursts (seconds).
