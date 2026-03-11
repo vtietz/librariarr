@@ -91,6 +91,50 @@ def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
     assert schedule.last_event > 0.0
 
 
+def test_runtime_sync_loop_mark_dirty_ignores_shadow_nested_event(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    shadow_root = tmp_path / "shadow"
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[shadow_root],
+        schedule=schedule,
+        reconcile=lambda: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=False,
+            src_path=str(shadow_root / "Movie (2024)" / "movie.mkv"),
+        )
+    )
+    assert schedule.last_event == 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_accepts_shadow_top_level_event(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    shadow_root = tmp_path / "shadow"
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[shadow_root],
+        schedule=schedule,
+        reconcile=lambda: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=True,
+            src_path=str(shadow_root / "Movie (2024)"),
+        )
+    )
+    assert schedule.last_event > 0.0
+
+
 def test_runtime_sync_loop_handles_reconcile_exception() -> None:
     seen: list[Exception] = []
 

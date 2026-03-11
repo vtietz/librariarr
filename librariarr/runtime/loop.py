@@ -45,6 +45,7 @@ class _SyncEventHandler(FileSystemEventHandler):
 
 class RuntimeSyncLoop:
     _NOISY_EVENT_TYPES = frozenset({"opened", "closed", "closed_no_write"})
+    _SHADOW_TRIGGER_EVENT_TYPES = frozenset({"created", "deleted", "moved"})
 
     def __init__(
         self,
@@ -132,7 +133,44 @@ class RuntimeSyncLoop:
         if event.is_directory and event.event_type == "modified":
             return False
 
+        event_paths = self._extract_event_paths(event)
+        if event_paths and self._is_shadow_event(event_paths):
+            if event.event_type not in self._SHADOW_TRIGGER_EVENT_TYPES:
+                return False
+            return self._is_shadow_top_level_event(event_paths)
+
         return True
+
+    def _extract_event_paths(self, event: FileSystemEvent) -> list[Path]:
+        paths: list[Path] = []
+        for attr in ("src_path", "dest_path"):
+            raw = getattr(event, attr, None)
+            if not isinstance(raw, str) or not raw.strip():
+                continue
+            paths.append(Path(raw))
+        return paths
+
+    def _is_shadow_event(self, paths: list[Path]) -> bool:
+        for path in paths:
+            for root in self.shadow_roots:
+                try:
+                    path.relative_to(root)
+                    return True
+                except ValueError:
+                    continue
+        return False
+
+    def _is_shadow_top_level_event(self, paths: list[Path]) -> bool:
+        for path in paths:
+            for root in self.shadow_roots:
+                try:
+                    relative = path.relative_to(root)
+                except ValueError:
+                    continue
+
+                if len(relative.parts) == 1:
+                    return True
+        return False
 
     def _run_reconcile_with_handling(self, error_log_message: str) -> bool:
         # Preserve existing semantics: sync time updates when a reconcile attempt starts.
