@@ -36,7 +36,7 @@ def test_runtime_sync_loop_mark_dirty_sets_event() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: None,
+        reconcile=lambda: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -52,7 +52,7 @@ def test_runtime_sync_loop_mark_dirty_ignores_opened_event() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: None,
+        reconcile=lambda: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -67,7 +67,7 @@ def test_runtime_sync_loop_mark_dirty_ignores_directory_modified_event() -> None
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: None,
+        reconcile=lambda: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -82,7 +82,7 @@ def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: None,
+        reconcile=lambda: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -94,7 +94,7 @@ def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
 def test_runtime_sync_loop_handles_reconcile_exception() -> None:
     seen: list[Exception] = []
 
-    def failing_reconcile() -> None:
+    def failing_reconcile() -> bool:
         raise RuntimeError("boom")
 
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
@@ -107,8 +107,23 @@ def test_runtime_sync_loop_handles_reconcile_exception() -> None:
         logger=logging.getLogger("tests.runtime.loop"),
     )
 
-    loop._run_reconcile_with_handling("test failure")
+    result = loop._run_reconcile_with_handling("test failure")
 
+    assert result is False
     assert len(seen) == 1
     assert isinstance(seen[0], RuntimeError)
     assert schedule.last_sync > 0.0
+
+
+def test_runtime_sync_loop_returns_reconcile_pending_state() -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda: True,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    assert loop._run_reconcile_with_handling("test") is True

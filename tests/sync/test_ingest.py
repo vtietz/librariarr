@@ -78,3 +78,26 @@ def test_ingestor_skips_when_shadow_root_maps_to_multiple_nested_roots(tmp_path:
     assert ingested == 0
     assert movie_a.exists()
     assert movie_b.exists()
+
+
+def test_ingestor_marks_pending_when_folder_not_quiescent(tmp_path: Path) -> None:
+    shadow_root = tmp_path / "radarr_library"
+    nested_root = tmp_path / "nested"
+    incoming = shadow_root / "Fresh Movie (2024)"
+    incoming.mkdir(parents=True)
+    (incoming / "fresh.movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
+
+    ingestor = ShadowIngestor(
+        config=IngestConfig(enabled=True, min_age_seconds=600),
+        video_exts={".mkv"},
+        shadow_roots=[shadow_root],
+        shadow_to_nested_roots={shadow_root: [nested_root]},
+    )
+
+    ingested = ingestor.run()
+
+    assert ingested == 0
+    assert ingestor.last_pending_quiescent_count == 1
+    assert incoming.exists()
+    assert incoming.is_dir()
+    assert not incoming.is_symlink()

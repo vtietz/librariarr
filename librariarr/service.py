@@ -271,7 +271,7 @@ class LibrariArrService:
                 detail,
             )
 
-    def reconcile(self) -> None:
+    def reconcile(self) -> bool:
         with self._lock:
             started = time.time()
             LOG.info("Reconciling shadow links and Radarr state...")
@@ -279,6 +279,9 @@ class LibrariArrService:
                 shadow_root.mkdir(parents=True, exist_ok=True)
 
             ingested_count = self.ingestor.run() if self.config.ingest.enabled else 0
+            ingest_pending = False
+            if self.config.ingest.enabled:
+                ingest_pending = self.ingestor.last_pending_quiescent_count > 0
 
             movie_folders = self._all_movie_folders()
             target_to_links = collect_current_links(self.shadow_roots)
@@ -351,7 +354,8 @@ class LibrariArrService:
             LOG.info(
                 "Reconcile complete: movie_folders=%s existing_links=%s "
                 "created_links=%s matched_movies=%s unmatched_movies=%s "
-                "removed_orphans=%s ingested_dirs=%s sync_enabled=%s duration_seconds=%s",
+                "removed_orphans=%s ingested_dirs=%s ingest_pending=%s "
+                "sync_enabled=%s duration_seconds=%s",
                 len(movie_folders),
                 sum(len(links) for links in target_to_links.values()),
                 created_links,
@@ -359,9 +363,11 @@ class LibrariArrService:
                 unmatched_movies,
                 orphaned_links_removed,
                 ingested_count,
+                ingest_pending,
                 self.sync_enabled,
                 duration_seconds,
             )
+            return ingest_pending
 
     def _all_movie_folders(self) -> dict[Path, Path]:
         all_folders: dict[Path, Path] = {}

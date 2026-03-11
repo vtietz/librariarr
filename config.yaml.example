@@ -72,6 +72,7 @@ runtime:
   # Debounce window for filesystem event bursts (seconds).
   debounce_seconds: 8
   # Minutes between full maintenance reconciles (0 = startup-only + events).
+  # Note: ingest min_age deferrals still schedule temporary debounced retries.
   maintenance_interval_minutes: 0
   # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]

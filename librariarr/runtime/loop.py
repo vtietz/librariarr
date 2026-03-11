@@ -51,7 +51,7 @@ class RuntimeSyncLoop:
         nested_roots: list[Path],
         shadow_roots: list[Path],
         schedule: ReconcileSchedule,
-        reconcile: Callable[[], None],
+        reconcile: Callable[[], bool],
         on_reconcile_error: Callable[[Exception], None],
         logger: logging.Logger,
     ) -> None:
@@ -83,7 +83,12 @@ class RuntimeSyncLoop:
 
         observer.start()
         try:
-            self._run_reconcile_with_handling("Initial reconcile failed")
+            if self._run_reconcile_with_handling("Initial reconcile failed"):
+                self.log.info(
+                    "Ingest candidates are pending stability; scheduling retry in ~%ss",
+                    self.schedule.debounce_seconds,
+                )
+                self.schedule.mark_event()
             while True:
                 should_maintenance, should_event_sync = self.schedule.due()
                 if should_maintenance or should_event_sync:
@@ -91,8 +96,17 @@ class RuntimeSyncLoop:
                         self.log.info("Running scheduled maintenance reconcile")
                     if should_event_sync:
                         self.log.info("Running event-triggered reconcile")
-                    self._run_reconcile_with_handling("Reconcile failed; will retry on next cycle")
-                    self.schedule.clear_event()
+                    ingest_pending = self._run_reconcile_with_handling(
+                        "Reconcile failed; will retry on next cycle"
+                    )
+                    if ingest_pending:
+                        self.log.info(
+                            "Ingest candidates are pending stability; scheduling retry in ~%ss",
+                            self.schedule.debounce_seconds,
+                        )
+                        self.schedule.mark_event()
+                    else:
+                        self.schedule.clear_event()
                 time.sleep(1)
         finally:
             observer.stop()
@@ -120,11 +134,12 @@ class RuntimeSyncLoop:
 
         return True
 
-    def _run_reconcile_with_handling(self, error_log_message: str) -> None:
+    def _run_reconcile_with_handling(self, error_log_message: str) -> bool:
         # Preserve existing semantics: sync time updates when a reconcile attempt starts.
         self.schedule.mark_sync()
         try:
-            self.reconcile()
+            return self.reconcile()
         except Exception as exc:
             self.on_reconcile_error(exc)
             self.log.exception(error_log_message)
+            return False

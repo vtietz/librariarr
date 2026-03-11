@@ -26,9 +26,11 @@ class ShadowIngestor:
         self.shadow_roots = shadow_roots
         self.shadow_to_nested_roots = shadow_to_nested_roots
         self.log = logger or logging.getLogger(__name__)
+        self.last_pending_quiescent_count = 0
 
     def run(self) -> int:
         ingested_count = 0
+        pending_quiescent_count = 0
         for shadow_root in self.shadow_roots:
             if not shadow_root.exists():
                 continue
@@ -37,8 +39,16 @@ class ShadowIngestor:
                 if not self._is_ingest_candidate(candidate):
                     continue
 
-                if not self._is_quiescent_folder(candidate):
-                    self.log.debug("Skipping ingest candidate still being written: %s", candidate)
+                quiescent_remaining = self._quiescent_remaining_seconds(candidate)
+                if quiescent_remaining > 0:
+                    pending_quiescent_count += 1
+                    self.log.info(
+                        "Deferring ingest candidate until stable: %s "
+                        "(remaining_seconds=%s min_age_seconds=%s)",
+                        candidate,
+                        quiescent_remaining,
+                        self.config.min_age_seconds,
+                    )
                     continue
 
                 lock_path = self._ingest_lock_path(candidate)
@@ -51,6 +61,7 @@ class ShadowIngestor:
                 finally:
                     self._release_ingest_lock(lock_path)
 
+        self.last_pending_quiescent_count = pending_quiescent_count
         return ingested_count
 
     def _is_ingest_candidate(self, path: Path) -> bool:
@@ -78,14 +89,22 @@ class ShadowIngestor:
         return False
 
     def _is_quiescent_folder(self, folder: Path) -> bool:
+        return self._quiescent_remaining_seconds(folder) == 0
+
+    def _quiescent_remaining_seconds(self, folder: Path) -> int:
         min_age_seconds = self.config.min_age_seconds
         if min_age_seconds <= 0:
-            return True
+            return 0
 
         latest_mtime = self._latest_tree_mtime(folder)
         if latest_mtime is None:
-            return False
-        return (time.time() - latest_mtime) >= min_age_seconds
+            return min_age_seconds
+
+        elapsed_seconds = max(0.0, time.time() - latest_mtime)
+        remaining = int(max(0.0, min_age_seconds - elapsed_seconds))
+        if remaining == 0 and elapsed_seconds < min_age_seconds:
+            return 1
+        return remaining
 
     def _latest_tree_mtime(self, folder: Path) -> float | None:
         latest: float | None = None

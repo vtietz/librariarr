@@ -184,6 +184,7 @@ Audio language token notes:
 
 `ingest.min_age_seconds`:
 - Folder must be unchanged for at least this long before ingest.
+- When candidates are too fresh, LibrariArr logs a deferral line and schedules retry reconciles after debounce until ingest can proceed.
 
 `ingest.collision_policy`:
 - `qualify`: keeps ingesting with deterministic suffixes.
@@ -214,6 +215,7 @@ Note:
 `runtime.maintenance_interval_minutes`:
 - Periodic full reconcile interval.
 - Set `0` to disable periodic maintenance (event-driven only after startup).
+- Ingest deferrals from `ingest.min_age_seconds` still trigger temporary retry reconciles so fresh folders are retried without requiring a new filesystem event.
 
 `runtime.scan_video_extensions`:
 - Extensions that mark a directory as a movie folder.

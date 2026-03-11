@@ -59,11 +59,14 @@ def test_e2e_reconcile_creates_expected_symlink_layout(tmp_path: Path) -> None:
     (movie_b / "Sintel.2010.2160p.REMUX.mkv").write_text("stub", encoding="utf-8")
 
     config = AppConfig(
-        paths=PathsConfig(nested_roots=[str(nested_root)]),
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root)),
+            ]
+        ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[],
@@ -98,11 +101,15 @@ def test_e2e_reconcile_handles_collisions_and_orphans(tmp_path: Path) -> None:
     (movie_two / "Sintel.2010.1080p.x265.mkv").write_text("stub", encoding="utf-8")
 
     config = AppConfig(
-        paths=PathsConfig(nested_roots=[str(root_one), str(root_two)]),
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(root_one), shadow_root=str(shadow_root)),
+                RootMapping(nested_root=str(root_two), shadow_root=str(shadow_root)),
+            ]
+        ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[],
@@ -156,7 +163,6 @@ def test_e2e_reconcile_respects_root_mappings(tmp_path: Path) -> None:
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[],
@@ -194,7 +200,6 @@ def test_e2e_ingest_moves_shadow_folder_into_nested_root(tmp_path: Path) -> None
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
-            shadow_root=str(shadow_root),
             sync_enabled=False,
         ),
         quality_map=[],
