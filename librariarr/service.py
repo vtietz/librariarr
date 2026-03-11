@@ -33,7 +33,11 @@ class LibrariArrService:
         self.config = config
         self.sync_enabled = config.radarr.sync_enabled
         self.auto_add_unmatched = config.radarr.auto_add_unmatched
-        self.radarr = RadarrClient(config.radarr.url, config.radarr.api_key)
+        self.radarr = RadarrClient(
+            config.radarr.url,
+            config.radarr.api_key,
+            refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
+        )
         self.radarr_sync = RadarrSyncHelper(
             config=config,
             logger=LOG,
@@ -293,6 +297,7 @@ class LibrariArrService:
             created_links = 0
             matched_movies = 0
             unmatched_movies = 0
+            auto_added_movie_ids: set[int] = set()
 
             for folder, shadow_root in sorted(movie_folders.items()):
                 existing_links = target_to_links.get(folder, set())
@@ -309,6 +314,9 @@ class LibrariArrService:
                 if self.sync_enabled and movie is None and self.auto_add_unmatched:
                     movie = self.radarr_sync.auto_add_movie_for_folder(folder, shadow_root)
                     if movie is not None:
+                        movie_id = movie.get("id")
+                        if isinstance(movie_id, int):
+                            auto_added_movie_ids.add(movie_id)
                         self._index_movie(index=movies_by_ref, movie=movie)
                         self._index_movie_path(index=movies_by_path, movie=movie)
 
@@ -325,7 +333,14 @@ class LibrariArrService:
 
                 if self.sync_enabled:
                     if movie is not None:
-                        self._sync_radarr_for_folder(folder, link_path, movie)
+                        movie_id = movie.get("id")
+                        self._sync_radarr_for_folder(
+                            folder,
+                            link_path,
+                            movie,
+                            force_refresh=isinstance(movie_id, int)
+                            and movie_id in auto_added_movie_ids,
+                        )
                         matched_movies += 1
                     else:
                         if self.auto_add_unmatched:
@@ -516,8 +531,10 @@ class LibrariArrService:
         folder: Path,
         link: Path,
         movie: dict,
+        force_refresh: bool = False,
     ) -> None:
-        self.radarr.update_movie_path(movie, str(link))
+        path_updated = self.radarr.update_movie_path(movie, str(link))
+        quality_updated = False
         if self.config.quality_map:
             quality_id = map_quality_id(
                 folder,
@@ -526,8 +543,10 @@ class LibrariArrService:
                 use_media_probe=self.config.analysis.use_media_probe,
                 media_probe_bin=self.config.analysis.media_probe_bin,
             )
-            self.radarr.try_update_moviefile_quality(movie, quality_id)
-        self.radarr.refresh_movie(int(movie["id"]))
+            quality_updated = self.radarr.try_update_moviefile_quality(movie, quality_id)
+
+        if force_refresh or path_updated or quality_updated:
+            self.radarr.refresh_movie(int(movie["id"]), force=force_refresh)
 
     def _resolve_movie_for_link_name(
         self,

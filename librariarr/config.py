@@ -56,6 +56,7 @@ class RadarrConfig:
     url: str
     api_key: str
     sync_enabled: bool = True
+    refresh_debounce_seconds: int = 15
     auto_add_unmatched: bool = False
     auto_add_quality_profile_id: int | None = None
     auto_add_search_on_add: bool = False
@@ -123,6 +124,7 @@ def load_config(path: str | Path) -> AppConfig:
     )
     auto_add_search_on_add = bool(radarr.get("auto_add_search_on_add", False))
     auto_add_monitored = bool(radarr.get("auto_add_monitored", True))
+    refresh_debounce_seconds = max(0, int(radarr.get("refresh_debounce_seconds", 15)))
 
     quality_map = [
         QualityRule(
@@ -183,6 +185,7 @@ def load_config(path: str | Path) -> AppConfig:
             url=radarr_url,
             api_key=radarr_api_key,
             sync_enabled=sync_enabled,
+            refresh_debounce_seconds=refresh_debounce_seconds,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
             auto_add_search_on_add=auto_add_search_on_add,

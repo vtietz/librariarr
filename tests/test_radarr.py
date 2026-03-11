@@ -78,3 +78,53 @@ def test_parse_title_calls_parse_endpoint(monkeypatch) -> None:
     assert method == "GET"
     assert path == "/parse"
     assert kwargs["params"]["title"] == "Fixture.Title.2017.1080p.x265"
+
+
+def test_refresh_movie_debounce_skips_within_window(monkeypatch) -> None:
+    client = RadarrClient(
+        base_url="http://radarr:7878",
+        api_key="test",
+        refresh_debounce_seconds=15,
+    )
+    calls: list[tuple[str, str, dict]] = []
+    current_time = {"value": 1000.0}
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return None
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+    monkeypatch.setattr("librariarr.radarr.time.time", lambda: current_time["value"])
+
+    assert client.refresh_movie(42) is True
+    current_time["value"] += 5.0
+    assert client.refresh_movie(42) is False
+    current_time["value"] += 11.0
+    assert client.refresh_movie(42) is True
+
+    assert len(calls) == 2
+    assert calls[0][0] == "POST"
+    assert calls[0][1] == "/command"
+
+
+def test_refresh_movie_force_bypasses_debounce(monkeypatch) -> None:
+    client = RadarrClient(
+        base_url="http://radarr:7878",
+        api_key="test",
+        refresh_debounce_seconds=60,
+    )
+    calls: list[tuple[str, str, dict]] = []
+    current_time = {"value": 2000.0}
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return None
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+    monkeypatch.setattr("librariarr.radarr.time.time", lambda: current_time["value"])
+
+    assert client.refresh_movie(7) is True
+    current_time["value"] += 1.0
+    assert client.refresh_movie(7, force=True) is True
+
+    assert len(calls) == 2

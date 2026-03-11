@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import requests
@@ -9,9 +10,17 @@ LOG = logging.getLogger(__name__)
 
 
 class RadarrClient:
-    def __init__(self, base_url: str, api_key: str, timeout: int = 20) -> None:
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        timeout: int = 20,
+        refresh_debounce_seconds: int = 15,
+    ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = timeout
+        self.refresh_debounce_seconds = max(0, int(refresh_debounce_seconds))
+        self._last_refresh_by_movie_id: dict[int, float] = {}
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": api_key, "Content-Type": "application/json"})
 
@@ -73,14 +82,15 @@ class RadarrClient:
         added = self._request("POST", "/movie", json=payload)
         return added if isinstance(added, dict) else {}
 
-    def update_movie_path(self, movie: dict[str, Any], new_path: str) -> None:
+    def update_movie_path(self, movie: dict[str, Any], new_path: str) -> bool:
         if movie.get("path") == new_path:
-            return
+            return False
 
         payload = dict(movie)
         payload["path"] = new_path
         self._request("PUT", f"/movie/{movie['id']}", json=payload)
         LOG.info("Updated movie path: %s -> %s", movie.get("title"), new_path)
+        return True
 
     def unmonitor_movie(self, movie: dict[str, Any]) -> None:
         if movie.get("monitored") is False:
@@ -103,8 +113,25 @@ class RadarrClient:
         self._request("DELETE", f"/movie/{movie_id}", params=params)
         LOG.info("Deleted movie from Radarr DB: id=%s", movie_id)
 
-    def refresh_movie(self, movie_id: int) -> None:
+    def refresh_movie(self, movie_id: int, force: bool = False) -> bool:
+        now = time.time()
+        if not force and self.refresh_debounce_seconds > 0:
+            last_refresh = self._last_refresh_by_movie_id.get(movie_id)
+            if last_refresh is not None:
+                elapsed = now - last_refresh
+                if elapsed < self.refresh_debounce_seconds:
+                    LOG.debug(
+                        "Skipped RefreshMovie due to debounce: "
+                        "movie_id=%s elapsed=%.2fs window=%ss",
+                        movie_id,
+                        elapsed,
+                        self.refresh_debounce_seconds,
+                    )
+                    return False
+
         self._request("POST", "/command", json={"name": "RefreshMovie", "movieIds": [movie_id]})
+        self._last_refresh_by_movie_id[movie_id] = now
+        return True
 
     def _moviefile_quality_id(self, movie_file: dict[str, Any]) -> int | None:
         quality = movie_file.get("quality")

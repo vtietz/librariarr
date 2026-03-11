@@ -13,6 +13,8 @@ radarr:
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
+  # Per-movie RefreshMovie debounce window in seconds (0 disables debounce).
+  refresh_debounce_seconds: 15
   # Auto-add unmatched folders to Radarr.
   auto_add_unmatched: true
   # Optional fixed profile ID; leave commented to auto-map.

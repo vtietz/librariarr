@@ -18,6 +18,7 @@ radarr:
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
+  refresh_debounce_seconds: 15
   auto_add_unmatched: true
   auto_add_search_on_add: false
 
@@ -52,6 +53,7 @@ custom_format_map:
 `config.yaml.example` is intentionally brief. Use this section for the longer rationale:
 
 - `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
+- `radarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshMovie` bursts for the same movie during noisy event windows; set `0` to disable.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
 - Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
 - Example ingest defaults (`enabled=true`, `min_age_seconds=300`) favor safe move-back behavior and reduce the risk of ingesting partially written folders.
@@ -96,6 +98,11 @@ Why Radarr parse is title-based:
 `radarr.sync_enabled`:
 - Enables all Radarr API interactions.
 - If false, LibrariArr manages filesystem links only.
+
+`radarr.refresh_debounce_seconds`:
+- Debounce window for `RefreshMovie` commands per movie id.
+- Default is `15` seconds.
+- Set `0` to disable debounce.
 
 `radarr.auto_add_unmatched`:
 - If true, unmatched folders can be auto-added to Radarr.

@@ -46,6 +46,7 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.url == "http://radarr:7878"
     assert config.radarr.api_key == "test-key"
     assert config.radarr.auto_add_unmatched is False
+    assert config.radarr.refresh_debounce_seconds == 15
     assert config.radarr.auto_add_quality_profile_id is None
     assert config.radarr.auto_add_search_on_add is False
     assert config.radarr.auto_add_monitored is True
@@ -209,6 +210,7 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
             "  auto_add_unmatched: true\n"
+            "  refresh_debounce_seconds: 5\n"
             "  auto_add_quality_profile_id: 7\n"
             "  auto_add_search_on_add: true\n"
             "  auto_add_monitored: false\n"
@@ -222,6 +224,7 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
     config = load_config(config_path)
 
     assert config.radarr.auto_add_unmatched is True
+    assert config.radarr.refresh_debounce_seconds == 5
     assert config.radarr.auto_add_quality_profile_id == 7
     assert config.radarr.auto_add_search_on_add is True
     assert config.radarr.auto_add_monitored is False

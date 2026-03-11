@@ -103,13 +103,19 @@ class FakeRadarr:
         )
         return self.add_movie_result
 
-    def update_movie_path(self, movie: dict, new_path: str) -> None:
+    def update_movie_path(self, movie: dict, new_path: str) -> bool:
+        if movie.get("path") == new_path:
+            return False
         self.updated_paths.append((int(movie["id"]), new_path))
+        movie["path"] = new_path
+        return True
 
-    def try_update_moviefile_quality(self, movie: dict, quality_id: int) -> None:
+    def try_update_moviefile_quality(self, movie: dict, quality_id: int) -> bool:
         self.updated_qualities.append((int(movie["id"]), quality_id))
+        return True
 
-    def refresh_movie(self, movie_id: int) -> None:
+    def refresh_movie(self, movie_id: int, force: bool = False) -> None:
+        del force
         self.refreshed.append(movie_id)
 
     def unmonitor_movie(self, movie: dict) -> None:
@@ -389,7 +395,8 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
     assert not (shadow_root / "Fixture Title - Variant (2017)").exists()
     assert fake.lookup_terms == ["fixture title - variant 2017"]
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
-    assert fake.updated_paths == [(10, str(canonical_link))]
+    assert fake.updated_paths == []
+    assert fake.refreshed == [10]
 
 
 def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path: Path) -> None:
@@ -1052,6 +1059,39 @@ def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -
     assert fake.updated_paths and fake.updated_paths[0][0] == 1
     assert fake.updated_qualities == []
     assert fake.refreshed == [1]
+
+
+def test_reconcile_skips_refresh_when_movie_state_unchanged(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.quality_map = []
+    service = LibrariArrService(config)
+
+    link_path = shadow_root / "Fixture Catalog A (2008)"
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Fixture Catalog A",
+                "year": 2008,
+                "path": str(link_path),
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.updated_paths == []
+    assert fake.updated_qualities == []
+    assert fake.refreshed == []
 
 
 def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
