@@ -83,6 +83,7 @@ def score_profile_for_quality(
 def score_profile_for_custom_formats(
     profile: dict,
     custom_format_ids: set[int],
+    desired_quality_id: int | None = None,
 ) -> tuple[tuple[int, int, int, int], str] | None:
     profile_id = profile.get("id")
     if not isinstance(profile_id, int):
@@ -91,6 +92,11 @@ def score_profile_for_custom_formats(
     format_items = profile.get("formatItems")
     if not isinstance(format_items, list) or not format_items:
         return None
+
+    if desired_quality_id is not None:
+        allowed_quality_ids = extract_profile_quality_definition_ids(profile)
+        if desired_quality_id not in allowed_quality_ids:
+            return None
 
     score = 0
     matched_count = 0

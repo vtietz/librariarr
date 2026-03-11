@@ -37,7 +37,9 @@ class RadarrSyncHelper:
         self._get_radarr_client = get_radarr_client
         self._auto_add_quality_profile_id_cache: int | None = None
         self._auto_add_profile_by_quality_cache: dict[int, int] = {}
-        self._auto_add_profile_by_custom_formats_cache: dict[tuple[int, ...], int] = {}
+        self._auto_add_profile_by_custom_formats_cache: dict[
+            tuple[int | None, tuple[int, ...]], int
+        ] = {}
         self._auto_add_profiles_cache: list[dict] | None = None
         self._quality_definition_rank_cache: dict[int, int] | None = None
         self._cached_radarr_client_id: int | None = None
@@ -208,13 +210,18 @@ class RadarrSyncHelper:
         if not detected_custom_format_ids:
             return None
 
-        detected_key = tuple(sorted(detected_custom_format_ids))
+        parse_quality_id = self._detect_parse_quality_definition_id(folder)
+        detected_key = (parse_quality_id, tuple(sorted(detected_custom_format_ids)))
         if detected_key in self._auto_add_profile_by_custom_formats_cache:
             return self._auto_add_profile_by_custom_formats_cache[detected_key]
 
         custom_ranked_profiles: list[tuple[tuple[int, int, int, int], int, str]] = []
         for profile in profiles:
-            ranked = score_profile_for_custom_formats(profile, detected_custom_format_ids)
+            ranked = score_profile_for_custom_formats(
+                profile,
+                detected_custom_format_ids,
+                desired_quality_id=parse_quality_id,
+            )
             if ranked is None:
                 continue
             score, reason = ranked
@@ -230,11 +237,12 @@ class RadarrSyncHelper:
         self._auto_add_profile_by_custom_formats_cache[detected_key] = selected_profile_id
         self.log.info(
             "Auto-add unmatched: mapped folder=%s custom_format_ids=%s "
-            "to quality_profile_id=%s selection_reason=%s",
+            "to quality_profile_id=%s selection_reason=%s parse_quality_definition_id=%s",
             folder,
-            list(detected_key),
+            list(detected_key[1]),
             selected_profile_id,
             selection_reason,
+            parse_quality_id,
         )
         return selected_profile_id
 

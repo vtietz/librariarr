@@ -61,3 +61,20 @@ def test_score_profile_for_custom_formats_returns_none_without_matches() -> None
     ranked = score_profile_for_custom_formats(profile, custom_format_ids={99})
 
     assert ranked is None
+
+
+def test_score_profile_for_custom_formats_requires_desired_quality_when_provided() -> None:
+    profile = {
+        "id": 2,
+        "name": "SD",
+        "formatItems": [{"format": 42, "score": 200}],
+        "items": [{"quality": {"id": 1}, "allowed": True}],
+    }
+
+    ranked = score_profile_for_custom_formats(
+        profile,
+        custom_format_ids={42},
+        desired_quality_id=7,
+    )
+
+    assert ranked is None

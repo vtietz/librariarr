@@ -178,3 +178,50 @@ def test_resolve_auto_add_profile_uses_parse_quality_when_maps_empty(tmp_path: P
     profile_id = helper._resolve_auto_add_quality_profile_id(folder)
 
     assert profile_id == 7
+
+
+def test_resolve_auto_add_profile_does_not_pick_incompatible_sd_profile(tmp_path: Path) -> None:
+    folder = tmp_path / "Localized Fixture (2006)"
+    folder.mkdir()
+    (folder / "Localized.Fixture.2006.1080p.h265.AC3.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(tmp_path)
+    fake = FakeRadarr(
+        quality_profiles=[
+            {
+                "id": 2,
+                "name": "SD",
+                "formatItems": [{"format": 42, "score": 200}],
+                "items": [{"quality": {"id": 1}, "allowed": True}],
+                "cutoff": {"id": 1},
+            },
+            {
+                "id": 7,
+                "name": "1080p German x265",
+                "formatItems": [{"format": 42, "score": 100}],
+                "items": [{"quality": {"id": 7}, "allowed": True}],
+                "cutoff": {"id": 7},
+            },
+        ],
+        quality_definitions=[
+            {"quality": {"id": 1, "name": "SDTV"}},
+            {"quality": {"id": 7, "name": "Bluray-1080p"}},
+        ],
+        parse_results={
+            "Localized Fixture (2006)": {
+                "customFormats": [{"id": 42, "name": "German DL"}],
+                "quality": {
+                    "quality": {"id": 7, "name": "Bluray-1080p"},
+                },
+            }
+        },
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    profile_id = helper._resolve_auto_add_quality_profile_id(folder)
+
+    assert profile_id == 7
