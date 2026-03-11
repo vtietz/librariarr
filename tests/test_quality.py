@@ -101,6 +101,51 @@ def test_collect_media_probe_text_extracts_audio_language_tokens(tmp_path: Path)
     assert "dual-language" in text
 
 
+def test_collect_media_probe_text_supports_compact_combined_language_tags(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Compact Lang Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Compact.Lang.Demo.2024.mkv").write_text("x", encoding="utf-8")
+
+    probe_json = (
+        '{"streams":['
+        '{"codec_type":"video","height":1080,"codec_name":"hevc"},'
+        '{"codec_type":"audio","codec_name":"ac3","channels":6,"tags":{"language":"gereng"}}'
+        "]}"
+    )
+
+    with patch("subprocess.check_output", return_value=probe_json):
+        text = collect_media_probe_text(movie_dir)
+
+    assert "german" in text
+    assert "english" in text
+    assert "lang-de" in text
+    assert "lang-en" in text
+    assert "dual-language" in text
+
+
+def test_collect_media_probe_text_supports_non_de_en_languages(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "World Lang Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "World.Lang.Demo.2024.mkv").write_text("x", encoding="utf-8")
+
+    probe_json = (
+        '{"streams":['
+        '{"codec_type":"video","height":1080,"codec_name":"hevc"},'
+        '{"codec_type":"audio","codec_name":"ac3","channels":6,"tags":{"language":"fra"}},'
+        '{"codec_type":"audio","codec_name":"aac","channels":2,"tags":{"language":"spa"}}'
+        "]}"
+    )
+
+    with patch("subprocess.check_output", return_value=probe_json):
+        text = collect_media_probe_text(movie_dir)
+
+    assert "french" in text
+    assert "lang-fr" in text
+    assert "spanish" in text
+    assert "lang-es" in text
+    assert "multi-language" in text
+
+
 def test_map_quality_id_uses_larger_non_sample_video_for_probe(tmp_path: Path) -> None:
     movie_dir = tmp_path / "Demo (2024)"
     movie_dir.mkdir()
@@ -164,3 +209,22 @@ def test_map_custom_format_ids_uses_nfo_and_probe_tokens(tmp_path: Path) -> None
         )
 
     assert matched == {42, 99}
+
+
+def test_collect_media_probe_text_requests_language_tags(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Probe Command Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Probe.Command.Demo.2024.mkv").write_text("x", encoding="utf-8")
+
+    captured_cmd: list[str] = []
+
+    def _fake_probe(cmd: list[str], stderr=None, text=True, timeout=5):  # type: ignore[override]
+        captured_cmd.extend(cmd)
+        return '{"streams":[{"codec_type":"video","height":1080,"codec_name":"hevc"}]}'
+
+    with patch("subprocess.check_output", side_effect=_fake_probe):
+        collect_media_probe_text(movie_dir)
+
+    assert "-show_entries" in captured_cmd
+    entries = captured_cmd[captured_cmd.index("-show_entries") + 1]
+    assert "stream_tags=language" in entries

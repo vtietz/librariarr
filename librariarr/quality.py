@@ -15,16 +15,82 @@ TOKEN_EQUIVALENTS = (
 )
 
 
-def _normalize_audio_language(tag: str) -> tuple[str, str] | None:
+LANGUAGE_TOKEN_MAP: dict[str, tuple[str, str]] = {
+    "de": ("german", "lang-de"),
+    "deu": ("german", "lang-de"),
+    "ger": ("german", "lang-de"),
+    "german": ("german", "lang-de"),
+    "deutsch": ("german", "lang-de"),
+    "en": ("english", "lang-en"),
+    "eng": ("english", "lang-en"),
+    "english": ("english", "lang-en"),
+    "fr": ("french", "lang-fr"),
+    "fra": ("french", "lang-fr"),
+    "fre": ("french", "lang-fr"),
+    "french": ("french", "lang-fr"),
+    "es": ("spanish", "lang-es"),
+    "spa": ("spanish", "lang-es"),
+    "spanish": ("spanish", "lang-es"),
+    "it": ("italian", "lang-it"),
+    "ita": ("italian", "lang-it"),
+    "italian": ("italian", "lang-it"),
+    "ja": ("japanese", "lang-ja"),
+    "jpn": ("japanese", "lang-ja"),
+    "japanese": ("japanese", "lang-ja"),
+    "nl": ("dutch", "lang-nl"),
+    "nld": ("dutch", "lang-nl"),
+    "dut": ("dutch", "lang-nl"),
+    "dutch": ("dutch", "lang-nl"),
+    "pt": ("portuguese", "lang-pt"),
+    "por": ("portuguese", "lang-pt"),
+    "portuguese": ("portuguese", "lang-pt"),
+    "ru": ("russian", "lang-ru"),
+    "rus": ("russian", "lang-ru"),
+    "russian": ("russian", "lang-ru"),
+    "pl": ("polish", "lang-pl"),
+    "pol": ("polish", "lang-pl"),
+    "polish": ("polish", "lang-pl"),
+    "tr": ("turkish", "lang-tr"),
+    "tur": ("turkish", "lang-tr"),
+    "turkish": ("turkish", "lang-tr"),
+    "uk": ("ukrainian", "lang-uk"),
+    "ukr": ("ukrainian", "lang-uk"),
+    "ukrainian": ("ukrainian", "lang-uk"),
+    "cs": ("czech", "lang-cs"),
+    "ces": ("czech", "lang-cs"),
+    "cze": ("czech", "lang-cs"),
+    "czech": ("czech", "lang-cs"),
+}
+
+
+def _language_alias_candidates(tag: str) -> set[str]:
     normalized = tag.strip().lower()
     if not normalized:
-        return None
+        return set()
 
-    if normalized in {"de", "deu", "ger", "german", "deutsch"}:
-        return ("german", "lang-de")
-    if normalized in {"en", "eng", "english"}:
-        return ("english", "lang-en")
-    return None
+    aliases = {token for token in re.split(r"[^a-z0-9]+", normalized) if token}
+    if not aliases:
+        return set()
+
+    # Compact tags like "gereng" or "deen" appear in some NFO/metadata sources.
+    compact = "".join(sorted(aliases, key=len, reverse=True)[:1])
+    if compact.isalpha() and len(compact) >= 4:
+        if len(compact) % 3 == 0:
+            aliases.update(compact[index : index + 3] for index in range(0, len(compact), 3))
+        if len(compact) % 2 == 0:
+            aliases.update(compact[index : index + 2] for index in range(0, len(compact), 2))
+
+    return aliases
+
+
+def _normalize_audio_language(tag: str) -> list[tuple[str, str]]:
+    normalized_pairs: set[tuple[str, str]] = set()
+    for alias in _language_alias_candidates(tag):
+        pair = LANGUAGE_TOKEN_MAP.get(alias)
+        if pair is not None:
+            normalized_pairs.add(pair)
+
+    return sorted(normalized_pairs)
 
 
 def collect_movie_text(movie_dir: Path) -> str:
@@ -129,13 +195,13 @@ def _audio_probe_tokens(audio_streams: list[dict]) -> list[str]:
 
         raw_language = str(tags.get("language") or tags.get("LANGUAGE") or "")
         language_tokens = _normalize_audio_language(raw_language)
-        if language_tokens is None:
+        if not language_tokens:
             continue
 
-        spoken_language, language_code = language_tokens
-        detected_languages.add(spoken_language)
-        tokens.append(spoken_language)
-        tokens.append(language_code)
+        for spoken_language, language_code in language_tokens:
+            detected_languages.add(spoken_language)
+            tokens.append(spoken_language)
+            tokens.append(language_code)
 
     if len(detected_languages) >= 2:
         tokens.extend(["multi-language", "dual-language"])
@@ -161,7 +227,8 @@ def collect_media_probe_text(movie_dir: Path, probe_bin: str = "ffprobe") -> str
         "-v",
         "error",
         "-show_entries",
-        "stream=codec_type,width,height,codec_name,bit_rate,pix_fmt,color_transfer,color_primaries,profile,channels",
+        "stream=codec_type,width,height,codec_name,bit_rate,pix_fmt,color_transfer,"
+        "color_primaries,profile,channels:stream_tags=language",
         "-of",
         "json",
         str(file_path),

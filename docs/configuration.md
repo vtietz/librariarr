@@ -162,6 +162,7 @@ curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/customformat
 
 `analysis.use_media_probe`:
 - Enables ffprobe token extraction.
+- Extracts codec/channels and audio language tags (`stream_tags=language`) when present.
 
 `analysis.media_probe_bin`:
 - Probe executable name/path (default `ffprobe`).
@@ -170,6 +171,11 @@ Quality matching order:
 1. Filename/folder text
 2. NFO text (if enabled)
 3. Probe tokens (if enabled)
+
+Audio language token notes:
+- Common language tags are normalized to spoken tokens plus `lang-xx` tokens (for example `deu/ger/de` -> `german` + `lang-de`, `eng/en` -> `english` + `lang-en`, `fra` -> `french`, `spa` -> `spanish`).
+- Compact combined tags from metadata sources (for example `gereng`) are split when possible and mapped to multiple languages.
+- `multi-language` and `dual-language` tokens are emitted when at least two recognized languages are detected.
 
 ## Ingest
 
