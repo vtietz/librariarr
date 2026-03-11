@@ -164,6 +164,9 @@ services:
     image: ghcr.io/vtietz/librariarr:latest
     container_name: librariarr
     environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
       - LIBRARIARR_RADARR_URL=${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       - LIBRARIARR_RADARR_API_KEY=${LIBRARIARR_RADARR_API_KEY}
     volumes:

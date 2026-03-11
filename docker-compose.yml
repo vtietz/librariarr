@@ -7,6 +7,9 @@ services:
     user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
     environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
       LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
     volumes:
