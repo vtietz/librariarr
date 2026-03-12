@@ -36,7 +36,8 @@ def _log_profile_diagnostics(
         if auto_add_unmatched:
             log.info(
                 "Auto-add unmatched is enabled: quality_profile_id=%s "
-                "(null=auto-map from parse/custom_format_map/quality_map), "
+                "(null=auto-map from parse/radarr.mapping.custom_format_map/"
+                "radarr.mapping.quality_map), "
                 "monitored=%s search_on_add=%s",
                 config.radarr.auto_add_quality_profile_id,
                 config.radarr.auto_add_monitored,
@@ -69,14 +70,16 @@ def _log_quality_definition_diagnostics(
         missing_ids = [rule_id for rule_id in rule_ids if rule_id not in definition_ids]
         if missing_ids:
             log.warning(
-                "quality_map target_id values not found in Radarr quality definitions: "
+                "radarr.mapping.quality_map target_id values not found "
+                "in Radarr quality definitions: "
                 "configured_ids=%s missing_ids=%s",
                 rule_ids,
                 missing_ids,
             )
         else:
             log.info(
-                "quality_map target_id values validated against Radarr quality definitions: %s",
+                "radarr.mapping.quality_map target_id values validated "
+                "against Radarr quality definitions: %s",
                 rule_ids,
             )
     except Exception as exc:
@@ -108,14 +111,16 @@ def _log_custom_format_diagnostics(
         ]
         if missing_format_ids:
             log.warning(
-                "custom_format_map format_id values not found in Radarr custom formats: "
+                "radarr.mapping.custom_format_map format_id values not "
+                "found in Radarr custom formats: "
                 "configured_ids=%s missing_ids=%s",
                 custom_format_ids,
                 missing_format_ids,
             )
         else:
             log.info(
-                "custom_format_map format_id values validated against Radarr custom formats: %s",
+                "radarr.mapping.custom_format_map format_id values "
+                "validated against Radarr custom formats: %s",
                 custom_format_ids,
             )
     except Exception as exc:
@@ -129,17 +134,21 @@ def log_quality_mapping_diagnostics(
     radarr: RadarrClient,
     auto_add_unmatched: bool,
 ) -> None:
-    rule_ids = sorted({rule.target_id for rule in config.quality_map})
-    custom_format_ids = sorted({rule.format_id for rule in config.custom_format_map})
+    quality_map = config.effective_radarr_quality_map()
+    custom_format_map = config.effective_radarr_custom_format_map()
+    rule_ids = sorted({rule.target_id for rule in quality_map})
+    custom_format_ids = sorted({rule.format_id for rule in custom_format_map})
     if not rule_ids:
-        log.info("quality_map is empty; no quality-id override will be applied.")
+        log.info("radarr.mapping.quality_map is empty; no quality-id override will be applied.")
     if custom_format_ids:
         log.info(
-            "custom_format_map contains format ids for local analysis fallback: %s",
+            "radarr.mapping.custom_format_map contains format ids for local analysis fallback: %s",
             custom_format_ids,
         )
     else:
-        log.info("custom_format_map is empty; only Radarr parse/profile metadata is used.")
+        log.info(
+            "radarr.mapping.custom_format_map is empty; only Radarr parse/profile metadata is used."
+        )
 
     _log_profile_diagnostics(
         config=config,

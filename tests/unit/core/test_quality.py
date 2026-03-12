@@ -1,8 +1,13 @@
 from pathlib import Path
 from unittest.mock import patch
 
-from librariarr.config import CustomFormatRule, QualityRule
-from librariarr.quality import collect_media_probe_text, map_custom_format_ids, map_quality_id
+from librariarr.config import CustomFormatRule, ProfileRule, QualityRule
+from librariarr.quality import (
+    collect_media_probe_text,
+    map_custom_format_ids,
+    map_profile_id,
+    map_quality_id,
+)
 
 
 def test_map_quality_id_matches_and_rule(tmp_path: Path) -> None:
@@ -209,6 +214,29 @@ def test_map_custom_format_ids_uses_nfo_and_probe_tokens(tmp_path: Path) -> None
         )
 
     assert matched == {42, 99}
+
+
+def test_map_profile_id_matches_first_rule(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Series Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Series.Demo.S01E01.1080p.German.mkv").write_text("x", encoding="utf-8")
+
+    rules = [
+        ProfileRule(match=["2160p"], profile_id=12, name="UHD"),
+        ProfileRule(match=["1080p", "german"], profile_id=8, name="HD DE"),
+    ]
+
+    assert map_profile_id(movie_dir, rules, default_id=None) == 8
+
+
+def test_map_profile_id_returns_default_when_no_rule_matches(tmp_path: Path) -> None:
+    movie_dir = tmp_path / "Series Demo (2024)"
+    movie_dir.mkdir()
+    (movie_dir / "Series.Demo.S01E01.WEBRip.mkv").write_text("x", encoding="utf-8")
+
+    rules = [ProfileRule(match=["1080p"], profile_id=8, name="HD")]
+
+    assert map_profile_id(movie_dir, rules, default_id=3) == 3
 
 
 def test_collect_media_probe_text_requests_language_tags(tmp_path: Path) -> None:

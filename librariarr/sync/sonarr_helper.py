@@ -8,8 +8,10 @@ import requests
 
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
+from ..quality import map_profile_id
 from .naming import parse_movie_ref
 from .radarr_mapping import pick_lookup_candidate
+from .sonarr_diagnostics import log_profile_mapping_diagnostics
 
 
 class SonarrSyncHelper:
@@ -39,6 +41,14 @@ class SonarrSyncHelper:
             self._auto_add_language_profiles_cache = None
         return client
 
+    def log_profile_mapping_diagnostics(self, auto_add_unmatched: bool) -> None:
+        log_profile_mapping_diagnostics(
+            config=self.config,
+            log=self.log,
+            sonarr=self._sonarr(),
+            auto_add_unmatched=auto_add_unmatched,
+        )
+
     def _get_auto_add_profiles(self) -> list[dict]:
         if self._auto_add_profiles_cache is not None:
             return self._auto_add_profiles_cache
@@ -58,10 +68,29 @@ class SonarrSyncHelper:
         self._auto_add_language_profiles_cache = profiles
         return profiles
 
-    def _resolve_auto_add_quality_profile_id(self) -> int | None:
+    def _resolve_auto_add_quality_profile_id(self, folder: Path) -> int | None:
         configured_profile_id = self.config.sonarr.auto_add_quality_profile_id
         if configured_profile_id is not None:
             return configured_profile_id
+
+        quality_profile_map = self.config.sonarr.mapping.quality_profile_map
+        if quality_profile_map:
+            mapped_profile_id = map_profile_id(
+                folder,
+                quality_profile_map,
+                default_id=None,
+                use_nfo=self.config.analysis.use_nfo,
+                use_media_probe=self.config.analysis.use_media_probe,
+                media_probe_bin=self.config.analysis.media_probe_bin,
+            )
+            if mapped_profile_id is not None:
+                self.log.info(
+                    "Sonarr auto-add: mapped folder=%s to quality_profile_id=%s "
+                    "via sonarr.mapping.quality_profile_map",
+                    folder,
+                    mapped_profile_id,
+                )
+                return mapped_profile_id
 
         if self._auto_add_quality_profile_id_cache is not None:
             return self._auto_add_quality_profile_id_cache
@@ -78,10 +107,29 @@ class SonarrSyncHelper:
         self._auto_add_quality_profile_id_cache = profile_ids[0]
         return self._auto_add_quality_profile_id_cache
 
-    def _resolve_auto_add_language_profile_id(self) -> int | None:
+    def _resolve_auto_add_language_profile_id(self, folder: Path) -> int | None:
         configured_profile_id = self.config.sonarr.auto_add_language_profile_id
         if configured_profile_id is not None:
             return configured_profile_id
+
+        language_profile_map = self.config.sonarr.mapping.language_profile_map
+        if language_profile_map:
+            mapped_profile_id = map_profile_id(
+                folder,
+                language_profile_map,
+                default_id=None,
+                use_nfo=self.config.analysis.use_nfo,
+                use_media_probe=self.config.analysis.use_media_probe,
+                media_probe_bin=self.config.analysis.media_probe_bin,
+            )
+            if mapped_profile_id is not None:
+                self.log.info(
+                    "Sonarr auto-add: mapped folder=%s to language_profile_id=%s "
+                    "via sonarr.mapping.language_profile_map",
+                    folder,
+                    mapped_profile_id,
+                )
+                return mapped_profile_id
 
         if self._auto_add_language_profile_id_cache is not None:
             return self._auto_add_language_profile_id_cache
@@ -124,7 +172,7 @@ class SonarrSyncHelper:
             )
             return None
 
-        quality_profile_id = self._resolve_auto_add_quality_profile_id()
+        quality_profile_id = self._resolve_auto_add_quality_profile_id(folder)
         if quality_profile_id is None:
             self.log.warning(
                 "Skipping Sonarr auto-add for folder=%s because no quality profile id "
@@ -133,7 +181,7 @@ class SonarrSyncHelper:
             )
             return None
 
-        language_profile_id = self._resolve_auto_add_language_profile_id()
+        language_profile_id = self._resolve_auto_add_language_profile_id(folder)
 
         canonical_name = self._canonical_name_from_series(candidate, folder)
         link_path = shadow_root / canonical_name

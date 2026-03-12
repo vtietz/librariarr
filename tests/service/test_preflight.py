@@ -92,7 +92,7 @@ def test_sync_preflight_logs_quality_catalog_and_validation(tmp_path: Path, capl
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.quality_map = [
+    config.radarr.mapping.quality_map = [
         QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p"),
         QualityRule(match=["2160p"], target_id=13, name="4K"),
     ]
@@ -107,7 +107,7 @@ def test_sync_preflight_logs_quality_catalog_and_validation(tmp_path: Path, capl
 
     assert "Radarr quality profiles (id:name): 6:Web-DL 1080p" in caplog.text
     assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
-    assert "quality_map target_id values validated" in caplog.text
+    assert "radarr.mapping.quality_map target_id values validated" in caplog.text
 
 
 def test_sync_preflight_warns_when_quality_target_id_missing(tmp_path: Path, caplog) -> None:
@@ -116,14 +116,14 @@ def test_sync_preflight_warns_when_quality_target_id_missing(tmp_path: Path, cap
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.quality_map = [QualityRule(match=["2160p"], target_id=99, name="Missing")]
+    config.radarr.mapping.quality_map = [QualityRule(match=["2160p"], target_id=99, name="Missing")]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(quality_definitions=[{"id": 4, "name": "HDTV-1080p"}])
 
     caplog.set_level("WARNING", logger="librariarr.service")
     service._run_sync_preflight_checks()
 
-    assert "quality_map target_id values not found" in caplog.text
+    assert "radarr.mapping.quality_map target_id values not found" in caplog.text
     assert "missing_ids=[99]" in caplog.text
 
 
@@ -133,7 +133,9 @@ def test_sync_preflight_parses_nested_quality_definition_shape(tmp_path: Path, c
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.quality_map = [QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p")]
+    config.radarr.mapping.quality_map = [
+        QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p")
+    ]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(
         quality_definitions=[
@@ -146,7 +148,7 @@ def test_sync_preflight_parses_nested_quality_definition_shape(tmp_path: Path, c
     service._run_sync_preflight_checks()
 
     assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
-    assert "quality_map target_id values validated" in caplog.text
+    assert "radarr.mapping.quality_map target_id values validated" in caplog.text
 
 
 def test_sync_preflight_logs_custom_format_catalog_and_validation(tmp_path: Path, caplog) -> None:
@@ -155,7 +157,7 @@ def test_sync_preflight_logs_custom_format_catalog_and_validation(tmp_path: Path
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.custom_format_map = [
+    config.radarr.mapping.custom_format_map = [
         CustomFormatRule(match=["german"], format_id=42, name="German Audio"),
         CustomFormatRule(match=["x265"], format_id=99, name="HEVC"),
     ]
@@ -171,10 +173,11 @@ def test_sync_preflight_logs_custom_format_catalog_and_validation(tmp_path: Path
     service._run_sync_preflight_checks()
 
     assert (
-        "custom_format_map contains format ids for local analysis fallback: [42, 99]" in caplog.text
+        "radarr.mapping.custom_format_map contains format ids for local analysis fallback: [42, 99]"
+        in caplog.text
     )
     assert "Radarr custom formats (id:name): 42:German Audio, 99:HEVC" in caplog.text
-    assert "custom_format_map format_id values validated" in caplog.text
+    assert "radarr.mapping.custom_format_map format_id values validated" in caplog.text
 
 
 def test_sync_preflight_warns_when_custom_format_id_missing(tmp_path: Path, caplog) -> None:
@@ -183,12 +186,14 @@ def test_sync_preflight_warns_when_custom_format_id_missing(tmp_path: Path, capl
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.custom_format_map = [CustomFormatRule(match=["german"], format_id=999, name="Missing")]
+    config.radarr.mapping.custom_format_map = [
+        CustomFormatRule(match=["german"], format_id=999, name="Missing")
+    ]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(custom_formats=[{"id": 42, "name": "German Audio"}])
 
     caplog.set_level("WARNING", logger="librariarr.service")
     service._run_sync_preflight_checks()
 
-    assert "custom_format_map format_id values not found" in caplog.text
+    assert "radarr.mapping.custom_format_map format_id values not found" in caplog.text
     assert "missing_ids=[999]" in caplog.text

@@ -8,6 +8,7 @@ from librariarr.config import (
     PathsConfig,
     QualityRule,
     RadarrConfig,
+    RadarrMappingConfig,
     RootMapping,
     RuntimeConfig,
 )
@@ -61,9 +62,11 @@ def _make_config(
             api_key="test-key",
             sync_enabled=True,
             auto_add_unmatched=True,
+            mapping=RadarrMappingConfig(
+                quality_map=quality_map or [],
+                custom_format_map=custom_format_map or [],
+            ),
         ),
-        quality_map=quality_map or [],
-        custom_format_map=custom_format_map or [],
         cleanup=CleanupConfig(),
         runtime=RuntimeConfig(),
     )

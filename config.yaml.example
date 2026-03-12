@@ -26,6 +26,37 @@ radarr:
   # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
 
+  mapping:
+    # Optional fallback map for quality-definition IDs.
+    # Used when auto profile mapping has no custom-format signal and
+    # parse-based quality-definition signal is unavailable or not mappable.
+    # Keep this short; first match wins; all tokens in `match` must be present.
+    # target_id values are Radarr quality definition IDs.
+    quality_map:
+      - match: ["2160p", "x265"]
+        target_id: 19
+        name: "2160p HEVC"
+      - match: ["1080p", "x265"]
+        target_id: 7
+        name: "1080p HEVC"
+      - match: ["1080p"]
+        target_id: 9
+        name: "1080p"
+      - match: ["720p"]
+        target_id: 5
+        name: "720p"
+
+    # Optional: map local analysis tokens (filename/NFO/ffprobe) to Radarr custom format IDs.
+    # This is used when auto profile mapping is enabled and helps when Radarr parse
+    # cannot infer custom formats from release title alone.
+    custom_format_map:
+      - match: ["german"]
+        format_id: 42
+        name: "German Audio"
+      - match: ["2160p", "x265"]
+        format_id: 99
+        name: "4K HEVC"
+
 sonarr:
   # Disabled by default. Enable for series path syncing.
   enabled: false
@@ -47,6 +78,27 @@ sonarr:
   # Whether newly added series should use season folders in Sonarr.
   auto_add_season_folder: true
 
+  mapping:
+    # Optional: token-based quality profile selection for Sonarr auto-add.
+    # Only used when sonarr.auto_add_quality_profile_id is not set.
+    quality_profile_map:
+      - match: ["2160p", "x265"]
+        profile_id: 12
+        name: "UHD HEVC"
+      - match: ["1080p"]
+        profile_id: 8
+        name: "HD"
+
+    # Optional: token-based language profile selection for Sonarr auto-add.
+    # Only used when sonarr.auto_add_language_profile_id is not set.
+    language_profile_map:
+      - match: ["german", "lang-de"]
+        profile_id: 4
+        name: "German"
+      - match: ["lang-de", "lang-en"]
+        profile_id: 6
+        name: "German + English"
+
 ingest:
   # Move real folders from shadow roots back into nested roots.
   # Requires a 1:1 mapping between each shadow_root and nested_root.
@@ -57,36 +109,6 @@ ingest:
   collision_policy: "qualify"
   # Optional path for failed ingest recovery.
   quarantine_root: "/data/movies/.librariarr/quarantine"
-
-quality_map:
-  # Optional fallback map for quality-definition IDs.
-  # Used when auto profile mapping has no custom-format signal and
-  # parse-based quality-definition signal is unavailable or not mappable.
-  # Keep this short; first match wins; all tokens in `match` must be present.
-  # target_id values are Radarr quality definition IDs.
-  - match: ["2160p", "x265"]
-    target_id: 19
-    name: "2160p HEVC"
-  - match: ["1080p", "x265"]
-    target_id: 7
-    name: "1080p HEVC"
-  - match: ["1080p"]
-    target_id: 9
-    name: "1080p"
-  - match: ["720p"]
-    target_id: 5
-    name: "720p"
-
-custom_format_map:
-  # Optional: map local analysis tokens (filename/NFO/ffprobe) to Radarr custom format IDs.
-  # This is used when auto profile mapping is enabled and helps when Radarr parse
-  # cannot infer custom formats from release title alone.
-  - match: ["german"]
-    format_id: 42
-    name: "German Audio"
-  - match: ["2160p", "x265"]
-    format_id: 99
-    name: "4K HEVC"
 
 cleanup:
   remove_orphaned_links: true

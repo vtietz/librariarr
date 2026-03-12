@@ -4,6 +4,7 @@ from librariarr.config import (
     AppConfig,
     CleanupConfig,
     PathsConfig,
+    ProfileRule,
     RadarrConfig,
     RootMapping,
     RuntimeConfig,
@@ -133,7 +134,6 @@ def _make_config(
             sync_enabled=sonarr_sync_enabled,
             auto_add_unmatched=sonarr_auto_add_unmatched,
         ),
-        quality_map=[],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(
             debounce_seconds=1,
@@ -289,3 +289,48 @@ def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path) ->
     assert fake.lookup_terms == []
     assert fake.added_series == []
     assert (shadow_root / "Fixture Show - Alias (2020)").is_symlink()
+
+
+def test_reconcile_auto_add_uses_sonarr_mapping_profiles(tmp_path: Path) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Fixture Show - Alias (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.German.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(
+        nested_root,
+        shadow_root,
+        sonarr_sync_enabled=True,
+        sonarr_auto_add_unmatched=True,
+    )
+    config.sonarr.mapping.quality_profile_map = [
+        ProfileRule(match=["1080p", "x265"], profile_id=8, name="HD HEVC")
+    ]
+    config.sonarr.mapping.language_profile_map = [
+        ProfileRule(match=["german"], profile_id=4, name="German")
+    ]
+
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(
+        series=[],
+        quality_profiles=[{"id": 3, "name": "Fallback HD"}],
+        language_profiles=[{"id": 1, "name": "English"}],
+        lookup_results=[{"title": "Fixture Show", "year": 2020, "tvdbId": 12345}],
+        add_series_result={
+            "id": 10,
+            "title": "Fixture Show",
+            "year": 2020,
+            "path": str(shadow_root / "Fixture Show (2020)"),
+            "monitored": True,
+        },
+    )
+    service.sonarr = fake
+
+    service.reconcile()
+
+    assert fake.added_series
+    assert fake.added_series[0]["quality_profile_id"] == 8
+    assert fake.added_series[0]["language_profile_id"] == 4

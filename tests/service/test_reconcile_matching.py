@@ -67,9 +67,9 @@ def test_reconcile_auto_add_uses_custom_format_map_when_parse_is_empty(tmp_path:
         sync_enabled=True,
         auto_add_unmatched=True,
     )
-    config.quality_map = []
+    config.radarr.mapping.quality_map = []
     config.analysis.use_nfo = True
-    config.custom_format_map = [
+    config.radarr.mapping.custom_format_map = [
         CustomFormatRule(match=["german"], format_id=42, name="German Audio")
     ]
     service = LibrariArrService(config)
@@ -125,7 +125,7 @@ def test_reconcile_auto_add_uses_parse_custom_formats_without_quality_map(tmp_pa
         sync_enabled=True,
         auto_add_unmatched=True,
     )
-    config.quality_map = []
+    config.radarr.mapping.quality_map = []
     service = LibrariArrService(config)
 
     fake = FakeRadarr(

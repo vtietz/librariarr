@@ -253,10 +253,11 @@ class ServiceMatchingMixin:
     ) -> None:
         path_updated = self.radarr.update_movie_path(movie, str(link))
         quality_updated = False
-        if self.config.quality_map:
+        quality_map = self.config.effective_radarr_quality_map()
+        if quality_map:
             quality_id = map_quality_id(
                 folder,
-                self.config.quality_map,
+                quality_map,
                 use_nfo=self.config.analysis.use_nfo,
                 use_media_probe=self.config.analysis.use_media_probe,
                 media_probe_bin=self.config.analysis.media_probe_bin,

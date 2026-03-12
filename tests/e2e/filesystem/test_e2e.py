@@ -69,7 +69,6 @@ def test_e2e_reconcile_creates_expected_symlink_layout(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        quality_map=[],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
@@ -112,7 +111,6 @@ def test_e2e_reconcile_handles_collisions_and_orphans(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        quality_map=[],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
@@ -165,7 +163,6 @@ def test_e2e_reconcile_respects_root_mappings(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        quality_map=[],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
@@ -202,7 +199,6 @@ def test_e2e_ingest_moves_shadow_folder_into_nested_root(tmp_path: Path) -> None
             api_key="test",
             sync_enabled=False,
         ),
-        quality_map=[],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True, min_age_seconds=0),
@@ -243,7 +239,6 @@ def test_e2e_incremental_reconcile_limits_orphan_cleanup_to_affected_paths(
             api_key="test",
             sync_enabled=False,
         ),
-        quality_map=[],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )

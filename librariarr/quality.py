@@ -5,7 +5,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from .config import CustomFormatRule, QualityRule
+from .config import CustomFormatRule, ProfileRule, QualityRule
 
 VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"}
 SAMPLE_HINTS = {"sample", "trailer", "extras", "featurette", "behindthescenes"}
@@ -95,9 +95,12 @@ def _normalize_audio_language(tag: str) -> list[tuple[str, str]]:
 
 def collect_movie_text(movie_dir: Path) -> str:
     parts = [movie_dir.name.lower()]
-    for child in movie_dir.iterdir():
-        if child.is_file() and child.suffix.lower() in VIDEO_EXTENSIONS:
-            parts.append(child.name.lower())
+    try:
+        for child in movie_dir.rglob("*"):
+            if child.is_file() and child.suffix.lower() in VIDEO_EXTENSIONS:
+                parts.append(child.name.lower())
+    except OSError:
+        return " ".join(parts)
     return " ".join(parts)
 
 
@@ -292,6 +295,28 @@ def _match_custom_format_ids(haystack: str, rules: list[CustomFormatRule]) -> se
     return matched_ids
 
 
+def _match_profile_id(haystack: str, rules: list[ProfileRule]) -> int | None:
+    tokens = {token for token in re.split(r"[^a-z0-9]+", haystack.lower()) if token}
+
+    def _keyword_matches(keyword: str) -> bool:
+        if keyword in tokens:
+            return True
+
+        for equivalent_group in TOKEN_EQUIVALENTS:
+            if keyword in equivalent_group and tokens.intersection(equivalent_group):
+                return True
+
+        return False
+
+    for rule in rules:
+        if not rule.match:
+            continue
+        if all(_keyword_matches(keyword.lower()) for keyword in rule.match):
+            return rule.profile_id
+
+    return None
+
+
 def map_quality_id(
     movie_dir: Path,
     rules: list[QualityRule],
@@ -339,3 +364,28 @@ def map_custom_format_ids(
             matched_ids.update(_match_custom_format_ids(haystack, rules))
 
     return matched_ids
+
+
+def map_profile_id(
+    movie_dir: Path,
+    rules: list[ProfileRule],
+    default_id: int | None = None,
+    use_nfo: bool = False,
+    use_media_probe: bool = False,
+    media_probe_bin: str = "ffprobe",
+) -> int | None:
+    filename_match = _match_profile_id(collect_movie_text(movie_dir), rules)
+    if filename_match is not None:
+        return filename_match
+
+    if use_nfo:
+        nfo_match = _match_profile_id(collect_nfo_text(movie_dir), rules)
+        if nfo_match is not None:
+            return nfo_match
+
+    if use_media_probe:
+        probe_match = _match_profile_id(collect_media_probe_text(movie_dir, media_probe_bin), rules)
+        if probe_match is not None:
+            return probe_match
+
+    return default_id

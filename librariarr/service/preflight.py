@@ -157,14 +157,18 @@ class ServicePreflightMixin:
         return None
 
     def _run_sync_preflight_checks(self) -> None:
+        LOG.info("")
+        LOG.info("-------------------- Preflight --------------------")
         if not self.radarr_enabled:
             self._run_sonarr_preflight_checks()
             self._update_arr_root_folder_availability(force=True)
+            LOG.info("------------------ Preflight Done -----------------")
             return
 
         if not self.sync_enabled:
             self._run_sonarr_preflight_checks()
             self._update_arr_root_folder_availability(force=True)
+            LOG.info("------------------ Preflight Done -----------------")
             return
 
         parsed_url = urlparse(self.config.radarr.url)
@@ -213,6 +217,7 @@ class ServicePreflightMixin:
             )
         self._run_sonarr_preflight_checks()
         self._update_arr_root_folder_availability(force=True)
+        LOG.info("------------------ Preflight Done -----------------")
 
     def _run_sonarr_preflight_checks(self) -> None:
         if not self.sonarr_sync_enabled:
@@ -248,6 +253,9 @@ class ServicePreflightMixin:
                 app_name,
                 version,
                 self.config.sonarr.url,
+            )
+            self.sonarr_sync.log_profile_mapping_diagnostics(
+                auto_add_unmatched=self.sonarr_auto_add_unmatched,
             )
         except Exception as exc:
             self._log_sonarr_sync_config_hint(exc)

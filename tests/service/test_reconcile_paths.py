@@ -6,6 +6,7 @@ from librariarr.config import (
     PathsConfig,
     QualityRule,
     RadarrConfig,
+    RadarrMappingConfig,
     RootMapping,
     RuntimeConfig,
 )
@@ -36,8 +37,10 @@ def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
             url="http://radarr:7878",
             api_key="test",
             sync_enabled=False,
+            mapping=RadarrMappingConfig(
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+            ),
         ),
-        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
@@ -116,8 +119,10 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
             url="http://radarr:7878",
             api_key="test",
             sync_enabled=False,
+            mapping=RadarrMappingConfig(
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+            ),
         ),
-        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
         cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
@@ -169,7 +174,7 @@ def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.quality_map = []
+    config.radarr.mapping.quality_map = []
     service = LibrariArrService(config)
 
     fake = FakeRadarr(
@@ -201,7 +206,7 @@ def test_reconcile_skips_refresh_when_movie_state_unchanged(tmp_path: Path) -> N
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.quality_map = []
+    config.radarr.mapping.quality_map = []
     service = LibrariArrService(config)
 
     link_path = shadow_root / "Fixture Catalog A (2008)"

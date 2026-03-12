@@ -23,6 +23,25 @@ class CustomFormatRule:
 
 
 @dataclass
+class ProfileRule:
+    match: list[str]
+    profile_id: int
+    name: str = ""
+
+
+@dataclass
+class RadarrMappingConfig:
+    quality_map: list[QualityRule] = field(default_factory=list)
+    custom_format_map: list[CustomFormatRule] = field(default_factory=list)
+
+
+@dataclass
+class SonarrMappingConfig:
+    quality_profile_map: list[ProfileRule] = field(default_factory=list)
+    language_profile_map: list[ProfileRule] = field(default_factory=list)
+
+
+@dataclass
 class CleanupConfig:
     remove_orphaned_links: bool = True
     unmonitor_on_delete: bool = True
@@ -67,6 +86,7 @@ class RadarrConfig:
     auto_add_quality_profile_id: int | None = None
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
+    mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 
 
 @dataclass
@@ -82,6 +102,7 @@ class SonarrConfig:
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
     auto_add_season_folder: bool = True
+    mapping: SonarrMappingConfig = field(default_factory=SonarrMappingConfig)
 
 
 @dataclass
@@ -99,13 +120,23 @@ class RootMapping:
 class AppConfig:
     paths: PathsConfig
     radarr: RadarrConfig
-    quality_map: list[QualityRule]
     cleanup: CleanupConfig
     runtime: RuntimeConfig
     sonarr: SonarrConfig = field(default_factory=SonarrConfig)
-    custom_format_map: list[CustomFormatRule] = field(default_factory=list)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     ingest: IngestConfig = field(default_factory=IngestConfig)
+
+    def effective_radarr_quality_map(self) -> list[QualityRule]:
+        return self.radarr.mapping.quality_map
+
+    def effective_radarr_custom_format_map(self) -> list[CustomFormatRule]:
+        return self.radarr.mapping.custom_format_map
+
+    def effective_sonarr_quality_profile_map(self) -> list[ProfileRule]:
+        return self.sonarr.mapping.quality_profile_map
+
+    def effective_sonarr_language_profile_map(self) -> list[ProfileRule]:
+        return self.sonarr.mapping.language_profile_map
 
 
 def _require(data: dict[str, Any], key: str) -> Any:
@@ -155,6 +186,14 @@ def load_config(path: str | Path) -> AppConfig:
 
     radarr = raw.get("radarr") or {}
     sonarr = raw.get("sonarr") or {}
+    radarr_mapping_raw = radarr.get("mapping") if isinstance(radarr.get("mapping"), dict) else {}
+    sonarr_mapping_raw = sonarr.get("mapping") if isinstance(sonarr.get("mapping"), dict) else {}
+
+    if "quality_map" in raw or "custom_format_map" in raw:
+        raise ValueError(
+            "Top-level quality_map/custom_format_map is no longer supported. "
+            "Use radarr.mapping.quality_map and radarr.mapping.custom_format_map."
+        )
 
     root_mappings_raw = paths.get("root_mappings")
     if not root_mappings_raw:
@@ -212,22 +251,41 @@ def load_config(path: str | Path) -> AppConfig:
     sonarr_auto_add_season_folder = bool(sonarr.get("auto_add_season_folder", True))
     sonarr_refresh_debounce_seconds = max(0, int(sonarr.get("refresh_debounce_seconds", 15)))
 
+    quality_map_raw = radarr_mapping_raw.get("quality_map", [])
     quality_map = [
         QualityRule(
             match=item.get("match", []),
             target_id=int(item["target_id"] if "target_id" in item else item["id"]),
             name=item.get("name", ""),
         )
-        for item in raw.get("quality_map", [])
+        for item in quality_map_raw
     ]
 
+    custom_format_map_raw = radarr_mapping_raw.get("custom_format_map", [])
     custom_format_map = [
         CustomFormatRule(
             match=item.get("match", []),
             format_id=int(item["format_id"] if "format_id" in item else item["format"]),
             name=item.get("name", ""),
         )
-        for item in raw.get("custom_format_map", [])
+        for item in custom_format_map_raw
+    ]
+
+    sonarr_quality_profile_map = [
+        ProfileRule(
+            match=item.get("match", []),
+            profile_id=int(item["profile_id"] if "profile_id" in item else item["id"]),
+            name=item.get("name", ""),
+        )
+        for item in sonarr_mapping_raw.get("quality_profile_map", [])
+    ]
+    sonarr_language_profile_map = [
+        ProfileRule(
+            match=item.get("match", []),
+            profile_id=int(item["profile_id"] if "profile_id" in item else item["id"]),
+            name=item.get("name", ""),
+        )
+        for item in sonarr_mapping_raw.get("language_profile_map", [])
     ]
 
     cleanup_raw = raw.get("cleanup", {})
@@ -303,6 +361,10 @@ def load_config(path: str | Path) -> AppConfig:
             auto_add_quality_profile_id=auto_add_quality_profile_id,
             auto_add_search_on_add=auto_add_search_on_add,
             auto_add_monitored=auto_add_monitored,
+            mapping=RadarrMappingConfig(
+                quality_map=quality_map,
+                custom_format_map=custom_format_map,
+            ),
         ),
         sonarr=SonarrConfig(
             enabled=sonarr_enabled,
@@ -316,8 +378,11 @@ def load_config(path: str | Path) -> AppConfig:
             auto_add_search_on_add=sonarr_auto_add_search_on_add,
             auto_add_monitored=sonarr_auto_add_monitored,
             auto_add_season_folder=sonarr_auto_add_season_folder,
+            mapping=SonarrMappingConfig(
+                quality_profile_map=sonarr_quality_profile_map,
+                language_profile_map=sonarr_language_profile_map,
+            ),
         ),
-        quality_map=quality_map,
         cleanup=CleanupConfig(
             remove_orphaned_links=bool(cleanup_raw.get("remove_orphaned_links", True)),
             unmonitor_on_delete=unmonitor_on_delete,
@@ -328,7 +393,6 @@ def load_config(path: str | Path) -> AppConfig:
             missing_grace_seconds=missing_grace_seconds,
         ),
         runtime=runtime,
-        custom_format_map=custom_format_map,
         analysis=analysis,
         ingest=ingest,
     )

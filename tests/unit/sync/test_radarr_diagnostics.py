@@ -8,6 +8,7 @@ from librariarr.config import (
     PathsConfig,
     QualityRule,
     RadarrConfig,
+    RadarrMappingConfig,
     RootMapping,
     RuntimeConfig,
 )
@@ -56,11 +57,13 @@ def _make_config(tmp_path: Path, quality_id: int, format_id: int) -> AppConfig:
             api_key="test-key",
             sync_enabled=True,
             auto_add_unmatched=True,
+            mapping=RadarrMappingConfig(
+                quality_map=[QualityRule(match=["1080p"], target_id=quality_id, name="1080p")],
+                custom_format_map=[
+                    CustomFormatRule(match=["german"], format_id=format_id, name="German Audio")
+                ],
+            ),
         ),
-        quality_map=[QualityRule(match=["1080p"], target_id=quality_id, name="1080p")],
-        custom_format_map=[
-            CustomFormatRule(match=["german"], format_id=format_id, name="German Audio")
-        ],
         cleanup=CleanupConfig(),
         runtime=RuntimeConfig(),
     )
@@ -83,8 +86,8 @@ def test_log_quality_mapping_diagnostics_logs_validation_success(tmp_path: Path,
     )
 
     assert "Radarr quality profiles (id:name): 8:Preferred" in caplog.text
-    assert "quality_map target_id values validated" in caplog.text
-    assert "custom_format_map format_id values validated" in caplog.text
+    assert "radarr.mapping.quality_map target_id values validated" in caplog.text
+    assert "radarr.mapping.custom_format_map format_id values validated" in caplog.text
 
 
 def test_log_quality_mapping_diagnostics_warns_on_missing_ids(tmp_path: Path, caplog) -> None:
@@ -103,7 +106,7 @@ def test_log_quality_mapping_diagnostics_warns_on_missing_ids(tmp_path: Path, ca
         auto_add_unmatched=True,
     )
 
-    assert "quality_map target_id values not found" in caplog.text
+    assert "radarr.mapping.quality_map target_id values not found" in caplog.text
     assert "missing_ids=[999]" in caplog.text
-    assert "custom_format_map format_id values not found" in caplog.text
+    assert "radarr.mapping.custom_format_map format_id values not found" in caplog.text
     assert "missing_ids=[555]" in caplog.text

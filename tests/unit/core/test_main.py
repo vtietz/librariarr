@@ -17,7 +17,6 @@ def test_main_fails_fast_for_ambiguous_ingest_root_mappings(tmp_path: Path) -> N
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
             "  sync_enabled: false\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime: {}\n"
             "ingest:\n"

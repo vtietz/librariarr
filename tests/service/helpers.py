@@ -7,6 +7,7 @@ from librariarr.config import (
     PathsConfig,
     QualityRule,
     RadarrConfig,
+    RadarrMappingConfig,
     RootMapping,
     RuntimeConfig,
 )
@@ -155,8 +156,10 @@ def make_config(
             sync_enabled=sync_enabled,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
+            mapping=RadarrMappingConfig(
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+            ),
         ),
-        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")],
         cleanup=CleanupConfig(
             remove_orphaned_links=True,
             unmonitor_on_delete=True,

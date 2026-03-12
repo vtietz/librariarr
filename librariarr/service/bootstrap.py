@@ -146,6 +146,8 @@ class ServiceBootstrapMixin:
         )
 
     def run(self) -> None:
+        LOG.info("")
+        LOG.info("================ LibrariArr Startup ================")
         LOG.info(
             "Starting LibrariArr service: shadow_roots=%s nested_roots=%s "
             "radarr_enabled=%s sync_enabled=%s auto_add_unmatched=%s debounce_seconds=%s "
@@ -167,6 +169,7 @@ class ServiceBootstrapMixin:
                 else "disabled"
             ),
         )
+        LOG.info("====================================================")
         for shadow_root in self.shadow_roots:
             shadow_root.mkdir(parents=True, exist_ok=True)
         self._run_sync_preflight_checks()

@@ -90,6 +90,7 @@ class RadarrSyncHelper:
 
     def _detect_custom_format_ids(self, folder: Path) -> set[int]:
         detected_ids: set[int] = set()
+        custom_format_map = self.config.effective_radarr_custom_format_map()
 
         for candidate in parse_candidates_for_folder(folder, VIDEO_EXTENSIONS):
             if not candidate.strip():
@@ -104,11 +105,11 @@ class RadarrSyncHelper:
             if detected_ids:
                 break
 
-        if self.config.custom_format_map:
+        if custom_format_map:
             detected_ids.update(
                 map_custom_format_ids(
                     folder,
-                    self.config.custom_format_map,
+                    custom_format_map,
                     use_nfo=self.config.analysis.use_nfo,
                     use_media_probe=self.config.analysis.use_media_probe,
                     media_probe_bin=self.config.analysis.media_probe_bin,
@@ -247,7 +248,8 @@ class RadarrSyncHelper:
         return selected_profile_id
 
     def _resolve_profile_from_quality_map(self, folder: Path, profiles: list[dict]) -> int | None:
-        if not self.config.quality_map:
+        quality_map = self.config.effective_radarr_quality_map()
+        if not quality_map:
             parse_quality_id = self._detect_parse_quality_definition_id(folder)
             if parse_quality_id is not None:
                 parse_profile_id = self._resolve_profile_from_quality_definition_id(
@@ -275,7 +277,7 @@ class RadarrSyncHelper:
 
         desired_quality_id = map_quality_id(
             folder,
-            self.config.quality_map,
+            quality_map,
             use_nfo=self.config.analysis.use_nfo,
             use_media_probe=self.config.analysis.use_media_probe,
             media_probe_bin=self.config.analysis.media_probe_bin,

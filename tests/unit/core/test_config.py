@@ -4,29 +4,30 @@ import pytest
 
 from librariarr.config import load_config
 
-CONFIG_CONTENT = """
-paths:
-  root_mappings:
-    - nested_root: /data/movies/one
-      shadow_root: /data/radarr_library/one
-radarr:
-  url: http://radarr:7878
-  api_key: test-key
-quality_map:
-  - match: [\"1080p\", \"x265\"]
-    target_id: 7
-cleanup:
-  remove_orphaned_links: true
-  unmonitor_on_delete: true
-  delete_from_radarr_on_missing: false
-runtime:
-  debounce_seconds: 8
-  maintenance_interval_minutes: 1440
-analysis:
-  use_nfo: false
-  use_media_probe: false
-  media_probe_bin: ffprobe
-""".strip()
+CONFIG_CONTENT = (
+    "paths:\n"
+    "  root_mappings:\n"
+    "    - nested_root: /data/movies/one\n"
+    "      shadow_root: /data/radarr_library/one\n"
+    "radarr:\n"
+    "  url: http://radarr:7878\n"
+    "  api_key: test-key\n"
+    "  mapping:\n"
+    "    quality_map:\n"
+    '      - match: ["1080p", "x265"]\n'
+    "        target_id: 7\n"
+    "cleanup:\n"
+    "  remove_orphaned_links: true\n"
+    "  unmonitor_on_delete: true\n"
+    "  delete_from_radarr_on_missing: false\n"
+    "runtime:\n"
+    "  debounce_seconds: 8\n"
+    "  maintenance_interval_minutes: 1440\n"
+    "analysis:\n"
+    "  use_nfo: false\n"
+    "  use_media_probe: false\n"
+    "  media_probe_bin: ffprobe\n"
+).strip()
 
 
 def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
@@ -57,7 +58,7 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.sonarr.sync_enabled is False
     assert config.sonarr.url == ""
     assert config.sonarr.api_key == ""
-    assert config.quality_map[0].target_id == 7
+    assert config.radarr.mapping.quality_map[0].target_id == 7
     assert config.cleanup.radarr_action_on_missing == "unmonitor"
     assert config.cleanup.sonarr_action_on_missing == "unmonitor"
     assert config.cleanup.missing_grace_seconds == 3600
@@ -106,7 +107,6 @@ def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime: {}\n"
         ),
@@ -132,7 +132,6 @@ def test_load_config_rejects_missing_root_mappings(tmp_path: Path) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime: {}\n"
         ),
@@ -154,7 +153,6 @@ def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monke
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime:\n"
             "  maintenance_interval_minutes: 0\n"
@@ -181,7 +179,6 @@ def test_load_config_reads_arr_root_poll_interval(tmp_path: Path) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime:\n"
             "  arr_root_poll_interval_minutes: 3\n"
@@ -219,7 +216,6 @@ def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime: {}\n"
             "ingest:\n"
@@ -253,7 +249,6 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
             "  auto_add_quality_profile_id: 7\n"
             "  auto_add_search_on_add: true\n"
             "  auto_add_monitored: false\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime: {}\n"
         ),
@@ -283,7 +278,6 @@ def test_load_config_disables_radarr_when_enabled_false(tmp_path: Path) -> None:
             "  api_key: test-key\n"
             "  sync_enabled: true\n"
             "  auto_add_unmatched: true\n"
-            "quality_map: []\n"
             "cleanup: {}\n"
             "runtime: {}\n"
         ),
@@ -308,11 +302,11 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
-            "custom_format_map:\n"
-            "  - match: [german, x265]\n"
-            "    format_id: 42\n"
-            "    name: German HEVC\n"
+            "  mapping:\n"
+            "    custom_format_map:\n"
+            "      - match: [german, x265]\n"
+            "        format_id: 42\n"
+            "        name: German HEVC\n"
             "cleanup: {}\n"
             "runtime: {}\n"
         ),
@@ -321,10 +315,10 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
 
     config = load_config(config_path)
 
-    assert len(config.custom_format_map) == 1
-    assert config.custom_format_map[0].match == ["german", "x265"]
-    assert config.custom_format_map[0].format_id == 42
-    assert config.custom_format_map[0].name == "German HEVC"
+    assert len(config.radarr.mapping.custom_format_map) == 1
+    assert config.radarr.mapping.custom_format_map[0].match == ["german", "x265"]
+    assert config.radarr.mapping.custom_format_map[0].format_id == 42
+    assert config.radarr.mapping.custom_format_map[0].name == "German HEVC"
 
 
 def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
@@ -338,7 +332,6 @@ def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup:\n"
             "  radarr_action_on_missing: none\n"
             "  missing_grace_seconds: 7200\n"
@@ -378,7 +371,6 @@ def test_load_config_reads_sonarr_settings(tmp_path: Path) -> None:
             "  auto_add_monitored: false\n"
             "  auto_add_season_folder: false\n"
             "  refresh_debounce_seconds: 9\n"
-            "quality_map: []\n"
             "cleanup:\n"
             "  sonarr_action_on_missing: delete\n"
             "runtime: {}\n"
@@ -414,7 +406,6 @@ def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> No
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup:\n"
             "  sonarr_action_on_missing: pause\n"
             "runtime: {}\n"
@@ -437,7 +428,6 @@ def test_load_config_rejects_invalid_cleanup_action(tmp_path: Path) -> None:
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
-            "quality_map: []\n"
             "cleanup:\n"
             "  radarr_action_on_missing: pause\n"
             "runtime: {}\n"
@@ -447,3 +437,97 @@ def test_load_config_rejects_invalid_cleanup_action(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="cleanup.radarr_action_on_missing"):
         load_config(config_path)
+
+
+def test_load_config_reads_namespaced_radarr_mapping(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  mapping:\n"
+            "    quality_map:\n"
+            "      - match: [1080p]\n"
+            "        target_id: 9\n"
+            "    custom_format_map:\n"
+            "      - match: [german]\n"
+            "        format_id: 42\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.radarr.mapping.quality_map[0].target_id == 9
+    assert config.radarr.mapping.custom_format_map[0].format_id == 42
+    assert config.effective_radarr_quality_map()[0].target_id == 9
+    assert config.effective_radarr_custom_format_map()[0].format_id == 42
+
+
+def test_load_config_rejects_legacy_top_level_quality_map(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  mapping:\n"
+            "    quality_map:\n"
+            "      - match: [2160p]\n"
+            "        target_id: 19\n"
+            "quality_map:\n"
+            "  - match: [1080p]\n"
+            "    target_id: 9\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="Top-level quality_map/custom_format_map"):
+        load_config(config_path)
+
+
+def test_load_config_reads_namespaced_sonarr_mapping(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/series/one\n"
+            "      shadow_root: /data/sonarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
+            "  mapping:\n"
+            "    quality_profile_map:\n"
+            "      - match: [1080p]\n"
+            "        profile_id: 8\n"
+            "    language_profile_map:\n"
+            "      - match: [lang-de]\n"
+            "        profile_id: 4\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.sonarr.mapping.quality_profile_map[0].profile_id == 8
+    assert config.sonarr.mapping.language_profile_map[0].profile_id == 4
