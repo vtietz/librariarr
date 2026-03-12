@@ -1,5 +1,5 @@
 paths:
-  # Map nested source roots to Radarr shadow roots.
+  # Map nested source roots to shadow roots used by Radarr and/or Sonarr.
   root_mappings:
     - nested_root: "/data/movies/age_06"
       shadow_root: "/data/radarr_library/age_06"
@@ -9,6 +9,8 @@ paths:
       shadow_root: "/data/radarr_library/age_16"
 
 radarr:
+  # Enabled by default. Disable for Sonarr-only mode.
+  enabled: true
   # Env overrides: LIBRARIARR_RADARR_URL, LIBRARIARR_RADARR_API_KEY.
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
@@ -23,6 +25,27 @@ radarr:
   auto_add_search_on_add: false
   # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
+
+sonarr:
+  # Disabled by default. Enable for series path syncing.
+  enabled: false
+  # Env overrides: LIBRARIARR_SONARR_URL, LIBRARIARR_SONARR_API_KEY.
+  url: "http://sonarr:8989"
+  api_key: "YOUR_API_KEY"
+  sync_enabled: true
+  # Per-series RefreshSeries debounce window in seconds (0 disables debounce).
+  refresh_debounce_seconds: 15
+  # Auto-add unmatched series folders to Sonarr.
+  auto_add_unmatched: false
+  # Optional fixed profile IDs; leave commented to use lowest available profile IDs.
+  # auto_add_quality_profile_id: 1
+  # auto_add_language_profile_id: 1
+  # Trigger indexer search immediately after add.
+  auto_add_search_on_add: false
+  # Initial monitored flag for newly auto-added series.
+  auto_add_monitored: true
+  # Whether newly added series should use season folders in Sonarr.
+  auto_add_season_folder: true
 
 ingest:
   # Move real folders from shadow roots back into nested roots.
@@ -72,11 +95,18 @@ cleanup:
   #   unmonitor -> unmonitor after grace window
   #   delete    -> delete from Radarr after grace window
   radarr_action_on_missing: "none"
+  # What to do in Sonarr when a source folder is missing:
+  #   none      -> do not touch Sonarr state (recommended for transient outages/renames)
+  #   unmonitor -> unmonitor after grace window
+  #   delete    -> delete from Sonarr after grace window
+  sonarr_action_on_missing: "none"
   # Grace period before unmonitor/delete action is applied.
   missing_grace_seconds: 21600
   # Legacy compatibility keys (prefer radarr_action_on_missing above):
   # unmonitor_on_delete: true
   # delete_from_radarr_on_missing: false
+  # Legacy compatibility key for Sonarr:
+  # delete_from_sonarr_on_missing: false
 
 runtime:
   # Debounce window for filesystem event bursts (seconds).

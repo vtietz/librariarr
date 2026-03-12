@@ -33,9 +33,10 @@ Commands:
   logs        Tail service logs
   once        Run one reconcile cycle and exit
   test        Run unit tests in Docker
-  e2e         Run end-to-end integration tests against live Radarr
+  e2e         Run end-to-end integration tests against live Arr services
   fs-e2e      Run end-to-end filesystem tests in Docker
   radarr-e2e  Alias for e2e
+  sonarr-e2e  Alias for e2e
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev profile service in background
@@ -95,7 +96,7 @@ case "$cmd" in
     ;;
   test)
     compose_dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e' -p no:cacheprovider"
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
     ;;
   e2e)
     mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
@@ -108,6 +109,11 @@ case "$cmd" in
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
     ;;
   radarr-e2e)
+    mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
+    compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
+    compose_e2e run --rm "$E2E_SERVICE"
+    ;;
+  sonarr-e2e)
     mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
     compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
     compose_e2e run --rm "$E2E_SERVICE"

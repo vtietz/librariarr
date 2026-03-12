@@ -138,6 +138,7 @@ def make_config(
     nested_root: Path,
     shadow_root: Path,
     sync_enabled: bool = True,
+    radarr_enabled: bool = True,
     delete_from_radarr_on_missing: bool = False,
     auto_add_unmatched: bool = False,
     auto_add_quality_profile_id: int | None = None,
@@ -149,6 +150,7 @@ def make_config(
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
+            enabled=radarr_enabled,
             sync_enabled=sync_enabled,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
@@ -179,6 +181,22 @@ def test_reconcile_creates_symlink_for_movie_folder(tmp_path: Path) -> None:
     link = shadow_root / "Fixture Catalog A (2008)"
     assert link.is_symlink()
     assert link.resolve(strict=False) == movie
+
+
+def test_reconcile_skips_movie_folders_when_radarr_disabled(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie = nested_root / "Fixture Catalog A (2008)"
+    movie.mkdir(parents=True)
+    (movie / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=False, radarr_enabled=False)
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    link = shadow_root / "Fixture Catalog A (2008)"
+    assert not link.exists()
 
 
 def test_reconcile_incremental_scans_only_affected_folder(tmp_path: Path) -> None:

@@ -1,8 +1,8 @@
 # LibrariArr
 
-LibrariArr lets you keep your real movie files in nested folders while presenting Radarr with a flat library root.
+LibrariArr lets you keep real media files in nested folders while presenting flat library roots for Radarr and Sonarr.
 
-It does this by creating symlinks in a shadow folder and, when enabled, updating matching movies in Radarr to point at those symlinks.
+It does this by creating symlinks in shadow folders and, when enabled, updating matching items in Radarr/Sonarr to point at those symlinks.
 
 ## Why You Would Use It
 
@@ -14,7 +14,7 @@ Some people organize files like this:
   age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
 ```
 
-Radarr expects a flatter root layout. LibrariArr builds that view for Radarr:
+Radarr and Sonarr expect flatter root layouts. LibrariArr builds that view for the *arr apps:
 
 ```text
 /data/radarr_library/
@@ -24,26 +24,27 @@ Radarr expects a flatter root layout. LibrariArr builds that view for Radarr:
 
 If two folders would create the same link name, LibrariArr auto-qualifies the name to keep links unique.
 
-If you want age-specific Radarr roots, use `paths.root_mappings` so each source root writes to its own shadow root.
+If you want age-specific roots, use `paths.root_mappings` so each source root writes to its own shadow root.
 
 Default naming behavior:
 
 1. Symlink names are canonicalized to `Title (Year)` whenever the folder name contains a parseable year token.
 2. Radarr sync mode does not control naming; it only controls whether Radarr APIs are called.
-3. When a folder matches a Radarr movie, Radarr metadata is used as canonical source of title/year.
-4. If no parseable year exists and no Radarr match exists, LibrariArr falls back to the source folder name.
+3. When a folder matches a Radarr movie or Sonarr series, *arr metadata is used as canonical source of title/year.
+4. If no parseable year exists and no *arr match exists, LibrariArr falls back to the source folder name.
 
 ## What It Actually Does
 
 1. Scans configured nested roots for movie folders (folder containing a video file).
 2. Creates missing symlinks in the shadow root.
 3. Optional ingest mode (`ingest.enabled=true`) can move real folders created in shadow roots into configured nested roots, then replace the original shadow path with a symlink.
-4. If Radarr sync is enabled, matches movies by `Title (Year)` first, then title-only, then same-year normalized title fallback.
-5. Optional auto-add mode (`radarr.auto_add_unmatched=true`) can create missing movie entries in Radarr from lookup results.
-6. Updates Radarr movie path to the symlink path.
-7. Attempts quality mapping based on configured rules.
-8. Cleans up orphaned symlinks and can unmonitor or delete from Radarr on missing source folders.
-9. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
+4. If Radarr sync is enabled, matches movie folders by `Title (Year)` first, then title-only, then same-year normalized title fallback.
+5. If Sonarr sync is enabled, matches series folders by external IDs (`tvdb/tmdb/imdb`), `Title (Year)`, then title-only fallback.
+6. Optional auto-add modes (`radarr.auto_add_unmatched=true`, `sonarr.auto_add_unmatched=true`) can create missing entries from lookup results.
+7. Updates Radarr/Sonarr managed paths to the symlink path.
+8. Attempts quality mapping for Radarr based on configured rules.
+9. Cleans up orphaned symlinks and can unmonitor/delete in Radarr and Sonarr on missing source folders.
+10. Runs an initial reconcile at startup, then continues via filesystem events and periodic maintenance.
 
 ## Docker Compose Setup
 
@@ -112,7 +113,19 @@ How to retrieve Radarr API key:
 docker-compose exec radarr sh -lc "grep -oPm1 '(?<=<ApiKey>)[^<]+' /config/config.xml"
 ```
 
-If `radarr.sync_enabled` is `false`, LibrariArr still manages symlinks but does not call Radarr APIs.
+If `radarr.enabled` is `false`, LibrariArr skips movie-folder discovery and Radarr integration.
+
+If `radarr.enabled` is `true` and `radarr.sync_enabled` is `false`, LibrariArr still manages movie symlinks but does not call Radarr APIs.
+
+## Sonarr Integration Requirements
+
+1. `sonarr` and `librariarr` must see the same shadow-root path in-container.
+2. `sonarr` and `librariarr` must see the same nested series path(s) in-container.
+3. Symlink targets are absolute in-container paths; Sonarr must be able to resolve those exact paths.
+4. Add mapped shadow roots in Sonarr root folders.
+5. Use a valid Sonarr API key.
+
+If `sonarr.enabled` is `true` and `sonarr.sync_enabled` is `false`, LibrariArr still manages series symlinks but does not call Sonarr APIs.
 
 If `radarr.sync_enabled` is `true` and path mapping is wrong:
 
@@ -169,6 +182,8 @@ services:
       - TZ=${TZ}
       - LIBRARIARR_RADARR_URL=${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       - LIBRARIARR_RADARR_API_KEY=${LIBRARIARR_RADARR_API_KEY}
+      - LIBRARIARR_SONARR_URL=${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
+      - LIBRARIARR_SONARR_API_KEY=${LIBRARIARR_SONARR_API_KEY}
     volumes:
       - ${CONFIG_ROOT}/librariarr:/config:ro
       - ${MOVIES_DIR}:/data/movies
@@ -250,17 +265,20 @@ For the full option-by-option reference and examples, see `docs/configuration.md
 Configuration essentials:
 
 1. Prefer `paths.root_mappings` over legacy `paths.nested_roots`.
-2. Keep `radarr.sync_enabled: true` for Radarr API sync.
-3. `radarr.auto_add_unmatched` is enabled in the default example for automatic import.
-4. `radarr.auto_add_quality_profile_id` is a fixed override when set; leave it unset to enable auto-mapping.
-5. `quality_map.target_id` uses `/api/v3/qualitydefinition` ids.
-6. `radarr.auto_add_quality_profile_id` uses `/api/v3/qualityprofile` ids.
+2. Keep `radarr.enabled: true` when you want movie-folder processing.
+3. Keep `radarr.sync_enabled: true` for Radarr API sync.
+4. `radarr.auto_add_unmatched` is enabled in the default example for automatic import.
+5. Enable Sonarr support with `sonarr.enabled: true`.
+6. `sonarr.auto_add_unmatched` can auto-create unmatched series.
+7. `radarr.auto_add_quality_profile_id` is a fixed override when set; leave it unset to enable auto-mapping.
+8. `quality_map.target_id` uses `/api/v3/qualitydefinition` ids.
+9. `radarr.auto_add_quality_profile_id` uses `/api/v3/qualityprofile` ids.
 
 Config source notes:
 
 1. App behavior is read from `config.yaml`.
 2. `.env` is for compose interpolation (paths, user ids, log level).
-3. Only `LIBRARIARR_RADARR_URL` and `LIBRARIARR_RADARR_API_KEY` override app config at runtime.
+3. Only `LIBRARIARR_RADARR_URL`, `LIBRARIARR_RADARR_API_KEY`, `LIBRARIARR_SONARR_URL`, and `LIBRARIARR_SONARR_API_KEY` override app config at runtime.
 
 ## Optional Ingest Mode
 
@@ -274,7 +292,7 @@ If you enable ingest (`ingest.enabled: true`), LibrariArr also handles real dire
 4. Moves the folder into nested storage.
 5. Recreates the original shadow path as a symlink to the moved folder.
 
-This keeps Radarr-visible paths stable while preserving nested roots as the physical source of truth.
+This keeps Arr-visible paths stable while preserving nested roots as the physical source of truth.
 
 ## Runtime Modes
 
@@ -282,7 +300,7 @@ Default mode runs continuously.
 
 One-shot reconcile mode:
 
-Runs a single full sync pass (scan, link creation/update, optional Radarr updates, cleanup) and then exits.
+Runs a single full sync pass (scan, link creation/update, optional Arr updates, cleanup) and then exits.
 
 ```bash
 ./run.sh once
@@ -292,7 +310,7 @@ Runs a single full sync pass (scan, link creation/update, optional Radarr update
 
 1. `docker-compose.yml`: normal runtime service.
 2. `docker-compose.dev.yml`: development container and tooling.
-3. `docker-compose.e2e.yml`: Radarr integration end-to-end tests.
+3. `docker-compose.e2e.yml`: Arr integration end-to-end tests (Radarr + Sonarr).
 4. `docker-compose.fs-e2e.yml`: filesystem-focused end-to-end tests.
 
 ## Wrapper Script Hint

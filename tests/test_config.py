@@ -35,6 +35,8 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.delenv("LIBRARIARR_RADARR_URL", raising=False)
     monkeypatch.delenv("LIBRARIARR_RADARR_API_KEY", raising=False)
+    monkeypatch.delenv("LIBRARIARR_SONARR_URL", raising=False)
+    monkeypatch.delenv("LIBRARIARR_SONARR_API_KEY", raising=False)
     monkeypatch.delenv("LIBRARIARR_SHADOW_ROOT", raising=False)
     monkeypatch.delenv("LIBRARIARR_NESTED_ROOTS", raising=False)
 
@@ -43,6 +45,7 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert len(config.paths.root_mappings) == 1
     assert config.paths.root_mappings[0].nested_root == "/data/movies/one"
     assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/one"
+    assert config.radarr.enabled is True
     assert config.radarr.url == "http://radarr:7878"
     assert config.radarr.api_key == "test-key"
     assert config.radarr.auto_add_unmatched is False
@@ -50,8 +53,13 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.auto_add_quality_profile_id is None
     assert config.radarr.auto_add_search_on_add is False
     assert config.radarr.auto_add_monitored is True
+    assert config.sonarr.enabled is False
+    assert config.sonarr.sync_enabled is False
+    assert config.sonarr.url == ""
+    assert config.sonarr.api_key == ""
     assert config.quality_map[0].target_id == 7
     assert config.cleanup.radarr_action_on_missing == "unmonitor"
+    assert config.cleanup.sonarr_action_on_missing == "unmonitor"
     assert config.cleanup.missing_grace_seconds == 3600
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
@@ -64,6 +72,8 @@ def test_only_radarr_url_and_api_key_env_overrides_are_applied(tmp_path: Path, m
 
     monkeypatch.setenv("LIBRARIARR_RADARR_URL", "http://radarr.local:7878")
     monkeypatch.setenv("LIBRARIARR_RADARR_API_KEY", "env-key")
+    monkeypatch.setenv("LIBRARIARR_SONARR_URL", "http://sonarr.local:8989")
+    monkeypatch.setenv("LIBRARIARR_SONARR_API_KEY", "sonarr-env-key")
     monkeypatch.setenv("LIBRARIARR_SHADOW_ROOT", "/data/custom_shadow")
     monkeypatch.setenv("LIBRARIARR_NESTED_ROOTS", "/a,/b")
     monkeypatch.setenv("LIBRARIARR_USE_NFO_ANALYSIS", "true")
@@ -74,6 +84,8 @@ def test_only_radarr_url_and_api_key_env_overrides_are_applied(tmp_path: Path, m
 
     assert config.radarr.url == "http://radarr.local:7878"
     assert config.radarr.api_key == "env-key"
+    assert config.sonarr.url == "http://sonarr.local:8989"
+    assert config.sonarr.api_key == "sonarr-env-key"
     assert len(config.paths.root_mappings) == 1
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
@@ -232,6 +244,34 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
     assert config.radarr.auto_add_monitored is False
 
 
+def test_load_config_disables_radarr_when_enabled_false(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  enabled: false\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  sync_enabled: true\n"
+            "  auto_add_unmatched: true\n"
+            "quality_map: []\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.radarr.enabled is False
+    assert config.radarr.sync_enabled is False
+    assert config.radarr.auto_add_unmatched is False
+
+
 def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
@@ -288,6 +328,77 @@ def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
     assert config.cleanup.unmonitor_on_delete is False
     assert config.cleanup.delete_from_radarr_on_missing is False
     assert config.cleanup.missing_grace_seconds == 7200
+
+
+def test_load_config_reads_sonarr_settings(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/series/one\n"
+            "      shadow_root: /data/sonarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
+            "  sync_enabled: true\n"
+            "  auto_add_unmatched: true\n"
+            "  auto_add_quality_profile_id: 6\n"
+            "  auto_add_language_profile_id: 1\n"
+            "  auto_add_search_on_add: true\n"
+            "  auto_add_monitored: false\n"
+            "  auto_add_season_folder: false\n"
+            "  refresh_debounce_seconds: 9\n"
+            "quality_map: []\n"
+            "cleanup:\n"
+            "  sonarr_action_on_missing: delete\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.sonarr.enabled is True
+    assert config.sonarr.url == "http://sonarr:8989"
+    assert config.sonarr.api_key == "sonarr-key"
+    assert config.sonarr.sync_enabled is True
+    assert config.sonarr.auto_add_unmatched is True
+    assert config.sonarr.auto_add_quality_profile_id == 6
+    assert config.sonarr.auto_add_language_profile_id == 1
+    assert config.sonarr.auto_add_search_on_add is True
+    assert config.sonarr.auto_add_monitored is False
+    assert config.sonarr.auto_add_season_folder is False
+    assert config.sonarr.refresh_debounce_seconds == 9
+    assert config.cleanup.sonarr_action_on_missing == "delete"
+    assert config.cleanup.delete_from_sonarr_on_missing is True
+
+
+def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "quality_map: []\n"
+            "cleanup:\n"
+            "  sonarr_action_on_missing: pause\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="cleanup.sonarr_action_on_missing"):
+        load_config(config_path)
 
 
 def test_load_config_rejects_invalid_cleanup_action(tmp_path: Path) -> None:

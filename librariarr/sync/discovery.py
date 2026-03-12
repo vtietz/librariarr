@@ -1,7 +1,44 @@
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
+
+SEASON_DIR_RE = re.compile(r"^(?:season|staffel)\s*\d{1,2}$|^s\d{1,2}$", re.IGNORECASE)
+EPISODE_TOKEN_RE = re.compile(r"\bs\d{1,2}e\d{1,3}\b", re.IGNORECASE)
+
+
+def _contains_video_file(folder: Path, video_exts: set[str]) -> bool:
+    if not folder.exists():
+        return False
+    try:
+        for child in folder.iterdir():
+            if child.is_file() and child.suffix.lower() in video_exts:
+                return True
+    except OSError:
+        return False
+    return False
+
+
+def _contains_video_recursively(folder: Path, video_exts: set[str]) -> bool:
+    if not folder.exists():
+        return False
+    for current, _dirs, files in os.walk(folder):
+        if any(Path(filename).suffix.lower() in video_exts for filename in files):
+            return True
+        # Keep recursive walk for nested release layouts.
+        if current != str(folder):
+            continue
+    return False
+
+
+def _looks_like_episode_file(filename: str) -> bool:
+    stem = Path(filename).stem
+    return EPISODE_TOKEN_RE.search(stem) is not None
+
+
+def _is_season_folder_name(name: str) -> bool:
+    return SEASON_DIR_RE.match(name.strip()) is not None
 
 
 def discover_movie_folders(root: Path, video_exts: set[str]) -> set[Path]:
@@ -12,8 +49,44 @@ def discover_movie_folders(root: Path, video_exts: set[str]) -> set[Path]:
     for current, dirs, files in os.walk(root):
         cur_path = Path(current)
         if any(Path(filename).suffix.lower() in video_exts for filename in files):
+            if _is_season_folder_name(cur_path.name):
+                continue
             found.add(cur_path)
             dirs[:] = []
+    return found
+
+
+def discover_series_folders(root: Path, video_exts: set[str]) -> set[Path]:
+    found: set[Path] = set()
+    if not root.exists():
+        return found
+
+    for current, dirs, files in os.walk(root):
+        cur_path = Path(current)
+
+        # Flat-series fallback: treat folder as a series root when it contains episode files.
+        if any(
+            Path(filename).suffix.lower() in video_exts and _looks_like_episode_file(filename)
+            for filename in files
+        ):
+            found.add(cur_path)
+            dirs[:] = []
+            continue
+
+        season_dirs = [dirname for dirname in dirs if _is_season_folder_name(dirname)]
+        if not season_dirs:
+            continue
+
+        has_video_in_season = False
+        for season_dir in season_dirs:
+            if _contains_video_recursively(cur_path / season_dir, video_exts):
+                has_video_in_season = True
+                break
+
+        if has_video_in_season:
+            found.add(cur_path)
+            dirs[:] = []
+
     return found
 
 

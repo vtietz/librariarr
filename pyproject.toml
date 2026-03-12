@@ -10,7 +10,8 @@ max-complexity = 12
 
 [tool.pytest.ini_options]
 markers = [
-	"e2e: marks end-to-end integration tests against live Radarr",
+	"e2e: marks end-to-end integration tests against live Arr services",
 	"fs_e2e: marks end-to-end filesystem tests run via ./run.sh fs-e2e",
 	"radarr_e2e: deprecated alias marker for legacy compatibility",
+	"sonarr_e2e: deprecated alias marker for legacy compatibility",
 ]

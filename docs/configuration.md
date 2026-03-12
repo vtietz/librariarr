@@ -15,11 +15,21 @@ paths:
       shadow_root: "/data/radarr_library/age_06"
 
 radarr:
+  enabled: true
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
   refresh_debounce_seconds: 15
   auto_add_unmatched: true
+  auto_add_search_on_add: false
+
+sonarr:
+  enabled: false
+  url: "http://sonarr:8989"
+  api_key: "YOUR_API_KEY"
+  sync_enabled: true
+  refresh_debounce_seconds: 15
+  auto_add_unmatched: false
   auto_add_search_on_add: false
 
 ingest:
@@ -53,7 +63,11 @@ custom_format_map:
 `config.yaml.example` is intentionally brief. Use this section for the longer rationale:
 
 - `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
+- `radarr.enabled=false` disables movie-folder discovery and Radarr integration entirely (useful for Sonarr-only setups).
+- `sonarr.enabled=true` enables series-folder discovery and Sonarr path synchronization.
+- `sonarr.auto_add_unmatched=true` enables Sonarr auto-creation for unmatched series folders.
 - `radarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshMovie` bursts for the same movie during noisy event windows; set `0` to disable.
+- `sonarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshSeries` bursts during noisy rename windows.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
 - Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
 - Example ingest defaults (`enabled=true`, `min_age_seconds=300`) favor safe move-back behavior and reduce the risk of ingesting partially written folders.
@@ -90,6 +104,10 @@ Why Radarr parse is title-based:
 
 ## Radarr
 
+`radarr.enabled`:
+- Enables movie-folder discovery and Radarr integration flow.
+- If false, movie folders are ignored.
+
 `radarr.url`:
 - Radarr base URL (for example `http://radarr:7878`).
 
@@ -98,7 +116,7 @@ Why Radarr parse is title-based:
 
 `radarr.sync_enabled`:
 - Enables all Radarr API interactions.
-- If false, LibrariArr manages filesystem links only.
+- If false while `radarr.enabled=true`, LibrariArr manages movie symlinks only.
 
 `radarr.refresh_debounce_seconds`:
 - Debounce window for `RefreshMovie` commands per movie id.
@@ -128,6 +146,46 @@ Why Radarr parse is title-based:
 
 `radarr.auto_add_monitored`:
 - Initial Radarr monitored flag for newly auto-added entries.
+
+## Sonarr
+
+`sonarr.enabled`:
+- Enables Sonarr-series discovery and integration flow.
+
+`sonarr.url`:
+- Sonarr base URL (for example `http://sonarr:8989`).
+
+`sonarr.api_key`:
+- Sonarr API key.
+
+`sonarr.sync_enabled`:
+- Enables Sonarr API interactions.
+- If false while `sonarr.enabled=true`, LibrariArr manages series symlinks only.
+
+`sonarr.refresh_debounce_seconds`:
+- Debounce window for `RefreshSeries` commands per series id.
+- Default is `15` seconds.
+- Set `0` to disable debounce.
+
+`sonarr.auto_add_unmatched`:
+- If true, unmatched series folders can be auto-added to Sonarr.
+
+`sonarr.auto_add_quality_profile_id`:
+- Optional fixed quality profile id for Sonarr auto-add.
+- If omitted, LibrariArr uses the lowest available Sonarr quality profile id.
+
+`sonarr.auto_add_language_profile_id`:
+- Optional fixed language profile id for Sonarr auto-add.
+- If omitted, LibrariArr uses the lowest available Sonarr language profile id when available.
+
+`sonarr.auto_add_search_on_add`:
+- If true, Sonarr starts search immediately after add.
+
+`sonarr.auto_add_monitored`:
+- Initial Sonarr monitored flag for newly auto-added series.
+
+`sonarr.auto_add_season_folder`:
+- Sets Sonarr `seasonFolder` when auto-adding series.
 
 ## Quality Mapping
 
@@ -215,6 +273,12 @@ Note:
 - `unmonitor`: unmonitor after `cleanup.missing_grace_seconds`.
 - `delete`: delete from Radarr after `cleanup.missing_grace_seconds`.
 
+`cleanup.sonarr_action_on_missing`:
+- Controls Sonarr behavior when source disappears.
+- `none`: leave Sonarr state untouched (recommended for transient disconnects/renames).
+- `unmonitor`: unmonitor after `cleanup.missing_grace_seconds`.
+- `delete`: delete from Sonarr after `cleanup.missing_grace_seconds`.
+
 `cleanup.missing_grace_seconds`:
 - Delay before `unmonitor` or `delete` is applied.
 - Helps avoid false actions during temporary storage/network outages.
@@ -222,6 +286,7 @@ Note:
 Legacy compatibility keys (prefer `cleanup.radarr_action_on_missing`):
 - `cleanup.unmonitor_on_delete`
 - `cleanup.delete_from_radarr_on_missing`
+- `cleanup.delete_from_sonarr_on_missing`
 
 ## Runtime
 
@@ -234,12 +299,14 @@ Legacy compatibility keys (prefer `cleanup.radarr_action_on_missing`):
 - Ingest deferrals from `ingest.min_age_seconds` still trigger temporary retry reconciles so fresh folders are retried without requiring a new filesystem event.
 
 `runtime.scan_video_extensions`:
-- Extensions that mark a directory as a movie folder.
+- Extensions that mark a directory as a media folder.
 
 ## Env Overrides
 
 Only these app-level runtime env overrides are supported:
 - `LIBRARIARR_RADARR_URL`
 - `LIBRARIARR_RADARR_API_KEY`
+- `LIBRARIARR_SONARR_URL`
+- `LIBRARIARR_SONARR_API_KEY`
 
 All other app behavior should be configured in `config.yaml`.

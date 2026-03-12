@@ -9,6 +9,8 @@ services:
     environment:
       LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_SONARR_URL: ${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
+      LIBRARIARR_SONARR_API_KEY: ${LIBRARIARR_SONARR_API_KEY:-}
     volumes:
       - ./:/app
       - ./config.yaml:/config/config.yaml:ro

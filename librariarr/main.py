@@ -9,7 +9,7 @@ from .service import LibrariArrService
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="LibrariArr: nested movie folders -> flat Radarr symlink root"
+        description="LibrariArr: nested media folders -> flat Arr symlink roots (Radarr/Sonarr)"
     )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--log-level", default="INFO", help="DEBUG, INFO, WARNING, ERROR")
