@@ -1,4 +1,4 @@
-from librariarr.radarr import RadarrClient
+from librariarr.clients.radarr import RadarrClient
 
 
 def test_try_update_moviefile_quality_skips_when_already_set(monkeypatch) -> None:
@@ -94,7 +94,7 @@ def test_refresh_movie_debounce_skips_within_window(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(client, "_request", _fake_request)
-    monkeypatch.setattr("librariarr.radarr.time.time", lambda: current_time["value"])
+    monkeypatch.setattr("librariarr.clients.radarr.time.time", lambda: current_time["value"])
 
     assert client.refresh_movie(42) is True
     current_time["value"] += 5.0
@@ -121,7 +121,7 @@ def test_refresh_movie_force_bypasses_debounce(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(client, "_request", _fake_request)
-    monkeypatch.setattr("librariarr.radarr.time.time", lambda: current_time["value"])
+    monkeypatch.setattr("librariarr.clients.radarr.time.time", lambda: current_time["value"])
 
     assert client.refresh_movie(7) is True
     current_time["value"] += 1.0

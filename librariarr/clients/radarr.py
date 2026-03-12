@@ -53,6 +53,10 @@ class RadarrClient:
         formats = self._request("GET", "/customformat")
         return formats if isinstance(formats, list) else []
 
+    def get_root_folders(self) -> list[dict[str, Any]]:
+        folders = self._request("GET", "/rootfolder")
+        return folders if isinstance(folders, list) else []
+
     def lookup_movies(self, term: str) -> list[dict[str, Any]]:
         results = self._request("GET", "/movie/lookup", params={"term": term})
         return results if isinstance(results, list) else []

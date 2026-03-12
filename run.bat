@@ -77,8 +77,10 @@ docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "P
 goto :eof
 
 :e2e
-if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
-if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
+if not exist .e2e-data\arr-e2e\movies mkdir .e2e-data\arr-e2e\movies
+if not exist .e2e-data\arr-e2e\radarr_library mkdir .e2e-data\arr-e2e\radarr_library
+if not exist .e2e-data\arr-e2e\series mkdir .e2e-data\arr-e2e\series
+if not exist .e2e-data\arr-e2e\sonarr_library mkdir .e2e-data\arr-e2e\sonarr_library
 docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
 docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
@@ -89,25 +91,29 @@ docker compose -p %PROJECT_NAME% -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVI
 goto :eof
 
 :radarre2e
-if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
-if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
+if not exist .e2e-data\arr-e2e\movies mkdir .e2e-data\arr-e2e\movies
+if not exist .e2e-data\arr-e2e\radarr_library mkdir .e2e-data\arr-e2e\radarr_library
+if not exist .e2e-data\arr-e2e\series mkdir .e2e-data\arr-e2e\series
+if not exist .e2e-data\arr-e2e\sonarr_library mkdir .e2e-data\arr-e2e\sonarr_library
 docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
 docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :sonarre2e
-if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
-if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
+if not exist .e2e-data\arr-e2e\movies mkdir .e2e-data\arr-e2e\movies
+if not exist .e2e-data\arr-e2e\radarr_library mkdir .e2e-data\arr-e2e\radarr_library
+if not exist .e2e-data\arr-e2e\series mkdir .e2e-data\arr-e2e\series
+if not exist .e2e-data\arr-e2e\sonarr_library mkdir .e2e-data\arr-e2e\sonarr_library
 docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
 docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :quality
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && PYTHONPATH=/app ruff format --check . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && PYTHONPATH=/app ruff format --check . --no-cache && bash ./tools/check_max_lines.sh 700 && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :qualityautofix
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && PYTHONPATH=/app ruff format . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && PYTHONPATH=/app ruff format . --no-cache && bash ./tools/check_max_lines.sh 700 && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :devup

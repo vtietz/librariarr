@@ -60,9 +60,9 @@ On reconcile, LibrariArr:
 3. Matches items in Radarr/Sonarr and updates managed paths.
 4. Applies optional quality/auto-add/cleanup behavior.
 
-## Quick Start (Docker)
+## Quick Start (Users: Docker Compose)
 
-These steps assume you checked out this repository locally.
+These steps are for regular Docker users (Docker CLI, Docker Desktop, or Portainer), not local repository development.
 
 1. Copy defaults:
 
@@ -81,20 +81,52 @@ PGID=1000
 
 Use one shared top-level mount (`MEDIA_ROOT`) across all *arr services and LibrariArr for reliable atomic moves and consistent path resolution.
 
-3. Start and verify:
+3. Use the provided full-stack example compose file at the repository root:
 
-```bash
-./run.sh up
-./run.sh logs
+```yaml
+services:
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/sabnzbd:/config
+      - ${MEDIA_ROOT}:/data
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/radarr:/config
+      - ${MEDIA_ROOT}:/data
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/sonarr:/config
+      - ${MEDIA_ROOT}:/data
+
+  librariarr:
+    image: ghcr.io/vtietz/librariarr:latest
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/librariarr:/config:ro
+      - ${MEDIA_ROOT}:/data
+    command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
 ```
 
-4. Stop when needed:
+4. Start and verify:
 
 ```bash
-./run.sh down
+docker compose -f docker-compose.full-stack.example.yml up -d
+docker compose -f docker-compose.full-stack.example.yml logs -f librariarr
 ```
 
-If you mainly use Docker Desktop/Portainer UI, use the compose files linked in "More Details" and apply the same `.env` + `config.yaml` setup.
+5. Stop when needed:
+
+```bash
+docker compose -f docker-compose.full-stack.example.yml down
+```
 
 ## Minimal Config Example
 
@@ -133,11 +165,11 @@ sonarr:
 - Main compose file: [docker/docker-compose.yml](docker/docker-compose.yml)
 - Dev compose file: [docker/docker-compose.dev.yml](docker/docker-compose.dev.yml)
 - Full stack compose example (Sabnzbd/Radarr/Sonarr/Prowlarr/LibrariArr/Mediathekarr, documentation-only): [docker-compose.full-stack.example.yml](docker-compose.full-stack.example.yml)
-- Wrapper help script: [run.sh](run.sh)
+- Wrapper help script (contributors/local repo dev): [run.sh](run.sh)
 
-## Runtime and Test Commands (Repo Checkout)
+## Contributor Commands (Repo Checkout)
 
-These are mainly useful for contributors or users running this repository directly.
+These `run.sh` wrappers are for contributors and local repository development.
 
 - `./run.sh once` for single reconcile.
 - `./run.sh test` for unit/integration tests (non-e2e).

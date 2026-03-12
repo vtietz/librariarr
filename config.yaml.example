@@ -114,6 +114,9 @@ runtime:
   # Minutes between full maintenance reconciles (0 = startup-only + events).
   # Note: ingest min_age deferrals still schedule temporary debounced retries.
   maintenance_interval_minutes: 0
+  # Minutes between Arr root-folder checks used to auto-trigger reconcile when
+  # configured shadow roots are added later in Radarr/Sonarr (0 disables polling).
+  arr_root_poll_interval_minutes: 1
   # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]
 

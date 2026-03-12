@@ -37,6 +37,7 @@ class CleanupConfig:
 class RuntimeConfig:
     debounce_seconds: int = 8
     maintenance_interval_minutes: int = 1440
+    arr_root_poll_interval_minutes: int = 1
     scan_video_extensions: list[str] | None = None
 
 
@@ -261,6 +262,7 @@ def load_config(path: str | Path) -> AppConfig:
     runtime = RuntimeConfig(
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),
         maintenance_interval_minutes=int(runtime_raw.get("maintenance_interval_minutes", 1440)),
+        arr_root_poll_interval_minutes=int(runtime_raw.get("arr_root_poll_interval_minutes", 1)),
         scan_video_extensions=runtime_raw.get("scan_video_extensions"),
     )
 

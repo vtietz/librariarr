@@ -1,4 +1,4 @@
-from librariarr.sonarr import SonarrClient
+from librariarr.clients.sonarr import SonarrClient
 
 
 def test_refresh_series_debounce_skips_within_window(monkeypatch) -> None:
@@ -15,7 +15,7 @@ def test_refresh_series_debounce_skips_within_window(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(client, "_request", _fake_request)
-    monkeypatch.setattr("librariarr.sonarr.time.time", lambda: current_time["value"])
+    monkeypatch.setattr("librariarr.clients.sonarr.time.time", lambda: current_time["value"])
 
     assert client.refresh_series(42) is True
     current_time["value"] += 5.0
@@ -42,7 +42,7 @@ def test_refresh_series_force_bypasses_debounce(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(client, "_request", _fake_request)
-    monkeypatch.setattr("librariarr.sonarr.time.time", lambda: current_time["value"])
+    monkeypatch.setattr("librariarr.clients.sonarr.time.time", lambda: current_time["value"])
 
     assert client.refresh_series(7) is True
     current_time["value"] += 1.0

@@ -298,6 +298,12 @@ Legacy compatibility keys (prefer `cleanup.radarr_action_on_missing`):
 - Set `0` to disable periodic maintenance (event-driven only after startup).
 - Ingest deferrals from `ingest.min_age_seconds` still trigger temporary retry reconciles so fresh folders are retried without requiring a new filesystem event.
 
+`runtime.arr_root_poll_interval_minutes`:
+- Interval for polling Radarr/Sonarr root-folder catalogs.
+- When one of the configured `shadow_root` paths becomes available in Arr later,
+  LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
+- Set `0` to disable this poller.
+
 `runtime.scan_video_extensions`:
 - Extensions that mark a directory as a media folder.
 

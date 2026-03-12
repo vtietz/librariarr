@@ -56,12 +56,14 @@ class RuntimeSyncLoop:
         reconcile: Callable[[set[Path] | None], bool],
         on_reconcile_error: Callable[[Exception], None],
         logger: logging.Logger,
+        poll_reconcile_trigger: Callable[[], bool] | None = None,
     ) -> None:
         self.nested_roots = nested_roots
         self.shadow_roots = shadow_roots
         self.schedule = schedule
         self.reconcile = reconcile
         self.on_reconcile_error = on_reconcile_error
+        self.poll_reconcile_trigger = poll_reconcile_trigger
         self.log = logger
         self._dirty_paths: set[Path] = set()
         self._dirty_paths_lock = threading.Lock()
@@ -94,39 +96,55 @@ class RuntimeSyncLoop:
                 )
                 self.schedule.mark_event()
             while True:
-                should_maintenance, should_event_sync = self.schedule.due()
-                if should_maintenance or should_event_sync:
-                    reconcile_paths: set[Path] | None = None
-                    if should_maintenance:
-                        self.log.info("Running scheduled maintenance reconcile")
-                        self._clear_dirty_paths()
-                    if should_event_sync:
-                        if should_maintenance:
-                            self.log.info(
-                                "Running event-triggered reconcile (covered by maintenance)"
-                            )
-                        else:
-                            reconcile_paths = self._consume_dirty_paths()
-                            self.log.info(
-                                "Running event-triggered reconcile (affected_paths=%s)",
-                                len(reconcile_paths),
-                            )
-                    ingest_pending = self._run_reconcile_with_handling(
-                        "Reconcile failed; will retry on next cycle",
-                        affected_paths=reconcile_paths,
-                    )
-                    if ingest_pending:
-                        self.log.info(
-                            "Ingest candidates are pending stability; scheduling retry in ~%ss",
-                            self.schedule.debounce_seconds,
-                        )
-                        self.schedule.mark_event()
-                    else:
-                        self.schedule.clear_event()
+                poll_triggered = self._poll_reconcile_trigger_safe()
+                self._run_due_reconcile_cycle(poll_triggered)
                 time.sleep(1)
         finally:
             observer.stop()
             observer.join()
+
+    def _poll_reconcile_trigger_safe(self) -> bool:
+        if self.poll_reconcile_trigger is None:
+            return False
+        try:
+            return self.poll_reconcile_trigger()
+        except Exception:
+            self.log.exception("Poll-based reconcile trigger failed")
+            return False
+
+    def _run_due_reconcile_cycle(self, poll_triggered: bool) -> None:
+        should_maintenance, should_event_sync = self.schedule.due()
+        if not (should_maintenance or should_event_sync or poll_triggered):
+            return
+
+        reconcile_paths: set[Path] | None = None
+        if should_maintenance:
+            self.log.info("Running scheduled maintenance reconcile")
+            self._clear_dirty_paths()
+        if should_event_sync:
+            if should_maintenance:
+                self.log.info("Running event-triggered reconcile (covered by maintenance)")
+            else:
+                reconcile_paths = self._consume_dirty_paths()
+                self.log.info(
+                    "Running event-triggered reconcile (affected_paths=%s)",
+                    len(reconcile_paths),
+                )
+        if poll_triggered and not should_maintenance and not should_event_sync:
+            self.log.info("Running poll-triggered reconcile")
+
+        ingest_pending = self._run_reconcile_with_handling(
+            "Reconcile failed; will retry on next cycle",
+            affected_paths=reconcile_paths,
+        )
+        if ingest_pending:
+            self.log.info(
+                "Ingest candidates are pending stability; scheduling retry in ~%ss",
+                self.schedule.debounce_seconds,
+            )
+            self.schedule.mark_event()
+        else:
+            self.schedule.clear_event()
 
     def mark_dirty(self, event: FileSystemEvent | None = None) -> None:
         if event is not None and not self._should_trigger_for_event(event):

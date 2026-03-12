@@ -6,9 +6,9 @@ from pathlib import Path
 
 import requests
 
+from ..clients.radarr import RadarrClient
 from ..config import AppConfig
 from ..quality import VIDEO_EXTENSIONS, map_custom_format_ids, map_quality_id
-from ..radarr import RadarrClient
 from .naming import parse_movie_ref
 from .radarr_diagnostics import log_quality_mapping_diagnostics
 from .radarr_mapping import (

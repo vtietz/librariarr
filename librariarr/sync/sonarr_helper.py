@@ -6,8 +6,8 @@ from pathlib import Path
 
 import requests
 
+from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
-from ..sonarr import SonarrClient
 from .naming import parse_movie_ref
 from .radarr_mapping import pick_lookup_candidate
 

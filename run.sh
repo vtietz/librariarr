@@ -100,7 +100,7 @@ case "$cmd" in
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
     ;;
   e2e)
-    mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
+    mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
     compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
     compose_e2e run --rm "$E2E_SERVICE"
     ;;
@@ -110,12 +110,12 @@ case "$cmd" in
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
     ;;
   radarr-e2e)
-    mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
+    mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
     compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
     compose_e2e run --rm "$E2E_SERVICE"
     ;;
   sonarr-e2e)
-    mkdir -p .e2e-data/radarr-e2e/movies .e2e-data/radarr-e2e/radarr_library
+    mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
     compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
     compose_e2e run --rm "$E2E_SERVICE"
     ;;
@@ -123,6 +123,7 @@ case "$cmd" in
     compose_dev run --rm "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && \
        PYTHONPATH=/app ruff format --check . --no-cache && \
+       bash ./tools/check_max_lines.sh 700 && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;
@@ -130,6 +131,7 @@ case "$cmd" in
     compose_dev run --rm "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && \
        PYTHONPATH=/app ruff format . --no-cache && \
+       bash ./tools/check_max_lines.sh 700 && \
        radon cc -s -n B librariarr tests && \
        radon raw -s librariarr tests"
     ;;

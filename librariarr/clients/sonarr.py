@@ -50,6 +50,10 @@ class SonarrClient:
         profiles = self._request("GET", "/languageprofile")
         return profiles if isinstance(profiles, list) else []
 
+    def get_root_folders(self) -> list[dict[str, Any]]:
+        folders = self._request("GET", "/rootfolder")
+        return folders if isinstance(folders, list) else []
+
     def lookup_series(self, term: str) -> list[dict[str, Any]]:
         results = self._request("GET", "/series/lookup", params={"term": term})
         return results if isinstance(results, list) else []

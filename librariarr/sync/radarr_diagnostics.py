@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 
+from ..clients.radarr import RadarrClient
 from ..config import AppConfig
-from ..radarr import RadarrClient
 from .radarr_mapping import extract_id_name, format_id_name_pairs
 
 
