@@ -1,10 +1,11 @@
 @echo off
 setlocal
 
-set COMPOSE_FILE=docker-compose.yml
-set DEV_COMPOSE_FILE=docker-compose.dev.yml
-set E2E_COMPOSE_FILE=docker-compose.e2e.yml
-set FS_E2E_COMPOSE_FILE=docker-compose.fs-e2e.yml
+set COMPOSE_FILE=docker/docker-compose.yml
+set DEV_COMPOSE_FILE=docker/docker-compose.dev.yml
+set E2E_COMPOSE_FILE=docker/docker-compose.e2e.yml
+set FS_E2E_COMPOSE_FILE=docker/docker-compose.fs-e2e.yml
+set PROJECT_NAME=librariarr
 set SERVICE=librariarr
 set DEV_SERVICE=librariarr-dev
 set E2E_SERVICE=librariarr-radarr-e2e
@@ -44,85 +45,85 @@ if not exist config.yaml (
 goto :eof
 
 :install
-docker compose -f %DEV_COMPOSE_FILE% build %DEV_SERVICE%
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% build %DEV_SERVICE%
 goto :eof
 
 :build
-docker compose -f %COMPOSE_FILE% build %SERVICE%
+docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% build %SERVICE%
 goto :eof
 
 :up
-docker compose -f %COMPOSE_FILE% up -d %SERVICE%
+docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% up -d %SERVICE%
 goto :eof
 
 :down
-docker compose -f %COMPOSE_FILE% down
+docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% down
 goto :eof
 
 :restart
-docker compose -f %COMPOSE_FILE% restart %SERVICE%
+docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% restart %SERVICE%
 goto :eof
 
 :logs
-docker compose -f %COMPOSE_FILE% logs -f %SERVICE%
+docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% logs -f %SERVICE%
 goto :eof
 
 :once
-docker compose -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml --once
+docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% run --rm %SERVICE% --config /config/config.yaml --once
 goto :eof
 
 :test
-docker compose -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
 goto :eof
 
 :e2e
 if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
 if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
-docker compose -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
-docker compose -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
+docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
+docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :fse2e
 if not exist .e2e-data mkdir .e2e-data
-docker compose -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
+docker compose -p %PROJECT_NAME% -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
 goto :eof
 
 :radarre2e
 if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
 if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
-docker compose -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
-docker compose -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
+docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
+docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :sonarre2e
 if not exist .e2e-data\radarr-e2e\movies mkdir .e2e-data\radarr-e2e\movies
 if not exist .e2e-data\radarr-e2e\radarr_library mkdir .e2e-data\radarr-e2e\radarr_library
-docker compose -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
-docker compose -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
+docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
+docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :quality
-docker compose -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && PYTHONPATH=/app ruff format --check . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && PYTHONPATH=/app ruff format --check . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :qualityautofix
-docker compose -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && PYTHONPATH=/app ruff format . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && PYTHONPATH=/app ruff format . --no-cache && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
 goto :eof
 
 :devup
-docker compose -f %DEV_COMPOSE_FILE% up -d %DEV_SERVICE%
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% up -d %DEV_SERVICE%
 goto :eof
 
 :devdown
-docker compose -f %DEV_COMPOSE_FILE% down
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% down
 goto :eof
 
 :devlogs
-docker compose -f %DEV_COMPOSE_FILE% logs -f %DEV_SERVICE%
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% logs -f %DEV_SERVICE%
 goto :eof
 
 :devshell
-docker compose -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% bash
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% bash
 goto :eof
 
 :usage

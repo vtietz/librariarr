@@ -1,7 +1,7 @@
 services:
   librariarr-dev:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile.dev
     container_name: librariarr-dev
     user: "${PUID:-1000}:${PGID:-1000}"
@@ -12,8 +12,8 @@ services:
       LIBRARIARR_SONARR_URL: ${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
       LIBRARIARR_SONARR_API_KEY: ${LIBRARIARR_SONARR_API_KEY:-}
     volumes:
-      - ./:/app
-      - ./config.yaml:/config/config.yaml:ro
+      - ../:/app
+      - ../config.yaml:/config/config.yaml:ro
       - ${MEDIA_ROOT:-/data}:/data
     entrypoint: ["bash", "-lc"]
     command:

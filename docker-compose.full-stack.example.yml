@@ -1,0 +1,108 @@
+# Example full media stack using one shared media root mount.
+# Copy and adapt for your environment.
+# This file is intentionally not used by run.sh wrappers.
+
+services:
+  # gluetun:
+  #   image: qmcgaw/gluetun:latest
+  #   container_name: gluetun
+  #   cap_add:
+  #     - NET_ADMIN
+  #   devices:
+  #     - /dev/net/tun:/dev/net/tun
+  #   env_file: .env
+  #   environment:
+  #     - OPENVPN_CUSTOM_CONFIG=/gluetun/${OPENVPN_CUSTOM_CONFIG}
+  #     - FIREWALL_INPUT_PORTS=${HOST_PORT_SABNZBD}
+  #   volumes:
+  #     - ${CONFIG_ROOT}/gluetun:/gluetun
+  #   ports:
+  #     - "${HOST_PORT_SABNZBD}:8080"
+  #   restart: unless-stopped
+
+  sabnzbd:
+    image: lscr.io/linuxserver/sabnzbd:latest
+    container_name: sabnzbd
+    # network_mode: "service:gluetun"
+    # depends_on:
+    #   - gluetun
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/sabnzbd:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - "${HOST_PORT_SABNZBD}:8080"
+    restart: unless-stopped
+
+  radarr:
+    image: lscr.io/linuxserver/radarr:latest
+    container_name: radarr
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/radarr:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - "${HOST_PORT_RADARR}:7878"
+    restart: unless-stopped
+    depends_on:
+      - sabnzbd
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c '</dev/tcp/127.0.0.1/7878'"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+
+  sonarr:
+    image: lscr.io/linuxserver/sonarr:latest
+    container_name: sonarr
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/sonarr:/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - "${HOST_PORT_SONARR}:8989"
+    restart: unless-stopped
+    depends_on:
+      - sabnzbd
+
+  prowlarr:
+    image: lscr.io/linuxserver/prowlarr:latest
+    container_name: prowlarr
+    env_file: .env
+    volumes:
+      - ${CONFIG_ROOT}/prowlarr:/config
+    ports:
+      - "${HOST_PORT_PROWLARR}:9696"
+    restart: unless-stopped
+
+  librariarr:
+    image: ghcr.io/vtietz/librariarr:latest
+    container_name: librariarr
+    env_file: .env
+    environment:
+      - LIBRARIARR_RADARR_URL=${LIBRARIARR_RADARR_URL:-http://radarr:7878}
+      - LIBRARIARR_SONARR_URL=${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
+    volumes:
+      - ${CONFIG_ROOT}/librariarr:/config:ro
+      - ${MEDIA_ROOT}:/data
+    command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}"]
+    restart: unless-stopped
+    depends_on:
+      radarr:
+        condition: service_healthy
+
+  mediathekarr:
+    image: pcjones/mediathekarr:beta
+    container_name: mediathekarr
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      - DOWNLOAD_INCOMPLETE_PATH=/data/movies/temp/Download/.mediathekarr/incomplete
+      - DOWNLOAD_COMPLETE_PATH=/data/movies/temp/Download/.mediathekarr/complete
+      - CATEGORIES=tv,movies,sonarr_blackhole,radarr_blackhole
+    volumes:
+      - ${CONFIG_ROOT}/mediathekarr:/app/config
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - "${HOST_PORT_MEDIATHEKARR}:5007"

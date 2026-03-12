@@ -1,21 +1,20 @@
 services:
-  librariarr-dev:
+  librariarr:
     build:
-      context: .
-      dockerfile: docker/Dockerfile.dev
-    container_name: librariarr-dev
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: librariarr
     user: "${PUID:-1000}:${PGID:-1000}"
-    working_dir: /app
+    restart: unless-stopped
     environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
       LIBRARIARR_RADARR_URL: ${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
       LIBRARIARR_SONARR_URL: ${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
       LIBRARIARR_SONARR_API_KEY: ${LIBRARIARR_SONARR_API_KEY:-}
     volumes:
-      - ./:/app
-      - ./config.yaml:/config/config.yaml:ro
+      - ../config.yaml:/config/config.yaml:ro
       - ${MEDIA_ROOT:-/data}:/data
-    entrypoint: ["bash", "-lc"]
-    command:
-      - |
-        python -m librariarr.main --config /config/config.yaml --log-level ${LIBRARIARR_LOG_LEVEL:-DEBUG}
+    command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}"]

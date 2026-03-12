@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILE="docker-compose.yml"
-DEV_COMPOSE_FILE="docker-compose.dev.yml"
-E2E_COMPOSE_FILE="docker-compose.e2e.yml"
-FS_E2E_COMPOSE_FILE="docker-compose.fs-e2e.yml"
+COMPOSE_FILE="docker/docker-compose.yml"
+DEV_COMPOSE_FILE="docker/docker-compose.dev.yml"
+E2E_COMPOSE_FILE="docker/docker-compose.e2e.yml"
+FS_E2E_COMPOSE_FILE="docker/docker-compose.fs-e2e.yml"
+PROJECT_NAME="librariarr"
 SERVICE="librariarr"
 DEV_SERVICE="librariarr-dev"
 E2E_SERVICE="librariarr-radarr-e2e"
@@ -47,19 +48,19 @@ EOF
 }
 
 compose() {
-  "${COMPOSE_CMD[@]}" -f "$COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -p "$PROJECT_NAME" -f "$COMPOSE_FILE" "$@"
 }
 
 compose_dev() {
-  "${COMPOSE_CMD[@]}" -f "$DEV_COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -p "$PROJECT_NAME" -f "$DEV_COMPOSE_FILE" "$@"
 }
 
 compose_e2e() {
-  "${COMPOSE_CMD[@]}" -f "$E2E_COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -p "$PROJECT_NAME" -f "$E2E_COMPOSE_FILE" "$@"
 }
 
 compose_fs_e2e() {
-  "${COMPOSE_CMD[@]}" -f "$FS_E2E_COMPOSE_FILE" "$@"
+  "${COMPOSE_CMD[@]}" -p "$PROJECT_NAME" -f "$FS_E2E_COMPOSE_FILE" "$@"
 }
 
 cmd="${1:-}"

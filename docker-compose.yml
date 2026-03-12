@@ -2,7 +2,7 @@ services:
   librariarr:
     build:
       context: .
-      dockerfile: Dockerfile
+      dockerfile: docker/Dockerfile
     container_name: librariarr
     user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
@@ -16,6 +16,5 @@ services:
       LIBRARIARR_SONARR_API_KEY: ${LIBRARIARR_SONARR_API_KEY:-}
     volumes:
       - ./config.yaml:/config/config.yaml:ro
-      - ${MOVIES_HOST_PATH:-/data/movies}:/data/movies
-      - ${RADARR_LIBRARY_HOST_PATH:-/data/radarr_library}:/data/radarr_library
+      - ${MEDIA_ROOT:-/data}:/data
     command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}"]

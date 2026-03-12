@@ -9,7 +9,7 @@ RUN apt-get update \
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY librariarr ./librariarr
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+COPY docker/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
 ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
