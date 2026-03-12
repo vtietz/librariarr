@@ -385,6 +385,41 @@ def test_reconcile_skips_auto_add_when_radarr_root_is_missing(tmp_path: Path, ca
     assert "No Radarr match for folder after auto-add attempt" not in caplog.text
 
 
+def test_reconcile_preserves_existing_radarr_link_when_root_is_missing(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Fixture Title - Variant (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+        auto_add_quality_profile_id=7,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        root_folders=[],
+        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
+    )
+    service.radarr = fake
+    service._update_arr_root_folder_availability(force=True)
+
+    preserved_link = shadow_root / "Fixture Canonical (2017)"
+    preserved_link.parent.mkdir(parents=True, exist_ok=True)
+    preserved_link.symlink_to(movie_dir, target_is_directory=True)
+
+    service.reconcile()
+
+    assert preserved_link.is_symlink()
+    assert not (shadow_root / "Fixture Title (2017)").exists()
+    assert fake.lookup_terms == []
+
+
 def test_poll_trigger_requests_reconcile_when_radarr_root_appears(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"

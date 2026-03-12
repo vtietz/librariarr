@@ -135,7 +135,10 @@ class ShadowCleanupManager:
 
                 child.unlink(missing_ok=True)
                 removed_count += 1
-                self.log.info("Removed orphaned symlink: %s", child)
+                if target_exists:
+                    self.log.debug("Removed stale symlink: %s", child)
+                else:
+                    self.log.info("Removed orphaned symlink: %s", child)
 
                 if target_exists:
                     continue
@@ -188,7 +191,10 @@ class ShadowCleanupManager:
 
                 child.unlink(missing_ok=True)
                 removed_count += 1
-                self.log.info("Removed orphaned symlink: %s", child)
+                if target_exists:
+                    self.log.debug("Removed stale symlink: %s", child)
+                else:
+                    self.log.info("Removed orphaned symlink: %s", child)
 
                 if target_exists:
                     continue

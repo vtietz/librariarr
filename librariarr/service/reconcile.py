@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ..sync import (
@@ -169,18 +170,23 @@ class ServiceReconcileMixin:
 
         for folder, shadow_root in sorted(movie_folders.items()):
             existing_links = target_to_links.get(folder, set())
-            root_available = True
-            if self.sync_enabled:
-                root_available = self._is_radarr_root_available(shadow_root)
-                if not root_available:
-                    normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
-                    if normalized_shadow_root not in logged_unavailable_roots:
-                        logged_unavailable_roots.add(normalized_shadow_root)
-                        LOG.debug(
-                            "Skipping Radarr matching/sync for shadow root "
-                            "not configured in Radarr: %s",
-                            shadow_root,
-                        )
+            root_available, preserved_existing_link = (
+                self._resolve_root_availability_and_preserve_existing_link(
+                    sync_enabled=self.sync_enabled,
+                    shadow_root=shadow_root,
+                    existing_links=existing_links,
+                    expected_links=expected_links,
+                    target_to_links=target_to_links,
+                    folder=folder,
+                    logged_unavailable_roots=logged_unavailable_roots,
+                    is_root_available=self._is_radarr_root_available,
+                    skip_log_message=(
+                        "Skipping Radarr matching/sync for shadow root not configured in Radarr: %s"
+                    ),
+                )
+            )
+            if preserved_existing_link:
+                continue
             movie = (
                 self._match_movie_for_folder(
                     folder,
@@ -262,18 +268,23 @@ class ServiceReconcileMixin:
 
         for folder, shadow_root in sorted(series_folders.items()):
             existing_links = target_to_links.get(folder, set())
-            root_available = True
-            if self.sonarr_sync_enabled:
-                root_available = self._is_sonarr_root_available(shadow_root)
-                if not root_available:
-                    normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
-                    if normalized_shadow_root not in logged_unavailable_roots:
-                        logged_unavailable_roots.add(normalized_shadow_root)
-                        LOG.debug(
-                            "Skipping Sonarr matching/sync for shadow root "
-                            "not configured in Sonarr: %s",
-                            shadow_root,
-                        )
+            root_available, preserved_existing_link = (
+                self._resolve_root_availability_and_preserve_existing_link(
+                    sync_enabled=self.sonarr_sync_enabled,
+                    shadow_root=shadow_root,
+                    existing_links=existing_links,
+                    expected_links=expected_links,
+                    target_to_links=target_to_links,
+                    folder=folder,
+                    logged_unavailable_roots=logged_unavailable_roots,
+                    is_root_available=self._is_sonarr_root_available,
+                    skip_log_message=(
+                        "Skipping Sonarr matching/sync for shadow root not configured in Sonarr: %s"
+                    ),
+                )
+            )
+            if preserved_existing_link:
+                continue
             series = (
                 self._match_series_for_folder(
                     folder,
@@ -341,6 +352,51 @@ class ServiceReconcileMixin:
             unmatched_series += 1
 
         return created_links, matched_series, unmatched_series, matched_series_ids
+
+    def _existing_link_for_shadow_root(
+        self,
+        existing_links: set[Path],
+        shadow_root: Path,
+    ) -> Path | None:
+        candidates = sorted(
+            [link for link in existing_links if link.parent == shadow_root],
+            key=str,
+        )
+        if not candidates:
+            return None
+        return candidates[0]
+
+    def _resolve_root_availability_and_preserve_existing_link(
+        self,
+        *,
+        sync_enabled: bool,
+        shadow_root: Path,
+        existing_links: set[Path],
+        expected_links: set[Path],
+        target_to_links: dict[Path, set[Path]],
+        folder: Path,
+        logged_unavailable_roots: set[str],
+        is_root_available: Callable[[Path], bool],
+        skip_log_message: str,
+    ) -> tuple[bool, bool]:
+        if not sync_enabled:
+            return True, False
+
+        if is_root_available(shadow_root):
+            return True, False
+
+        normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
+        if normalized_shadow_root not in logged_unavailable_roots:
+            logged_unavailable_roots.add(normalized_shadow_root)
+            LOG.debug(skip_log_message, shadow_root)
+
+        existing_link = self._existing_link_for_shadow_root(existing_links, shadow_root)
+        if existing_link is None:
+            return False, False
+
+        expected_links.add(existing_link)
+        target_to_links.setdefault(folder, set()).add(existing_link)
+        return False, True
 
     def _cleanup_orphans(
         self,

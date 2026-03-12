@@ -294,6 +294,43 @@ def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path, ca
     assert "No Sonarr match for folder after auto-add attempt" not in caplog.text
 
 
+def test_reconcile_preserves_existing_sonarr_link_when_root_is_missing(tmp_path: Path) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Fixture Show - Alias (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(
+        nested_root,
+        shadow_root,
+        sonarr_sync_enabled=True,
+        sonarr_auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(
+        series=[],
+        quality_profiles=[{"id": 3, "name": "HD-1080p"}],
+        language_profiles=[{"id": 1, "name": "English"}],
+        lookup_results=[{"title": "Fixture Show", "year": 2020, "tvdbId": 12345}],
+        root_folders=[],
+    )
+    service.sonarr = fake
+    service._update_arr_root_folder_availability(force=True)
+
+    preserved_link = shadow_root / "Fixture Show (2020)"
+    preserved_link.parent.mkdir(parents=True, exist_ok=True)
+    preserved_link.symlink_to(series_dir, target_is_directory=True)
+
+    service.reconcile()
+
+    assert preserved_link.is_symlink()
+    assert not (shadow_root / "Fixture Show - Alias (2020)").exists()
+    assert fake.lookup_terms == []
+
+
 def test_reconcile_auto_add_uses_sonarr_mapping_profiles(tmp_path: Path) -> None:
     nested_root = tmp_path / "series"
     shadow_root = tmp_path / "sonarr_library"
