@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -52,7 +53,7 @@ class RuntimeSyncLoop:
         nested_roots: list[Path],
         shadow_roots: list[Path],
         schedule: ReconcileSchedule,
-        reconcile: Callable[[], bool],
+        reconcile: Callable[[set[Path] | None], bool],
         on_reconcile_error: Callable[[Exception], None],
         logger: logging.Logger,
     ) -> None:
@@ -62,6 +63,8 @@ class RuntimeSyncLoop:
         self.reconcile = reconcile
         self.on_reconcile_error = on_reconcile_error
         self.log = logger
+        self._dirty_paths: set[Path] = set()
+        self._dirty_paths_lock = threading.Lock()
 
     def run(self) -> None:
         observer = Observer()
@@ -93,12 +96,24 @@ class RuntimeSyncLoop:
             while True:
                 should_maintenance, should_event_sync = self.schedule.due()
                 if should_maintenance or should_event_sync:
+                    reconcile_paths: set[Path] | None = None
                     if should_maintenance:
                         self.log.info("Running scheduled maintenance reconcile")
+                        self._clear_dirty_paths()
                     if should_event_sync:
-                        self.log.info("Running event-triggered reconcile")
+                        if should_maintenance:
+                            self.log.info(
+                                "Running event-triggered reconcile (covered by maintenance)"
+                            )
+                        else:
+                            reconcile_paths = self._consume_dirty_paths()
+                            self.log.info(
+                                "Running event-triggered reconcile (affected_paths=%s)",
+                                len(reconcile_paths),
+                            )
                     ingest_pending = self._run_reconcile_with_handling(
-                        "Reconcile failed; will retry on next cycle"
+                        "Reconcile failed; will retry on next cycle",
+                        affected_paths=reconcile_paths,
                     )
                     if ingest_pending:
                         self.log.info(
@@ -117,12 +132,29 @@ class RuntimeSyncLoop:
         if event is not None and not self._should_trigger_for_event(event):
             return
 
+        event_paths: list[Path] = []
+        if event is not None:
+            event_paths = self._extract_event_paths(event)
+            if event_paths:
+                with self._dirty_paths_lock:
+                    self._dirty_paths.update(event_paths)
+
         if self.schedule.last_event == 0.0:
             self.log.info(
                 "Filesystem change detected; reconciling in ~%ss after debounce",
                 self.schedule.debounce_seconds,
             )
         self.schedule.mark_event()
+
+    def _consume_dirty_paths(self) -> set[Path]:
+        with self._dirty_paths_lock:
+            dirty_paths = set(self._dirty_paths)
+            self._dirty_paths.clear()
+        return dirty_paths
+
+    def _clear_dirty_paths(self) -> None:
+        with self._dirty_paths_lock:
+            self._dirty_paths.clear()
 
     def _should_trigger_for_event(self, event: FileSystemEvent) -> bool:
         if event.event_type in self._NOISY_EVENT_TYPES:
@@ -172,11 +204,15 @@ class RuntimeSyncLoop:
                     return True
         return False
 
-    def _run_reconcile_with_handling(self, error_log_message: str) -> bool:
+    def _run_reconcile_with_handling(
+        self,
+        error_log_message: str,
+        affected_paths: set[Path] | None = None,
+    ) -> bool:
         # Preserve existing semantics: sync time updates when a reconcile attempt starts.
         self.schedule.mark_sync()
         try:
-            return self.reconcile()
+            return self.reconcile(affected_paths)
         except Exception as exc:
             self.on_reconcile_error(exc)
             self.log.exception(error_log_message)

@@ -151,3 +151,51 @@ class ShadowCleanupManager:
         )
 
         return removed_count
+
+    def cleanup_orphans_for_targets(
+        self,
+        existing_folders: set[Path],
+        movies_by_ref: dict[Any, dict],
+        expected_links: set[Path],
+        affected_targets: set[Path],
+        matched_movie_ids: set[int] | None = None,
+    ) -> int:
+        if not affected_targets:
+            return 0
+
+        matched_ids = matched_movie_ids or set()
+        removed_count = 0
+        for shadow_root in self.shadow_roots:
+            if not shadow_root.exists():
+                continue
+
+            for child in shadow_root.iterdir():
+                if not child.is_symlink():
+                    continue
+
+                try:
+                    target = child.resolve(strict=False)
+                except OSError:
+                    target = None
+
+                if target is None or target not in affected_targets:
+                    continue
+
+                target_exists = target in existing_folders
+                link_is_expected = child in expected_links
+                if target_exists and link_is_expected:
+                    continue
+
+                child.unlink(missing_ok=True)
+                removed_count += 1
+                self.log.info("Removed orphaned symlink: %s", child)
+
+                if target_exists:
+                    continue
+                self._queue_missing_action_for_link(
+                    link_name=child.name,
+                    movies_by_ref=movies_by_ref,
+                    matched_movie_ids=matched_ids,
+                )
+
+        return removed_count

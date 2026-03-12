@@ -90,6 +90,7 @@ class LibrariArrService:
         )
         self._lock = threading.Lock()
         self._sync_hint_logged = False
+        self._known_movie_folders: dict[Path, Path] | None = None
 
     def _log_sync_config_hint(self, exc: Exception) -> None:
         if not self.sync_enabled or self._sync_hint_logged:
@@ -290,7 +291,7 @@ class LibrariArrService:
                 detail,
             )
 
-    def reconcile(self) -> bool:
+    def reconcile(self, affected_paths: set[Path] | None = None) -> bool:
         with self._lock:
             started = time.time()
             LOG.info("Reconciling shadow links and Radarr state...")
@@ -302,7 +303,12 @@ class LibrariArrService:
             if self.config.ingest.enabled:
                 ingest_pending = self.ingestor.last_pending_quiescent_count > 0
 
-            movie_folders = self._all_movie_folders()
+            (
+                movie_folders,
+                all_movie_folders,
+                affected_targets,
+                incremental_mode,
+            ) = self._resolve_reconcile_scope(affected_paths)
             target_to_links = collect_current_links(self.shadow_roots)
             movies_by_ref = self._build_movie_index() if self.sync_enabled else {}
             movies_by_path = (
@@ -377,12 +383,21 @@ class LibrariArrService:
 
             orphaned_links_removed = 0
             if self.config.cleanup.remove_orphaned_links:
-                orphaned_links_removed = self.cleanup_manager.cleanup_orphans(
-                    set(movie_folders.keys()),
-                    movies_by_ref,
-                    expected_links,
-                    matched_movie_ids=matched_movie_ids,
-                )
+                if incremental_mode:
+                    orphaned_links_removed = self.cleanup_manager.cleanup_orphans_for_targets(
+                        existing_folders=set(all_movie_folders.keys()),
+                        movies_by_ref=movies_by_ref,
+                        expected_links=expected_links,
+                        affected_targets=affected_targets,
+                        matched_movie_ids=matched_movie_ids,
+                    )
+                else:
+                    orphaned_links_removed = self.cleanup_manager.cleanup_orphans(
+                        set(all_movie_folders.keys()),
+                        movies_by_ref,
+                        expected_links,
+                        matched_movie_ids=matched_movie_ids,
+                    )
 
             duration_seconds = round(time.time() - started, 2)
             LOG.info(
@@ -402,6 +417,113 @@ class LibrariArrService:
                 duration_seconds,
             )
             return ingest_pending
+
+    def _resolve_reconcile_scope(
+        self,
+        affected_paths: set[Path] | None,
+    ) -> tuple[dict[Path, Path], dict[Path, Path], set[Path], bool]:
+        if (
+            affected_paths is None
+            or not affected_paths
+            or self.config.ingest.enabled
+            or self._known_movie_folders is None
+        ):
+            movie_folders = self._all_movie_folders()
+            self._known_movie_folders = dict(movie_folders)
+            return movie_folders, movie_folders, set(movie_folders.keys()), False
+
+        scan_scopes = self._collect_incremental_scan_scopes(affected_paths)
+        if not scan_scopes:
+            movie_folders = self._all_movie_folders()
+            self._known_movie_folders = dict(movie_folders)
+            return movie_folders, movie_folders, set(movie_folders.keys()), False
+
+        known_movie_folders = dict(self._known_movie_folders)
+        affected_targets: set[Path] = set()
+
+        for scan_root, shadow_root in scan_scopes:
+            removed_in_scope = [
+                folder
+                for folder in known_movie_folders
+                if self._path_is_equal_or_child(folder, scan_root)
+            ]
+            for folder in removed_in_scope:
+                known_movie_folders.pop(folder, None)
+                affected_targets.add(folder)
+
+            for folder in discover_movie_folders(scan_root, self.video_exts):
+                known_movie_folders[folder] = shadow_root
+                affected_targets.add(folder)
+
+        self._known_movie_folders = known_movie_folders
+        scoped_movie_folders = {
+            folder: known_movie_folders[folder]
+            for folder in affected_targets
+            if folder in known_movie_folders
+        }
+        return scoped_movie_folders, known_movie_folders, affected_targets, True
+
+    def _collect_incremental_scan_scopes(
+        self,
+        affected_paths: set[Path],
+    ) -> list[tuple[Path, Path]]:
+        scopes: list[tuple[Path, Path]] = []
+        seen: set[tuple[Path, Path]] = set()
+
+        for changed_path in affected_paths:
+            mapping = self._mapping_for_nested_path(changed_path)
+            if mapping is None:
+                return []
+
+            nested_root, shadow_root = mapping
+            scan_root = self._resolve_incremental_scan_root(changed_path, nested_root)
+            if scan_root is None:
+                return []
+
+            scope = (scan_root, shadow_root)
+            if scope in seen:
+                continue
+            seen.add(scope)
+            scopes.append(scope)
+
+        return scopes
+
+    def _mapping_for_nested_path(self, path: Path) -> tuple[Path, Path] | None:
+        for nested_root, shadow_root in sorted(
+            self.root_mappings,
+            key=lambda pair: (-len(pair[0].parts), str(pair[0])),
+        ):
+            if self._path_is_equal_or_child(path, nested_root):
+                return nested_root, shadow_root
+        return None
+
+    def _resolve_incremental_scan_root(self, changed_path: Path, nested_root: Path) -> Path | None:
+        if changed_path.exists() and changed_path.is_file():
+            current = changed_path.parent
+        elif changed_path.exists():
+            current = changed_path
+        else:
+            current = changed_path.parent
+
+        while self._path_is_equal_or_child(current, nested_root):
+            if current.exists():
+                return current
+            if current == nested_root:
+                break
+            current = current.parent
+
+        if nested_root.exists():
+            return nested_root
+        return None
+
+    def _path_is_equal_or_child(self, path: Path, parent: Path) -> bool:
+        if path == parent:
+            return True
+        try:
+            path.relative_to(parent)
+            return True
+        except ValueError:
+            return False
 
     def _all_movie_folders(self) -> dict[Path, Path]:
         all_folders: dict[Path, Path] = {}

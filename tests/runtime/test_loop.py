@@ -36,7 +36,7 @@ def test_runtime_sync_loop_mark_dirty_sets_event() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: False,
+        reconcile=lambda _paths=None: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -52,7 +52,7 @@ def test_runtime_sync_loop_mark_dirty_ignores_opened_event() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: False,
+        reconcile=lambda _paths=None: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -67,7 +67,7 @@ def test_runtime_sync_loop_mark_dirty_ignores_directory_modified_event() -> None
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: False,
+        reconcile=lambda _paths=None: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -82,7 +82,7 @@ def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: False,
+        reconcile=lambda _paths=None: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -98,7 +98,7 @@ def test_runtime_sync_loop_mark_dirty_ignores_shadow_nested_event(tmp_path) -> N
         nested_roots=[],
         shadow_roots=[shadow_root],
         schedule=schedule,
-        reconcile=lambda: False,
+        reconcile=lambda _paths=None: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -120,7 +120,7 @@ def test_runtime_sync_loop_mark_dirty_accepts_shadow_top_level_event(tmp_path) -
         nested_roots=[],
         shadow_roots=[shadow_root],
         schedule=schedule,
-        reconcile=lambda: False,
+        reconcile=lambda _paths=None: False,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
@@ -138,7 +138,7 @@ def test_runtime_sync_loop_mark_dirty_accepts_shadow_top_level_event(tmp_path) -
 def test_runtime_sync_loop_handles_reconcile_exception() -> None:
     seen: list[Exception] = []
 
-    def failing_reconcile() -> bool:
+    def failing_reconcile(_paths=None) -> bool:
         raise RuntimeError("boom")
 
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
@@ -165,9 +165,52 @@ def test_runtime_sync_loop_returns_reconcile_pending_state() -> None:
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
-        reconcile=lambda: True,
+        reconcile=lambda _paths=None: True,
         on_reconcile_error=lambda exc: None,
         logger=logging.getLogger("tests.runtime.loop"),
     )
 
     assert loop._run_reconcile_with_handling("test") is True
+
+
+def test_runtime_sync_loop_tracks_dirty_paths_from_events(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    changed = tmp_path / "nested" / "Movie (2024)" / "file.mkv"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="modified",
+            is_directory=False,
+            src_path=str(changed),
+        )
+    )
+
+    assert loop._consume_dirty_paths() == {changed}
+
+
+def test_runtime_sync_loop_passes_affected_paths_to_reconcile(tmp_path) -> None:
+    captured: list[set] = []
+
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda affected_paths=None: captured.append(affected_paths or set()) or False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    changed = tmp_path / "nested" / "Movie (2024)" / "file.mkv"
+    affected_paths = {changed}
+    assert loop._run_reconcile_with_handling("test", affected_paths=affected_paths) is False
+
+    assert captured == [affected_paths]

@@ -1,4 +1,5 @@
 from pathlib import Path
+from unittest.mock import patch
 
 import requests
 
@@ -14,6 +15,7 @@ from librariarr.config import (
     RuntimeConfig,
 )
 from librariarr.service import LibrariArrService
+from librariarr.sync.discovery import discover_movie_folders as discover_movie_folders_impl
 
 
 class FakeRadarr:
@@ -177,6 +179,36 @@ def test_reconcile_creates_symlink_for_movie_folder(tmp_path: Path) -> None:
     link = shadow_root / "Fixture Catalog A (2008)"
     assert link.is_symlink()
     assert link.resolve(strict=False) == movie
+
+
+def test_reconcile_incremental_scans_only_affected_folder(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_a = nested_root / "Fixture Catalog A (2008)"
+    movie_b = nested_root / "Fixture Catalog B (2009)"
+    movie_a.mkdir(parents=True)
+    movie_b.mkdir(parents=True)
+    (movie_a / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_b / "Fixture.Catalog.B.2009.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    service = LibrariArrService(config)
+
+    service.reconcile()
+
+    changed_file = movie_a / "notes.txt"
+    changed_file.write_text("update", encoding="utf-8")
+    scanned_roots: list[Path] = []
+
+    with patch("librariarr.service.discover_movie_folders") as mocked_discovery:
+        mocked_discovery.side_effect = lambda root, video_exts: scanned_roots.append(
+            root
+        ) or discover_movie_folders_impl(root, video_exts)
+        service.reconcile({changed_file})
+
+    assert scanned_roots == [movie_a]
+    assert (shadow_root / "Fixture Catalog A (2008)").is_symlink()
+    assert (shadow_root / "Fixture Catalog B (2009)").is_symlink()
 
 
 def test_reconcile_removes_orphaned_symlink(tmp_path: Path) -> None:

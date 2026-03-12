@@ -217,3 +217,60 @@ def test_e2e_ingest_moves_shadow_folder_into_nested_root(tmp_path: Path) -> None
     assert destination.exists()
     assert shadow_link.is_symlink()
     assert shadow_link.resolve(strict=False) == destination
+
+
+@pytest.mark.fs_e2e
+def test_e2e_incremental_reconcile_limits_orphan_cleanup_to_affected_paths(
+    tmp_path: Path,
+) -> None:
+    nested_root, shadow_root = _make_roots(tmp_path, "incremental_affected_paths")
+
+    movie_a = nested_root / "age_12" / "Blender" / "Fixture Catalog A (2008)"
+    movie_b = nested_root / "age_16" / "OpenFilms" / "Sintel (2010)"
+    movie_a.mkdir(parents=True)
+    movie_b.mkdir(parents=True)
+    (movie_a / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+    (movie_b / "Sintel.2010.2160p.REMUX.mkv").write_text("stub", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root)),
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            sync_enabled=False,
+        ),
+        quality_map=[],
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+    _relativize_links_for_host_view(shadow_root)
+
+    link_a = shadow_root / "Fixture Catalog A (2008)"
+    link_b = shadow_root / "Sintel (2010)"
+    assert link_a.is_symlink()
+    assert link_b.is_symlink()
+
+    for child in movie_b.iterdir():
+        child.unlink()
+    movie_b.rmdir()
+
+    changed_path_in_a = movie_a / "notes.txt"
+    changed_path_in_a.write_text("changed", encoding="utf-8")
+    service.reconcile({changed_path_in_a})
+    _relativize_links_for_host_view(shadow_root)
+
+    assert link_a.is_symlink()
+    assert link_b.is_symlink()
+
+    service.reconcile()
+    _relativize_links_for_host_view(shadow_root)
+
+    assert link_a.is_symlink()
+    assert not link_b.exists()
