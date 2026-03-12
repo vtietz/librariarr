@@ -146,22 +146,30 @@ class ServiceBootstrapMixin:
         )
 
     def run(self) -> None:
+        shadow_roots = "\n    - ".join(str(root) for root in self.shadow_roots)
+        nested_roots = "\n    - ".join(str(root) for root in self.nested_roots)
         LOG.info("")
         LOG.info("================ LibrariArr Startup ================")
+        LOG.info("Startup configuration:")
+        LOG.info("  Paths:")
+        LOG.info("    shadow_roots:\n    - %s", shadow_roots)
+        LOG.info("    nested_roots:\n    - %s", nested_roots)
         LOG.info(
-            "Starting LibrariArr service: shadow_roots=%s nested_roots=%s "
-            "radarr_enabled=%s sync_enabled=%s auto_add_unmatched=%s debounce_seconds=%s "
-            "sonarr_enabled=%s sonarr_sync_enabled=%s sonarr_auto_add_unmatched=%s "
-            "maintenance_interval_seconds=%s arr_root_poll_interval_seconds=%s",
-            ",".join(str(root) for root in self.shadow_roots),
-            ",".join(str(root) for root in self.nested_roots),
+            "  Radarr: enabled=%s sync_enabled=%s auto_add_unmatched=%s",
             self.radarr_enabled,
             self.sync_enabled,
             self.auto_add_unmatched,
-            self._debounce_seconds,
+        )
+        LOG.info(
+            "  Sonarr: enabled=%s sync_enabled=%s auto_add_unmatched=%s",
             self.sonarr_enabled,
             self.sonarr_sync_enabled,
             self.sonarr_auto_add_unmatched,
+        )
+        LOG.info(
+            "  Runtime: debounce_seconds=%s maintenance_interval_seconds=%s "
+            "arr_root_poll_interval_seconds=%s",
+            self._debounce_seconds,
             self._maintenance_interval if self._maintenance_interval is not None else "disabled",
             (
                 self._arr_root_poll_interval

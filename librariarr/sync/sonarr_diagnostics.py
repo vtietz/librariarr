@@ -4,7 +4,7 @@ import logging
 
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
-from .radarr_mapping import format_id_name_pairs
+from .radarr_mapping import format_id_name_multiline
 
 
 def _log_quality_profile_diagnostics(
@@ -16,9 +16,9 @@ def _log_quality_profile_diagnostics(
 ) -> None:
     try:
         profiles = sonarr.get_quality_profiles()
-        profile_pairs = format_id_name_pairs(profiles)
+        profile_pairs = format_id_name_multiline(profiles)
         if profile_pairs:
-            log.info("Sonarr quality profiles (id:name): %s", profile_pairs)
+            log.info("Sonarr quality profiles (id:name):\n%s", profile_pairs)
 
         available_profile_ids = {
             profile_id
@@ -84,9 +84,9 @@ def _log_language_profile_diagnostics(
 ) -> None:
     try:
         profiles = sonarr.get_language_profiles()
-        profile_pairs = format_id_name_pairs(profiles)
+        profile_pairs = format_id_name_multiline(profiles)
         if profile_pairs:
-            log.info("Sonarr language profiles (id:name): %s", profile_pairs)
+            log.info("Sonarr language profiles (id:name):\n%s", profile_pairs)
 
         available_profile_ids = {
             profile_id

@@ -304,16 +304,18 @@ class ServicePreflightMixin:
         newly_missing = sorted(missing - previous_missing)
 
         if newly_available:
+            formatted = "\n  - ".join(newly_available)
             LOG.info(
-                "%s root folders became available: %s",
+                "%s root folders became available:\n  - %s",
                 arr_name,
-                ", ".join(newly_available),
+                formatted,
             )
         if newly_missing:
+            formatted = "\n  - ".join(newly_missing)
             LOG.warning(
-                "%s root folders are not configured yet: %s",
+                "%s root folders are not configured yet:\n  - %s",
                 arr_name,
-                ", ".join(newly_missing),
+                formatted,
             )
 
         became_available = bool(newly_available)

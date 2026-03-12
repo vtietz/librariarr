@@ -35,6 +35,15 @@ def format_id_name_pairs(items: list[dict]) -> str:
     return ", ".join(pairs)
 
 
+def format_id_name_multiline(items: list[dict], indent: str = "  - ") -> str:
+    pairs: list[str] = []
+    for item in items:
+        item_id, item_name = extract_id_name(item)
+        if item_id is not None:
+            pairs.append(f"{item_id}:{item_name}")
+    return "\n".join(f"{indent}{pair}" for pair in pairs)
+
+
 def extract_parse_custom_format_ids(parse_result: dict) -> set[int]:
     custom_formats = parse_result.get("customFormats")
     if not isinstance(custom_formats, list):

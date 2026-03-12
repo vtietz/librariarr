@@ -105,8 +105,11 @@ def test_sync_preflight_logs_quality_catalog_and_validation(tmp_path: Path, capl
     caplog.set_level("INFO", logger="librariarr.service")
     service._run_sync_preflight_checks()
 
-    assert "Radarr quality profiles (id:name): 6:Web-DL 1080p" in caplog.text
-    assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
+    assert "Radarr quality profiles (id:name):" in caplog.text
+    assert "6:Web-DL 1080p" in caplog.text
+    assert "Radarr quality definitions (id:name):" in caplog.text
+    assert "4:HDTV-1080p" in caplog.text
+    assert "13:Bluray-2160p" in caplog.text
     assert "radarr.mapping.quality_map target_id values validated" in caplog.text
 
 
@@ -147,7 +150,9 @@ def test_sync_preflight_parses_nested_quality_definition_shape(tmp_path: Path, c
     caplog.set_level("INFO", logger="librariarr.service")
     service._run_sync_preflight_checks()
 
-    assert "Radarr quality definitions (id:name): 4:HDTV-1080p, 13:Bluray-2160p" in caplog.text
+    assert "Radarr quality definitions (id:name):" in caplog.text
+    assert "4:HDTV-1080p" in caplog.text
+    assert "13:Bluray-2160p" in caplog.text
     assert "radarr.mapping.quality_map target_id values validated" in caplog.text
 
 
@@ -176,7 +181,9 @@ def test_sync_preflight_logs_custom_format_catalog_and_validation(tmp_path: Path
         "radarr.mapping.custom_format_map contains format ids for local analysis fallback: [42, 99]"
         in caplog.text
     )
-    assert "Radarr custom formats (id:name): 42:German Audio, 99:HEVC" in caplog.text
+    assert "Radarr custom formats (id:name):" in caplog.text
+    assert "42:German Audio" in caplog.text
+    assert "99:HEVC" in caplog.text
     assert "radarr.mapping.custom_format_map format_id values validated" in caplog.text
 
 

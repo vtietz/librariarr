@@ -4,7 +4,7 @@ import logging
 
 from ..clients.radarr import RadarrClient
 from ..config import AppConfig
-from .radarr_mapping import extract_id_name, format_id_name_pairs
+from .radarr_mapping import extract_id_name, format_id_name_multiline
 
 
 def _log_profile_diagnostics(
@@ -16,9 +16,9 @@ def _log_profile_diagnostics(
 ) -> None:
     try:
         profiles = radarr.get_quality_profiles()
-        profile_pairs = format_id_name_pairs(profiles)
+        profile_pairs = format_id_name_multiline(profiles)
         if profile_pairs:
-            log.info("Radarr quality profiles (id:name): %s", profile_pairs)
+            log.info("Radarr quality profiles (id:name):\n%s", profile_pairs)
 
         profile_ids = {
             profile_id
@@ -58,9 +58,9 @@ def _log_quality_definition_diagnostics(
 
     try:
         definitions = radarr.get_quality_definitions()
-        definition_pairs = format_id_name_pairs(definitions)
+        definition_pairs = format_id_name_multiline(definitions)
         if definition_pairs:
-            log.info("Radarr quality definitions (id:name): %s", definition_pairs)
+            log.info("Radarr quality definitions (id:name):\n%s", definition_pairs)
 
         definition_ids = {
             definition_id
@@ -97,9 +97,9 @@ def _log_custom_format_diagnostics(
 
     try:
         custom_formats = radarr.get_custom_formats()
-        custom_format_pairs = format_id_name_pairs(custom_formats)
+        custom_format_pairs = format_id_name_multiline(custom_formats)
         if custom_format_pairs:
-            log.info("Radarr custom formats (id:name): %s", custom_format_pairs)
+            log.info("Radarr custom formats (id:name):\n%s", custom_format_pairs)
 
         known_custom_format_ids = {
             format_id

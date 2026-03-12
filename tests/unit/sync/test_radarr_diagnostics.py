@@ -85,7 +85,8 @@ def test_log_quality_mapping_diagnostics_logs_validation_success(tmp_path: Path,
         auto_add_unmatched=True,
     )
 
-    assert "Radarr quality profiles (id:name): 8:Preferred" in caplog.text
+    assert "Radarr quality profiles (id:name):" in caplog.text
+    assert "8:Preferred" in caplog.text
     assert "radarr.mapping.quality_map target_id values validated" in caplog.text
     assert "radarr.mapping.custom_format_map format_id values validated" in caplog.text
 
