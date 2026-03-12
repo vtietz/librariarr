@@ -165,10 +165,22 @@ class ServiceReconcileMixin:
         unmatched_movies = 0
         auto_added_movie_ids: set[int] = set()
         matched_movie_ids: set[int] = set()
-        warned_unavailable_roots: set[str] = set()
+        logged_unavailable_roots: set[str] = set()
 
         for folder, shadow_root in sorted(movie_folders.items()):
             existing_links = target_to_links.get(folder, set())
+            root_available = True
+            if self.sync_enabled:
+                root_available = self._is_radarr_root_available(shadow_root)
+                if not root_available:
+                    normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
+                    if normalized_shadow_root not in logged_unavailable_roots:
+                        logged_unavailable_roots.add(normalized_shadow_root)
+                        LOG.debug(
+                            "Skipping Radarr matching/sync for shadow root "
+                            "not configured in Radarr: %s",
+                            shadow_root,
+                        )
             movie = (
                 self._match_movie_for_folder(
                     folder,
@@ -177,25 +189,18 @@ class ServiceReconcileMixin:
                     movies_by_external_id,
                     existing_links,
                 )
-                if self.sync_enabled
+                if self.sync_enabled and root_available
                 else None
             )
-            if self.sync_enabled and movie is None and self.auto_add_unmatched:
-                if self._is_radarr_root_available(shadow_root):
-                    movie = self.radarr_sync.auto_add_movie_for_folder(folder, shadow_root)
-                    if movie is not None:
-                        self._add_movie_id_if_present(auto_added_movie_ids, movie)
-                        self._index_movie(index=movies_by_ref, movie=movie)
-                        self._index_movie_path(index=movies_by_path, movie=movie)
-                        self._index_movie_external_ids(index=movies_by_external_id, movie=movie)
-                else:
-                    normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
-                    if normalized_shadow_root not in warned_unavailable_roots:
-                        warned_unavailable_roots.add(normalized_shadow_root)
-                        LOG.warning(
-                            "Skipping Radarr auto-add for shadow root not configured in Radarr: %s",
-                            shadow_root,
-                        )
+            attempted_auto_add = False
+            if self.sync_enabled and root_available and movie is None and self.auto_add_unmatched:
+                attempted_auto_add = True
+                movie = self.radarr_sync.auto_add_movie_for_folder(folder, shadow_root)
+                if movie is not None:
+                    self._add_movie_id_if_present(auto_added_movie_ids, movie)
+                    self._index_movie(index=movies_by_ref, movie=movie)
+                    self._index_movie_path(index=movies_by_path, movie=movie)
+                    self._index_movie_external_ids(index=movies_by_external_id, movie=movie)
 
             link_path, was_created = self.link_manager.ensure_link(
                 folder,
@@ -208,7 +213,7 @@ class ServiceReconcileMixin:
             if was_created:
                 created_links += 1
 
-            if not self.sync_enabled:
+            if not self.sync_enabled or not root_available:
                 continue
 
             if movie is not None:
@@ -223,10 +228,11 @@ class ServiceReconcileMixin:
                 continue
 
             if self.auto_add_unmatched:
-                LOG.warning(
-                    "No Radarr match for folder after auto-add attempt: %s",
-                    folder,
-                )
+                if attempted_auto_add:
+                    LOG.warning(
+                        "No Radarr match for folder after auto-add attempt: %s",
+                        folder,
+                    )
             else:
                 LOG.warning(
                     "No Radarr match for folder: %s "
@@ -252,10 +258,22 @@ class ServiceReconcileMixin:
         unmatched_series = 0
         auto_added_series_ids: set[int] = set()
         matched_series_ids: set[int] = set()
-        warned_unavailable_roots: set[str] = set()
+        logged_unavailable_roots: set[str] = set()
 
         for folder, shadow_root in sorted(series_folders.items()):
             existing_links = target_to_links.get(folder, set())
+            root_available = True
+            if self.sonarr_sync_enabled:
+                root_available = self._is_sonarr_root_available(shadow_root)
+                if not root_available:
+                    normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
+                    if normalized_shadow_root not in logged_unavailable_roots:
+                        logged_unavailable_roots.add(normalized_shadow_root)
+                        LOG.debug(
+                            "Skipping Sonarr matching/sync for shadow root "
+                            "not configured in Sonarr: %s",
+                            shadow_root,
+                        )
             series = (
                 self._match_series_for_folder(
                     folder,
@@ -264,25 +282,23 @@ class ServiceReconcileMixin:
                     series_by_external_id,
                     existing_links,
                 )
-                if self.sonarr_sync_enabled
+                if self.sonarr_sync_enabled and root_available
                 else None
             )
-            if self.sonarr_sync_enabled and series is None and self.sonarr_auto_add_unmatched:
-                if self._is_sonarr_root_available(shadow_root):
-                    series = self.sonarr_sync.auto_add_series_for_folder(folder, shadow_root)
-                    if series is not None:
-                        self._add_movie_id_if_present(auto_added_series_ids, series)
-                        self._index_series(index=series_by_ref, series=series)
-                        self._index_series_path(index=series_by_path, series=series)
-                        self._index_series_external_ids(index=series_by_external_id, series=series)
-                else:
-                    normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
-                    if normalized_shadow_root not in warned_unavailable_roots:
-                        warned_unavailable_roots.add(normalized_shadow_root)
-                        LOG.warning(
-                            "Skipping Sonarr auto-add for shadow root not configured in Sonarr: %s",
-                            shadow_root,
-                        )
+            attempted_auto_add = False
+            if (
+                self.sonarr_sync_enabled
+                and root_available
+                and series is None
+                and self.sonarr_auto_add_unmatched
+            ):
+                attempted_auto_add = True
+                series = self.sonarr_sync.auto_add_series_for_folder(folder, shadow_root)
+                if series is not None:
+                    self._add_movie_id_if_present(auto_added_series_ids, series)
+                    self._index_series(index=series_by_ref, series=series)
+                    self._index_series_path(index=series_by_path, series=series)
+                    self._index_series_external_ids(index=series_by_external_id, series=series)
 
             link_path, was_created = self.link_manager.ensure_link(
                 folder,
@@ -295,7 +311,7 @@ class ServiceReconcileMixin:
             if was_created:
                 created_links += 1
 
-            if not self.sonarr_sync_enabled:
+            if not self.sonarr_sync_enabled or not root_available:
                 continue
 
             if series is not None:
@@ -310,10 +326,11 @@ class ServiceReconcileMixin:
                 continue
 
             if self.sonarr_auto_add_unmatched:
-                LOG.warning(
-                    "No Sonarr match for folder after auto-add attempt: %s",
-                    folder,
-                )
+                if attempted_auto_add:
+                    LOG.warning(
+                        "No Sonarr match for folder after auto-add attempt: %s",
+                        folder,
+                    )
             else:
                 LOG.warning(
                     "No Sonarr match for folder: %s "

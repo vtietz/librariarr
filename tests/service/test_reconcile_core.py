@@ -343,7 +343,7 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
     assert fake.refreshed == [10]
 
 
-def test_reconcile_skips_auto_add_when_radarr_root_is_missing(tmp_path: Path) -> None:
+def test_reconcile_skips_auto_add_when_radarr_root_is_missing(tmp_path: Path, caplog) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
     movie_dir = nested_root / "Fixture Title (2017)"
@@ -375,11 +375,14 @@ def test_reconcile_skips_auto_add_when_radarr_root_is_missing(tmp_path: Path) ->
     service.radarr = fake
     service._update_arr_root_folder_availability(force=True)
 
+    caplog.set_level("DEBUG", logger="librariarr.service")
     service.reconcile()
 
     assert fake.lookup_terms == []
     assert fake.added_movies == []
     assert (shadow_root / "Fixture Title (2017)").is_symlink()
+    assert "Skipping Radarr matching/sync for shadow root not configured in Radarr" in caplog.text
+    assert "No Radarr match for folder after auto-add attempt" not in caplog.text
 
 
 def test_poll_trigger_requests_reconcile_when_radarr_root_appears(tmp_path: Path) -> None:

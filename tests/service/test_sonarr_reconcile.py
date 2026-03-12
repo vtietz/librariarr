@@ -251,7 +251,7 @@ def test_reconcile_auto_adds_unmatched_series(tmp_path: Path) -> None:
     assert fake.refreshed == [10]
 
 
-def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path) -> None:
+def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path, caplog) -> None:
     nested_root = tmp_path / "series"
     shadow_root = tmp_path / "sonarr_library"
     series_dir = nested_root / "Fixture Show - Alias (2020)"
@@ -284,11 +284,14 @@ def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path) ->
     service.sonarr = fake
     service._update_arr_root_folder_availability(force=True)
 
+    caplog.set_level("DEBUG", logger="librariarr.service")
     service.reconcile()
 
     assert fake.lookup_terms == []
     assert fake.added_series == []
     assert (shadow_root / "Fixture Show - Alias (2020)").is_symlink()
+    assert "Skipping Sonarr matching/sync for shadow root not configured in Sonarr" in caplog.text
+    assert "No Sonarr match for folder after auto-add attempt" not in caplog.text
 
 
 def test_reconcile_auto_add_uses_sonarr_mapping_profiles(tmp_path: Path) -> None:
