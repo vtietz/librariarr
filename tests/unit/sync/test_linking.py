@@ -72,3 +72,28 @@ def test_link_manager_qualifies_colliding_names(tmp_path: Path) -> None:
     assert link_b.name.startswith("Sintel (2010)--")
     assert link_b.is_symlink()
     assert link_b.resolve(strict=False) == folder_b
+
+
+def test_link_manager_preserves_existing_local_name_over_metadata_name(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    folder = nested_root / "Benno macht Geschichten (1982) FSK6"
+    folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True)
+
+    existing_link = shadow_root / "Benno macht Geschichten (1982)"
+    existing_link.symlink_to(folder, target_is_directory=True)
+
+    movie = {"title": "Benno Makes Stories", "year": 1982}
+    manager = ShadowLinkManager([nested_root])
+
+    link, created = manager.ensure_link(
+        folder,
+        shadow_root,
+        existing_links={existing_link},
+        movie=movie,
+    )
+
+    assert created is False
+    assert link == existing_link
+    assert not (shadow_root / "Benno Makes Stories (1982)").exists()

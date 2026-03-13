@@ -24,17 +24,35 @@ class ShadowLinkManager:
         base_name = self._canonical_link_name(folder, movie)
         desired = shadow_root / base_name
 
-        for link in existing_links:
-            if link == desired and link.exists() and link.is_symlink():
-                try:
-                    if link.resolve(strict=False) == folder:
-                        return link, False
-                except OSError:
-                    pass
+        folder_canonical = shadow_root / canonical_name_from_folder(self._safe_link_name(folder))
+        valid_links = self._valid_existing_links(folder, shadow_root, existing_links)
+        for preferred_link in (folder_canonical, desired):
+            if preferred_link in valid_links:
+                return preferred_link, False
+
+        if valid_links:
+            return sorted(valid_links, key=str)[0], False
 
         created = not (desired.exists() or desired.is_symlink())
         link = self._create_link(folder, shadow_root, base_name)
         return link, created
+
+    def _valid_existing_links(
+        self,
+        folder: Path,
+        shadow_root: Path,
+        existing_links: set[Path],
+    ) -> set[Path]:
+        valid_links: set[Path] = set()
+        for link in existing_links:
+            if link.parent != shadow_root or not link.exists() or not link.is_symlink():
+                continue
+            try:
+                if link.resolve(strict=False) == folder:
+                    valid_links.add(link)
+            except OSError:
+                continue
+        return valid_links
 
     def _safe_link_name(self, folder: Path) -> str:
         return safe_path_component(folder.name)

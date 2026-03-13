@@ -231,7 +231,7 @@ def test_reconcile_skips_refresh_when_movie_state_unchanged(tmp_path: Path) -> N
     assert fake.refreshed == []
 
 
-def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
+def test_reconcile_preserves_existing_valid_local_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
     movie_dir = nested_root / "Fixture Legacy"
@@ -259,6 +259,42 @@ def test_reconcile_replaces_stale_non_canonical_link(tmp_path: Path) -> None:
 
     service.reconcile()
 
-    canonical_link = shadow_root / "Fixture Legacy (1977)"
-    assert canonical_link.is_symlink()
-    assert not stale_link.exists()
+    assert stale_link.is_symlink()
+    assert not (shadow_root / "Fixture Legacy (1977)").exists()
+    assert fake.updated_paths == [(1, str(stale_link))]
+
+
+def test_reconcile_removes_duplicate_alternate_title_link(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Benno macht Geschichten (1982) FSK6"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Benno.macht.Geschichten.1982.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    shadow_root.mkdir(parents=True)
+
+    local_link = shadow_root / "Benno macht Geschichten (1982)"
+    english_link = shadow_root / "Benno Makes Stories (1982)"
+    local_link.symlink_to(movie_dir, target_is_directory=True)
+    english_link.symlink_to(movie_dir, target_is_directory=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Benno Makes Stories",
+                "year": 1982,
+                "path": str(english_link),
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert local_link.is_symlink()
+    assert not english_link.exists()
+    assert fake.updated_paths == [(1, str(local_link))]
