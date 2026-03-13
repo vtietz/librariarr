@@ -13,16 +13,17 @@ class ServiceScopeMixin:
         known_folders: dict[Path, Path] | None,
         discover: Callable[[Path, set[str]], set[Path]],
     ) -> tuple[dict[Path, Path], dict[Path, Path], set[Path], bool]:
-        if (
-            affected_paths is None
-            or not affected_paths
-            or self.config.ingest.enabled
-            or known_folders is None
-        ):
+        if affected_paths is None or not affected_paths or known_folders is None:
             found_folders = self._all_folders(discover)
             return found_folders, found_folders, set(found_folders.keys()), False
 
-        scan_scopes = self._collect_incremental_scan_scopes(affected_paths)
+        nested_affected_paths = {
+            path for path in affected_paths if self._mapping_for_nested_path(path) is not None
+        }
+        if not nested_affected_paths:
+            return {}, dict(known_folders), set(), True
+
+        scan_scopes = self._collect_incremental_scan_scopes(nested_affected_paths)
         if not scan_scopes:
             found_folders = self._all_folders(discover)
             return found_folders, found_folders, set(found_folders.keys()), False
