@@ -1,16 +1,16 @@
 services:
   librariarr-e2e:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile.dev
+      context: .
+      dockerfile: Dockerfile.dev
     container_name: librariarr-e2e
     user: "${PUID:-1000}:${PGID:-1000}"
     working_dir: /app
     environment:
       LIBRARIARR_E2E_PERSIST_ROOT: /e2e
     volumes:
-      - ../:/app
-      - ../.e2e-data:/e2e
+      - ./:/app
+      - ./.e2e-data:/e2e
     entrypoint: ["bash", "-lc"]
     command:
       - |

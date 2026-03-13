@@ -1,13 +1,16 @@
 @echo off
 setlocal
 
-set COMPOSE_FILE=docker/docker-compose.yml
-set DEV_COMPOSE_FILE=docker/docker-compose.dev.yml
-set E2E_COMPOSE_FILE=docker/docker-compose.e2e.yml
-set FS_E2E_COMPOSE_FILE=docker/docker-compose.fs-e2e.yml
+set COMPOSE_FILE=docker-compose.yml
+set DEV_COMPOSE_FILE=docker-compose.dev.yml
+set E2E_COMPOSE_FILE=docker-compose.e2e.yml
+set FS_E2E_COMPOSE_FILE=docker-compose.fs-e2e.yml
 set PROJECT_NAME=librariarr
 set SERVICE=librariarr
 set DEV_SERVICE=librariarr-dev
+set DEV_UI_SERVICE=librariarr-ui-dev
+set DEV_RADARR_SERVICE=radarr-dev
+set DEV_SONARR_SERVICE=sonarr-dev
 set E2E_SERVICE=librariarr-radarr-e2e
 set FS_E2E_SERVICE=librariarr-e2e
 
@@ -29,6 +32,8 @@ if /I "%~1"=="sonarr-e2e" goto :sonarre2e
 if /I "%~1"=="quality" goto :quality
 if /I "%~1"=="quality-autofix" goto :qualityautofix
 if /I "%~1"=="dev-up" goto :devup
+if /I "%~1"=="dev-bootstrap" goto :devbootstrap
+if /I "%~1"=="dev-seed" goto :devseed
 if /I "%~1"=="dev-down" goto :devdown
 if /I "%~1"=="dev-logs" goto :devlogs
 if /I "%~1"=="dev-shell" goto :devshell
@@ -36,11 +41,23 @@ if /I "%~1"=="dev-shell" goto :devshell
 goto :usage
 
 :setup
-if not exist config.yaml (
-  copy /Y config.yaml.example config.yaml >nul
-  echo Created config.yaml from config.yaml.example
+if exist config.yaml\NUL (
+  dir /b config.yaml | findstr . >nul
+  if errorlevel 1 (
+    rmdir config.yaml
+    copy /Y config.yaml.example config.yaml >nul
+    echo Replaced empty config.yaml directory with config file from config.yaml.example
+  ) else (
+    echo Error: config.yaml is a directory with contents. Move/remove it, then run run.bat setup.
+    exit /b 1
+  )
 ) else (
-  echo config.yaml already exists
+  if not exist config.yaml (
+    copy /Y config.yaml.example config.yaml >nul
+    echo Created config.yaml from config.yaml.example
+  ) else (
+    echo config.yaml already exists
+  )
 )
 goto :eof
 
@@ -73,7 +90,7 @@ docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% run --rm %SERVICE% --config /
 goto :eof
 
 :test
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
 goto :eof
 
 :e2e
@@ -109,15 +126,40 @@ docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :quality
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && PYTHONPATH=/app ruff format --check . --no-cache && bash ./tools/check_max_lines.sh 700 && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app bash ./tools/run_backend_quality.sh check"
+if errorlevel 1 exit /b %errorlevel%
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_UI_SERVICE% "sh /app/tools/run_frontend_quality.sh check"
+if errorlevel 1 exit /b %errorlevel%
 goto :eof
 
 :qualityautofix
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && PYTHONPATH=/app ruff format . --no-cache && bash ./tools/check_max_lines.sh 700 && radon cc -s -n B librariarr tests && radon raw -s librariarr tests"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app bash ./tools/run_backend_quality.sh autofix"
+if errorlevel 1 exit /b %errorlevel%
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_UI_SERVICE% "sh /app/tools/run_frontend_quality.sh autofix"
+if errorlevel 1 exit /b %errorlevel%
 goto :eof
 
 :devup
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% up -d %DEV_SERVICE%
+call "%~f0" setup
+if errorlevel 1 exit /b 1
+if not exist .env if exist .env.dev.example (
+  copy /Y .env.dev.example .env >nul
+  echo Created .env from .env.dev.example
+)
+call tools\dev_prepare_media_layout.bat
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% up -d %DEV_SERVICE% %DEV_UI_SERVICE% %DEV_RADARR_SERVICE% %DEV_SONARR_SERVICE%
+if "%LIBRARIARR_DEV_BOOTSTRAP%"=="0" goto :eof
+call "%~f0" dev-bootstrap
+goto :eof
+
+:devbootstrap
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.bootstrap"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% restart %DEV_SERVICE%
+goto :eof
+
+:devseed
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.seed && python -m librariarr.dev.media_permissions"
 goto :eof
 
 :devdown
@@ -125,7 +167,7 @@ docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% down
 goto :eof
 
 :devlogs
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% logs -f %DEV_SERVICE%
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% logs -f %DEV_SERVICE% %DEV_UI_SERVICE% %DEV_RADARR_SERVICE% %DEV_SONARR_SERVICE%
 goto :eof
 
 :devshell
@@ -151,8 +193,10 @@ echo   radarr-e2e  Alias for e2e
 echo   sonarr-e2e  Alias for e2e
 echo   quality     Run lint/format/complexity/LOC checks in Docker
 echo   quality-autofix  Apply auto-fixes, then run quality checks
-echo   dev-up      Start dev profile service in background
-echo   dev-down    Stop dev profile service
-echo   dev-logs    Tail dev profile logs
+echo   dev-up      Start dev API, UI, Sonarr, and Radarr services
+echo   dev-bootstrap  Configure dev Arr instances and sync API keys into config.yaml
+echo   dev-seed    Create fake movie/series folders/files in configured source roots
+echo   dev-down    Stop dev services
+echo   dev-logs    Tail dev service logs
 echo   dev-shell   Open shell in dev container
 exit /b 1

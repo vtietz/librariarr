@@ -145,7 +145,7 @@ class ServiceBootstrapMixin:
             "shadow_root values when ingest is enabled."
         )
 
-    def run(self) -> None:
+    def run(self, stop_event: threading.Event | None = None) -> None:
         shadow_roots = "\n    - ".join(str(root) for root in self.shadow_roots)
         nested_roots = "\n    - ".join(str(root) for root in self.nested_roots)
         LOG.info("")
@@ -193,4 +193,4 @@ class ServiceBootstrapMixin:
             logger=LOG,
             poll_reconcile_trigger=self._poll_arr_root_reconcile_trigger,
         )
-        runtime_loop.run()
+        runtime_loop.run(stop_event=stop_event)

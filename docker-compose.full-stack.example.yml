@@ -84,9 +84,11 @@ services:
       - LIBRARIARR_RADARR_URL=${LIBRARIARR_RADARR_URL:-http://radarr:7878}
       - LIBRARIARR_SONARR_URL=${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
     volumes:
-      - ${CONFIG_ROOT}/librariarr:/config:ro
+      - ${CONFIG_ROOT}/librariarr:/config
       - ${MEDIA_ROOT}:/data
-    command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}"]
+    ports:
+      - "8787:8787"
+    command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}", "--web"]
     restart: unless-stopped
     depends_on:
       radarr:

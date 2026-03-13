@@ -68,7 +68,7 @@ class RuntimeSyncLoop:
         self._dirty_paths: set[Path] = set()
         self._dirty_paths_lock = threading.Lock()
 
-    def run(self) -> None:
+    def run(self, stop_event: threading.Event | None = None) -> None:
         observer = Observer()
         handler = _SyncEventHandler(self.mark_dirty)
         watched_roots: set[Path] = set()
@@ -95,10 +95,13 @@ class RuntimeSyncLoop:
                     self.schedule.debounce_seconds,
                 )
                 self.schedule.mark_event()
-            while True:
+            while stop_event is None or not stop_event.is_set():
                 poll_triggered = self._poll_reconcile_trigger_safe()
                 self._run_due_reconcile_cycle(poll_triggered)
-                time.sleep(1)
+                if stop_event is None:
+                    time.sleep(1)
+                elif stop_event.wait(1):
+                    break
         finally:
             observer.stop()
             observer.join()

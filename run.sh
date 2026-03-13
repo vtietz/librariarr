@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-COMPOSE_FILE="docker/docker-compose.yml"
-DEV_COMPOSE_FILE="docker/docker-compose.dev.yml"
-E2E_COMPOSE_FILE="docker/docker-compose.e2e.yml"
-FS_E2E_COMPOSE_FILE="docker/docker-compose.fs-e2e.yml"
+COMPOSE_FILE="docker-compose.yml"
+DEV_COMPOSE_FILE="docker-compose.dev.yml"
+E2E_COMPOSE_FILE="docker-compose.e2e.yml"
+FS_E2E_COMPOSE_FILE="docker-compose.fs-e2e.yml"
 PROJECT_NAME="librariarr"
 SERVICE="librariarr"
 DEV_SERVICE="librariarr-dev"
+DEV_UI_SERVICE="librariarr-ui-dev"
+DEV_RADARR_SERVICE="radarr-dev"
+DEV_SONARR_SERVICE="sonarr-dev"
 E2E_SERVICE="librariarr-radarr-e2e"
 FS_E2E_SERVICE="librariarr-e2e"
 
@@ -40,9 +43,11 @@ Commands:
   sonarr-e2e  Alias for e2e
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
-  dev-up      Start dev profile service in background
-  dev-down    Stop dev profile service
-  dev-logs    Tail dev profile logs
+  dev-up      Start dev API, UI, Sonarr, and Radarr services
+  dev-bootstrap  Configure dev Arr instances and sync API keys into config.yaml
+  dev-seed    Create fake movie/series folders/files in configured source roots
+  dev-down    Stop dev services
+  dev-logs    Tail dev service logs
   dev-shell   Open shell in dev container
 EOF
 }
@@ -67,7 +72,16 @@ cmd="${1:-}"
 
 case "$cmd" in
   setup)
-    if [[ ! -f config.yaml ]]; then
+    if [[ -d config.yaml ]]; then
+      if [[ -z "$(ls -A config.yaml)" ]]; then
+        rmdir config.yaml
+        cp config.yaml.example config.yaml
+        echo "Replaced empty config.yaml directory with config file from config.yaml.example"
+      else
+        echo "Error: config.yaml is a directory with contents. Move/remove it, then run ./run.sh setup." >&2
+        exit 1
+      fi
+    elif [[ ! -f config.yaml ]]; then
       cp config.yaml.example config.yaml
       echo "Created config.yaml from config.yaml.example"
     else
@@ -97,7 +111,7 @@ case "$cmd" in
     ;;
   test)
     compose_dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
+      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
     ;;
   e2e)
     mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
@@ -121,28 +135,44 @@ case "$cmd" in
     ;;
   quality)
     compose_dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --no-cache && \
-       PYTHONPATH=/app ruff format --check . --no-cache && \
-       bash ./tools/check_max_lines.sh 700 && \
-       radon cc -s -n B librariarr tests && \
-       radon raw -s librariarr tests"
+      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app bash ./tools/run_backend_quality.sh check"
+    compose_dev run --rm "$DEV_UI_SERVICE" \
+      "sh /app/tools/run_frontend_quality.sh check"
     ;;
   quality-autofix)
     compose_dev run --rm "$DEV_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app ruff check . --fix --no-cache && \
-       PYTHONPATH=/app ruff format . --no-cache && \
-       bash ./tools/check_max_lines.sh 700 && \
-       radon cc -s -n B librariarr tests && \
-       radon raw -s librariarr tests"
+      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app bash ./tools/run_backend_quality.sh autofix"
+    compose_dev run --rm "$DEV_UI_SERVICE" \
+      "sh /app/tools/run_frontend_quality.sh autofix"
     ;;
   dev-up)
-    compose_dev up -d "$DEV_SERVICE"
+    "$0" setup
+    if [[ ! -f .env && -f .env.dev.example ]]; then
+      cp .env.dev.example .env
+      echo "Created .env from .env.dev.example"
+    fi
+    bash ./tools/dev_prepare_media_layout.sh
+    compose_dev up -d "$DEV_SERVICE" "$DEV_UI_SERVICE" "$DEV_RADARR_SERVICE" "$DEV_SONARR_SERVICE"
+    if [[ "${LIBRARIARR_DEV_BOOTSTRAP:-1}" != "0" ]]; then
+      "$0" dev-bootstrap
+    fi
+    ;;
+  dev-bootstrap)
+    compose_dev run --rm --user "0:0" "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
+    compose_dev run --rm "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.bootstrap"
+    compose_dev restart "$DEV_SERVICE"
+    ;;
+  dev-seed)
+    compose_dev run --rm --user "0:0" "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.seed && python -m librariarr.dev.media_permissions"
     ;;
   dev-down)
     compose_dev down
     ;;
   dev-logs)
-    compose_dev logs -f "$DEV_SERVICE"
+    compose_dev logs -f "$DEV_SERVICE" "$DEV_UI_SERVICE" "$DEV_RADARR_SERVICE" "$DEV_SONARR_SERVICE"
     ;;
   dev-shell)
     compose_dev run --rm "$DEV_SERVICE" bash

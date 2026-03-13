@@ -1,8 +1,8 @@
 services:
   librariarr:
     build:
-      context: ..
-      dockerfile: docker/Dockerfile
+      context: .
+      dockerfile: Dockerfile
     container_name: librariarr
     user: "${PUID:-1000}:${PGID:-1000}"
     restart: unless-stopped
@@ -15,6 +15,15 @@ services:
       LIBRARIARR_SONARR_URL: ${LIBRARIARR_SONARR_URL:-http://sonarr:8989}
       LIBRARIARR_SONARR_API_KEY: ${LIBRARIARR_SONARR_API_KEY:-}
     volumes:
-      - ../config.yaml:/config/config.yaml:ro
+      - ./config.yaml:/config/config.yaml
       - ${MEDIA_ROOT:-/data}:/data
-    command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}"]
+    ports:
+      - "${LIBRARIARR_WEB_PORT:-8787}:8787"
+    command:
+      [
+        "--config",
+        "/config/config.yaml",
+        "--log-level",
+        "${LIBRARIARR_LOG_LEVEL:-INFO}",
+        "--web",
+      ]

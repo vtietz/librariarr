@@ -4,3 +4,6 @@ __pycache__/
 .env
 config.yaml
 .e2e-data/
+ui/node_modules/
+ui/dist/
+data/

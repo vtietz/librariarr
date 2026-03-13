@@ -20,6 +20,7 @@ LibrariArr bridges that gap and keeps both sides aligned.
 ## Core Features
 
 - Continuous sync for Radarr and Sonarr paths using filesystem events plus scheduled maintenance reconciles.
+- Embedded web UI for visual config editing, mapping exploration, diagnostics, and dry-runs.
 - Shadow-link projection from nested roots into flat roots (`paths.root_mappings`).
 - Season-aware series discovery for Sonarr and movie-folder discovery for Radarr.
 - Optional auto-add for unmatched folders (`radarr.auto_add_unmatched`, `sonarr.auto_add_unmatched`).
@@ -110,9 +111,11 @@ services:
     image: ghcr.io/vtietz/librariarr:latest
     env_file: .env
     volumes:
-      - ${CONFIG_ROOT}/librariarr:/config:ro
+      - ${CONFIG_ROOT}/librariarr:/config
       - ${MEDIA_ROOT}:/data
-    command: ["--config", "/config/config.yaml", "--log-level", "INFO"]
+    ports:
+      - "8787:8787"
+    command: ["--config", "/config/config.yaml", "--log-level", "INFO", "--web"]
 ```
 
 4. Start and verify:
@@ -121,6 +124,8 @@ services:
 docker compose -f docker-compose.full-stack.example.yml up -d
 docker compose -f docker-compose.full-stack.example.yml logs -f librariarr
 ```
+
+Then open `http://localhost:8787` for the LibrariArr GUI.
 
 5. Stop when needed:
 
@@ -162,8 +167,8 @@ sonarr:
 
 - Full option reference: [docs/configuration.md](docs/configuration.md)
 - Example baseline: [config.yaml.example](config.yaml.example)
-- Main compose file: [docker/docker-compose.yml](docker/docker-compose.yml)
-- Dev compose file: [docker/docker-compose.dev.yml](docker/docker-compose.dev.yml)
+- Main compose file: [docker-compose.yml](docker-compose.yml)
+- Dev compose file: [docker-compose.dev.yml](docker-compose.dev.yml)
 - Full stack compose example (Sabnzbd/Radarr/Sonarr/Prowlarr/LibrariArr/Mediathekarr, documentation-only): [docker-compose.full-stack.example.yml](docker-compose.full-stack.example.yml)
 - Wrapper help script (contributors/local repo dev): [run.sh](run.sh)
 
@@ -176,3 +181,29 @@ These `run.sh` wrappers are for contributors and local repository development.
 - `./run.sh e2e` for Arr end-to-end tests (Radarr + Sonarr).
 - `./run.sh fs-e2e` for filesystem-focused end-to-end tests.
 - `./run.sh quality` for lint/format/complexity checks.
+
+### Dev GUI + Local Arr Stack
+
+- Create env file: `cp .env.dev.example .env`
+- Start full dev stack: `./run.sh dev-up`
+- One-time/bootstrap only (optional): `./run.sh dev-bootstrap`
+- GUI API: `http://localhost:8787`
+- Vite dev UI: `http://localhost:5173`
+- Radarr dev instance: `http://localhost:17878`
+- Sonarr dev instance: `http://localhost:18989`
+- Tail logs: `./run.sh dev-logs`
+- Stop everything: `./run.sh dev-down`
+
+Ports and internal dev URLs can be adjusted in `.env` via `LIBRARIARR_WEB_PORT`,
+`LIBRARIARR_DEV_RADARR_URL`, `LIBRARIARR_DEV_SONARR_URL`,
+`DEV_HOST_PORT_RADARR`, and `DEV_HOST_PORT_SONARR`.
+
+By default, `dev-up` creates `.env` from `.env.dev.example` when missing and runs
+`dev-bootstrap` automatically (`LIBRARIARR_DEV_BOOTSTRAP=0` disables auto-bootstrap).
+The bootstrap syncs Arr API keys/URLs into `config.yaml` and `.env`, tries to disable
+Arr auth/HTTPS for local dev, and ensures root folders exist.
+Before startup, `dev-up` also pre-creates `movies`, `series`, `radarr_library`, and
+`sonarr_library` under `MEDIA_ROOT` when the host path is writable.
+If host-side creation is blocked by ownership/permissions, `dev-bootstrap` runs an
+in-container repair step that creates/chowns mapped `/data` paths before Arr root
+folder registration.

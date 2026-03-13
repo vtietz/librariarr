@@ -1,0 +1,141 @@
+from __future__ import annotations
+
+import time
+from pathlib import Path
+from typing import Any
+
+from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel, Field
+
+from ..clients.radarr import RadarrClient
+from ..clients.sonarr import SonarrClient
+from ..config import AppConfig, load_config
+from ..service import LibrariArrService
+
+
+class ArrConnectionRequest(BaseModel):
+    url: str = Field(min_length=1)
+    api_key: str = Field(min_length=1)
+
+
+def _load_config_or_http(config_path: Path) -> AppConfig:
+    try:
+        return load_config(config_path)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Unable to load config: {exc}") from exc
+
+
+def _read_config_path(request: Request) -> Path:
+    return Path(request.app.state.web.config_path)
+
+
+def _shadow_roots(config: AppConfig) -> list[Path]:
+    roots = {Path(item.shadow_root) for item in config.paths.root_mappings}
+    return sorted(roots)
+
+
+def _safe_directory_entries(root: Path) -> list[Path]:
+    try:
+        return sorted(root.iterdir(), key=lambda item: item.name.lower())
+    except FileNotFoundError:
+        return []
+
+
+def build_operations_router() -> APIRouter:  # noqa: C901
+    router = APIRouter()
+
+    @router.post("/api/radarr/test")
+    def test_radarr_connection(payload: ArrConnectionRequest) -> dict[str, Any]:
+        client = RadarrClient(payload.url, payload.api_key)
+        try:
+            status = client.get_system_status()
+            version = status.get("version") if isinstance(status, dict) else None
+            suffix = f" (version={version})" if isinstance(version, str) and version else ""
+            return {"ok": True, "message": f"Connected to Radarr{suffix}."}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
+
+    @router.post("/api/sonarr/test")
+    def test_sonarr_connection(payload: ArrConnectionRequest) -> dict[str, Any]:
+        client = SonarrClient(payload.url, payload.api_key)
+        try:
+            status = client.get_system_status()
+            version = status.get("version") if isinstance(status, dict) else None
+            suffix = f" (version={version})" if isinstance(version, str) and version else ""
+            return {"ok": True, "message": f"Connected to Sonarr{suffix}."}
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
+
+    @router.post("/api/maintenance/reconcile")
+    def run_maintenance_reconcile(request: Request) -> dict[str, Any]:
+        config = _load_config_or_http(_read_config_path(request))
+        started = time.perf_counter()
+        try:
+            service = LibrariArrService(config)
+            ingest_pending = service.reconcile()
+            duration_ms = int((time.perf_counter() - started) * 1000)
+            return {
+                "ok": True,
+                "message": "Reconcile completed.",
+                "duration_ms": duration_ms,
+                "ingest_pending": ingest_pending,
+            }
+        except Exception as exc:
+            return {"ok": False, "message": str(exc)}
+
+    @router.get("/api/fs/mapped-directories")
+    def mapped_directories(
+        request: Request,
+        search: str = Query(default=""),
+        shadow_root: str | None = Query(default=None),
+        limit: int = Query(default=500, ge=1, le=5000),
+    ) -> dict[str, Any]:
+        config = _load_config_or_http(_read_config_path(request))
+        all_roots = _shadow_roots(config)
+
+        if shadow_root is None:
+            selected_roots = all_roots
+        else:
+            selected_roots = [root for root in all_roots if str(root) == shadow_root]
+            if not selected_roots:
+                raise HTTPException(status_code=400, detail="Unknown shadow_root filter value")
+
+        lowered_search = search.strip().lower()
+        items: list[dict[str, Any]] = []
+        truncated = False
+
+        for root in selected_roots:
+            for child in _safe_directory_entries(root):
+                if not child.is_symlink():
+                    continue
+
+                virtual_path = str(child)
+                real_path = str(child.resolve(strict=False))
+                if (
+                    lowered_search
+                    and lowered_search not in virtual_path.lower()
+                    and lowered_search not in real_path.lower()
+                ):
+                    continue
+
+                items.append(
+                    {
+                        "shadow_root": str(root),
+                        "virtual_path": virtual_path,
+                        "real_path": real_path,
+                        "target_exists": Path(real_path).exists(),
+                    }
+                )
+                if len(items) >= limit:
+                    truncated = True
+                    break
+            if truncated:
+                break
+
+        return {
+            "items": items,
+            "shadow_roots": [str(root) for root in all_roots],
+            "truncated": truncated,
+        }
+
+    return router

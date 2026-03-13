@@ -57,6 +57,10 @@ class RadarrClient:
         folders = self._request("GET", "/rootfolder")
         return folders if isinstance(folders, list) else []
 
+    def get_tags(self) -> list[dict[str, Any]]:
+        tags = self._request("GET", "/tag")
+        return tags if isinstance(tags, list) else []
+
     def lookup_movies(self, term: str) -> list[dict[str, Any]]:
         results = self._request("GET", "/movie/lookup", params={"term": term})
         return results if isinstance(results, list) else []

@@ -16,9 +16,14 @@ Use the wrapper scripts for all development operations in this repository.
 - `python ...`
 - `pip ...`
 - `pytest ...`
+- `npm ...`
+- `npx ...`
 - `docker compose ...`
 - `docker build ...`
 - `docker run ...`
+
+All frontend/package-manager operations must be routed through `./run.sh <command>` / `run.bat <command>`.
+Direct `npm`/`npx` usage is forbidden in commands you run manually; usage inside wrapper scripts is allowed.
 
 ## Approved commands
 
@@ -34,6 +39,8 @@ Use the wrapper scripts for all development operations in this repository.
 - `quality`
 - `quality-autofix`
 - `dev-up`
+- `dev-bootstrap`
+- `dev-seed`
 - `dev-down`
 - `dev-logs`
 - `dev-shell`

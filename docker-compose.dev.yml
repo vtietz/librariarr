@@ -1,0 +1,75 @@
+services:
+  librariarr-dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: librariarr-dev
+    user: "${PUID:-1000}:${PGID:-1000}"
+    working_dir: /app
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      LIBRARIARR_RADARR_URL: ${LIBRARIARR_DEV_RADARR_URL:-http://radarr-dev:7878}
+      LIBRARIARR_RADARR_API_KEY: ${LIBRARIARR_RADARR_API_KEY:-}
+      LIBRARIARR_SONARR_URL: ${LIBRARIARR_DEV_SONARR_URL:-http://sonarr-dev:8989}
+      LIBRARIARR_SONARR_API_KEY: ${LIBRARIARR_SONARR_API_KEY:-}
+      LIBRARIARR_CONFIG_PATH: /config/config.yaml
+      LIBRARIARR_UI_DEV_URL: ${LIBRARIARR_UI_DEV_URL:-http://localhost:5173}
+    volumes:
+      - ./:/app
+      - ./config.yaml:/config/config.yaml
+      - ${MEDIA_ROOT:-/data}:/data
+      - radarr-dev-appdata:/radarr-config:ro
+      - sonarr-dev-appdata:/sonarr-config:ro
+    ports:
+      - "${LIBRARIARR_WEB_PORT:-8787}:8787"
+    entrypoint: ["bash", "-lc"]
+    command:
+      - |
+        uvicorn librariarr.web.app:create_app --factory --host 0.0.0.0 --port 8787 --reload
+
+  librariarr-ui-dev:
+    image: node:24-alpine
+    container_name: librariarr-ui-dev
+    working_dir: /app/ui
+    environment:
+      VITE_PROXY_TARGET: ${LIBRARIARR_UI_API_PROXY_TARGET:-http://librariarr-dev:8787}
+      NPM_CONFIG_UPDATE_NOTIFIER: "false"
+    volumes:
+      - ./:/app
+    ports:
+      - "5173:5173"
+    entrypoint: ["sh", "-lc"]
+    command:
+      - |
+        npm install && npm run dev -- --host 0.0.0.0 --port 5173
+
+  radarr-dev:
+    image: ${RADARR_DEV_IMAGE:-lscr.io/linuxserver/radarr:latest}
+    container_name: librariarr-radarr-dev
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "${DEV_HOST_PORT_RADARR:-17878}:7878"
+    volumes:
+      - radarr-dev-appdata:/config
+      - ${MEDIA_ROOT:-/data}:/data
+
+  sonarr-dev:
+    image: ${SONARR_DEV_IMAGE:-lscr.io/linuxserver/sonarr:latest}
+    container_name: librariarr-sonarr-dev
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      TZ: ${TZ:-Etc/UTC}
+    ports:
+      - "${DEV_HOST_PORT_SONARR:-18989}:8989"
+    volumes:
+      - sonarr-dev-appdata:/config
+      - ${MEDIA_ROOT:-/data}:/data
+
+volumes:
+  radarr-dev-appdata:
+  sonarr-dev-appdata:
