@@ -27,6 +27,7 @@ export default function App() {
   const [sonarrStatus, setSonarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
   const [lastDryRunSummary, setLastDryRunSummary] = useState("");
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
 
   const parseLoadError = (error: unknown): string => {
     if (typeof error !== "object" || error === null) {
@@ -140,7 +141,7 @@ export default function App() {
         </Group>
       </AppShell.Header>
       <AppShell.Main>
-        <Tabs defaultValue="dashboard">
+        <Tabs defaultValue="dashboard" onChange={(value) => setActiveTab(value ?? "dashboard")}>
           <Tabs.List>
             <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
             <Tabs.Tab value="config">Config Editor</Tabs.Tab>
@@ -175,7 +176,7 @@ export default function App() {
           </Tabs.Panel>
 
           <Tabs.Panel value="mapper" pt="md">
-            <DirectoryMapper />
+            {activeTab === "mapper" && <DirectoryMapper />}
           </Tabs.Panel>
 
           <Tabs.Panel value="diagnostics" pt="md">
@@ -194,7 +195,7 @@ export default function App() {
           </Tabs.Panel>
 
           <Tabs.Panel value="logs" pt="md">
-            <LogsPanel />
+            {activeTab === "logs" && <LogsPanel />}
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

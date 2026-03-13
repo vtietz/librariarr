@@ -66,6 +66,17 @@ export const getMappedDirectories = async (params?: {
   return data;
 };
 
+export const getMappedDirectoriesStreamUrl = (params?: { intervalMs?: number }) => {
+  const search = new URLSearchParams();
+  if (typeof params?.intervalMs === "number") {
+    search.set("interval_ms", String(params.intervalMs));
+  }
+  const query = search.toString();
+  return query
+    ? `/api/fs/mapped-directories/stream?${query}`
+    : "/api/fs/mapped-directories/stream";
+};
+
 export const getRadarrProfiles = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
     "/radarr/quality-profiles"

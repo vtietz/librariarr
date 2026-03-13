@@ -110,9 +110,11 @@ case "$cmd" in
     compose run --rm "$SERVICE" --config /config/config.yaml --once
     ;;
   test)
-    compose_dev build "$DEV_SERVICE"
+    if [[ "${LIBRARIARR_BUILD:-0}" == "1" ]]; then
+      compose_dev build "$DEV_SERVICE"
+    fi
     compose_dev run --rm "$DEV_SERVICE" \
-      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
+      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider ${LIBRARIARR_PYTEST_ARGS:-}"
     ;;
   e2e)
     mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library

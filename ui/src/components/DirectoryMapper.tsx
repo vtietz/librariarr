@@ -11,7 +11,7 @@ import {
   Title
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getMappedDirectories } from "../api/client";
+import { getMappedDirectories, getMappedDirectoriesStreamUrl } from "../api/client";
 
 type MappedDirectory = {
   shadow_root: string;
@@ -57,6 +57,25 @@ export default function DirectoryMapper() {
     void (async () => {
       await loadMappedDirectories();
     })();
+  }, [loadMappedDirectories]);
+
+  useEffect(() => {
+    const source = new EventSource(getMappedDirectoriesStreamUrl({ intervalMs: 1000 }));
+
+    source.onmessage = (event) => {
+      try {
+        const payload = JSON.parse(event.data) as { changed?: boolean };
+        if (payload.changed) {
+          void loadMappedDirectories();
+        }
+      } catch {
+        /* malformed SSE event — keep current list */
+      }
+    };
+
+    return () => {
+      source.close();
+    };
   }, [loadMappedDirectories]);
 
   const filteredMappedDirectories = useMemo(() => {

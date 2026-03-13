@@ -297,6 +297,30 @@ def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
     assert payload["items"][0]["real_path"] == str(movie_dir)
 
 
+def test_mapped_directories_stream_endpoint_emits_sse(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    movie_dir = nested_root / "Movie One"
+    movie_dir.mkdir()
+    (shadow_root / "Movie One").symlink_to(movie_dir, target_is_directory=True)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    with client.stream("GET", "/api/fs/mapped-directories/stream", params={"max_events": 1}) as r:
+        first_line = next(r.iter_lines())
+
+    assert r.status_code == 200
+    assert first_line.startswith("data: ")
+    assert '"changed": false' in first_line
+
+
 def test_docker_logs_endpoint_returns_newest_first(tmp_path: Path, monkeypatch) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"

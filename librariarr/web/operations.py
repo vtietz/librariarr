@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import hashlib
 import json
 import os
 import time
@@ -43,6 +45,30 @@ def _safe_directory_entries(root: Path) -> list[Path]:
         return sorted(root.iterdir(), key=lambda item: item.name.lower())
     except FileNotFoundError:
         return []
+
+
+def _mapped_directories_fingerprint(roots: list[Path]) -> str:
+    hasher = hashlib.sha256()
+    for root in sorted(roots):
+        hasher.update(f"root:{root}\n".encode("utf-8", errors="replace"))
+        for child in _safe_directory_entries(root):
+            if not child.is_symlink():
+                continue
+            try:
+                link_target = os.readlink(child)
+            except OSError:
+                link_target = ""
+            try:
+                stat_info = child.lstat()
+                link_mtime = stat_info.st_mtime_ns
+            except OSError:
+                link_mtime = 0
+            hasher.update(
+                f"link:{child.name}|target:{link_target}|mtime:{link_mtime}\n".encode(
+                    "utf-8", errors="replace"
+                )
+            )
+    return hasher.hexdigest()
 
 
 def build_operations_router() -> APIRouter:  # noqa: C901
@@ -180,5 +206,52 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             "shadow_roots": [str(root) for root in all_roots],
             "truncated": truncated,
         }
+
+    @router.get("/api/fs/mapped-directories/stream")
+    async def mapped_directories_stream(
+        request: Request,
+        interval_ms: int = Query(default=1000, ge=200, le=10000),
+        max_events: int = Query(default=0, ge=0),
+    ) -> StreamingResponse:
+        async def event_stream():
+            previous_fingerprint: str | None = None
+            event_count = 0
+            while True:
+                if await request.is_disconnected():
+                    break
+
+                config = _load_config_or_http(_read_config_path(request))
+                roots = _shadow_roots(config)
+                current_fingerprint = _mapped_directories_fingerprint(roots)
+
+                changed = (
+                    previous_fingerprint is not None and current_fingerprint != previous_fingerprint
+                )
+
+                if previous_fingerprint is None or changed:
+                    payload = {
+                        "changed": changed,
+                        "shadow_roots": [str(root) for root in roots],
+                        "timestamp_ms": int(time.time() * 1000),
+                    }
+                    yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+                    event_count += 1
+                    if max_events > 0 and event_count >= max_events:
+                        break
+                else:
+                    yield ": keepalive\n\n"
+
+                previous_fingerprint = current_fingerprint
+                await asyncio.sleep(interval_ms / 1000)
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     return router
