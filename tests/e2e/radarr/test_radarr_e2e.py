@@ -17,6 +17,7 @@ from librariarr.config import (
     RuntimeConfig,
 )
 from librariarr.service import LibrariArrService
+from librariarr.sync.naming import safe_path_component
 
 
 def _wait_for_api_key(config_xml_path: Path, timeout_seconds: int = 180) -> str:
@@ -54,7 +55,16 @@ def _wait_for_radarr(base_url: str, api_key: str, timeout_seconds: int = 180) ->
     raise TimeoutError(f"Timed out waiting for Radarr API readiness: {last_error}")
 
 
-def _seed_movie_or_skip(session: requests.Session, base_url: str, shadow_root: Path) -> dict:
+def _seed_movie_or_skip(
+    session: requests.Session,
+    base_url: str,
+    shadow_root: Path,
+    *,
+    title: str = "Fixture Legacy",
+    title_slug: str = "fixture-legacy-1977",
+    tmdb_id: int = 11,
+    year: int = 1977,
+) -> dict:
     shadow_root.mkdir(parents=True, exist_ok=True)
 
     profiles_resp = session.get(f"{base_url}/api/v3/qualityprofile", timeout=20)
@@ -85,14 +95,14 @@ def _seed_movie_or_skip(session: requests.Session, base_url: str, shadow_root: P
             )
 
     payload = {
-        "title": "Fixture Legacy",
+        "title": title,
         "qualityProfileId": profile_id,
-        "titleSlug": "fixture-legacy-1977",
+        "titleSlug": title_slug,
         "images": [],
-        "tmdbId": 11,
-        "year": 1977,
+        "tmdbId": tmdb_id,
+        "year": year,
         "rootFolderPath": shadow_root_str,
-        "path": f"{shadow_root_str}/old-fixture-legacy-path",
+        "path": f"{shadow_root_str}/old-{title_slug}",
         "monitored": True,
         "minimumAvailability": "released",
         "addOptions": {"searchForMovie": False},
@@ -126,10 +136,101 @@ def _find_movie_by_tmdb_or_none(
 
 def _canonical_name_from_seeded_movie(movie: dict) -> str:
     title = str(movie.get("title") or "Fixture Seeded Title").strip() or "Fixture Seeded Title"
+    title = safe_path_component(title)
     year = movie.get("year")
     if isinstance(year, int):
         return f"{title} ({year})"
     return title
+
+
+def _seed_slash_title_movie_or_skip(
+    session: requests.Session,
+    base_url: str,
+    shadow_root: Path,
+) -> dict:
+    candidates = [
+        {
+            "title": "Face/Off",
+            "title_slug": "face-off-1997",
+            "tmdb_id": 754,
+            "year": 1997,
+        },
+        {
+            "title": "Fahrenheit 9/11",
+            "title_slug": "fahrenheit-9-11-2004",
+            "tmdb_id": 177,
+            "year": 2004,
+        },
+    ]
+
+    for candidate in candidates:
+        seeded_movie = _seed_movie_or_skip(
+            session,
+            base_url,
+            shadow_root,
+            title=candidate["title"],
+            title_slug=candidate["title_slug"],
+            tmdb_id=candidate["tmdb_id"],
+            year=candidate["year"],
+        )
+        if "/" in str(seeded_movie.get("title") or ""):
+            return seeded_movie
+
+    pytest.skip(
+        "Radarr did not provide slash titles for known slash-title TMDB candidates; "
+        "cannot validate slash sanitization behavior"
+    )
+
+
+@pytest.mark.e2e
+def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / f"radarr_slash_title_{uuid.uuid4().hex[:8]}"
+
+    nested_root = case_root / "movies"
+    shadow_root = case_root / "radarr_library"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
+    radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
+    api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
+    session = _wait_for_radarr(radarr_url, api_key)
+
+    seeded_movie = _seed_slash_title_movie_or_skip(session, radarr_url, shadow_root)
+    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
+
+    movie_folder = nested_root / "Fahrenheit 11-9 (2004)"
+    movie_folder.mkdir(parents=True, exist_ok=True)
+    (movie_folder / "Fahrenheit.11.9.2004.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+    (movie_folder / "movie.nfo").write_text(
+        f'<movie><uniqueid type="tmdb">{int(seeded_movie["tmdbId"])}</uniqueid></movie>',
+        encoding="utf-8",
+    )
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(
+                    nested_root=str(nested_root),
+                    shadow_root=str(shadow_root),
+                )
+            ]
+        ),
+        radarr=RadarrConfig(
+            url=radarr_url,
+            api_key=api_key,
+            sync_enabled=True,
+        ),
+        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+
+    expected_link = shadow_root / canonical_name
+    assert expected_link.is_symlink()
+    assert "/" not in expected_link.name
 
 
 @pytest.mark.e2e
