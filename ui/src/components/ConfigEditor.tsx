@@ -7,6 +7,7 @@ import {
   Code,
   Group,
   NumberInput,
+  Select,
   Stack,
   Switch,
   Text,
@@ -14,14 +15,12 @@ import {
   Title
 } from "@mantine/core";
 import { useEffect, useState } from "react";
-import {
-  getFsRoots,
-  testRadarrConnection,
-  testSonarrConnection
-} from "../api/client";
-import DirectoryPickerModal from "./DirectoryPickerModal";
-import { toOpenToolUrl } from "../utils/toolUrl";
+import { getFsRoots } from "../api/client";
 import type { ConfigModel, Issue } from "../types/config";
+import RadarrSection from "./config/RadarrSection";
+import SonarrSection from "./config/SonarrSection";
+import { parseCommaSeparated } from "./config/ruleParsers";
+import DirectoryPickerModal from "./DirectoryPickerModal";
 
 type Props = {
   draft: ConfigModel;
@@ -55,85 +54,52 @@ export default function ConfigEditor({
     index: number;
     key: "nested_root" | "shadow_root";
   } | null>(null);
-  const [radarrTestStatus, setRadarrTestStatus] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
-  const [sonarrTestStatus, setSonarrTestStatus] = useState<{
-    ok: boolean;
-    message: string;
-  } | null>(null);
-  const [radarrTesting, setRadarrTesting] = useState(false);
-  const [sonarrTesting, setSonarrTesting] = useState(false);
 
   useEffect(() => {
     void (async () => {
       try {
-        const roots = await getFsRoots();
-        setPickerRoots(roots);
+        setPickerRoots(await getFsRoots());
       } catch {
         setPickerRoots([]);
       }
     })();
   }, []);
 
-  const setRadarr = (field: keyof ConfigModel["radarr"], value: unknown) => {
+  const setSectionField = <T extends keyof ConfigModel>(
+    section: T,
+    field: keyof ConfigModel[T],
+    value: unknown
+  ) => {
     onChange({
       ...draft,
-      radarr: {
-        ...draft.radarr,
-        [field]: value
-      }
-    });
-  };
-
-  const setSonarr = (field: keyof ConfigModel["sonarr"], value: unknown) => {
-    onChange({
-      ...draft,
-      sonarr: {
-        ...draft.sonarr,
-        [field]: value
-      }
-    });
-  };
-
-  const setRuntime = (field: keyof ConfigModel["runtime"], value: number) => {
-    onChange({
-      ...draft,
-      runtime: {
-        ...draft.runtime,
+      [section]: {
+        ...draft[section],
         [field]: value
       }
     });
   };
 
   const setRootMapping = (index: number, key: "nested_root" | "shadow_root", value: string) => {
-    const nextMappings = draft.paths.root_mappings.map((mapping, mapIndex) => {
-      if (mapIndex !== index) {
-        return mapping;
-      }
-      return {
-        ...mapping,
-        [key]: value
-      };
-    });
-
     onChange({
       ...draft,
       paths: {
         ...draft.paths,
-        root_mappings: nextMappings
+        root_mappings: draft.paths.root_mappings.map((mapping, mappingIndex) => {
+          if (mappingIndex !== index) {
+            return mapping;
+          }
+          return { ...mapping, [key]: value };
+        })
       }
     });
   };
 
   const removeRootMapping = (index: number) => {
-    const nextMappings = draft.paths.root_mappings.filter((_, mapIndex) => mapIndex !== index);
     onChange({
       ...draft,
       paths: {
         ...draft.paths,
-        root_mappings: nextMappings
+        root_mappings: draft.paths.root_mappings.filter((_, mappingIndex) => mappingIndex !== index)
       }
     });
   };
@@ -143,73 +109,13 @@ export default function ConfigEditor({
       ...draft,
       paths: {
         ...draft.paths,
-        root_mappings: [
-          ...draft.paths.root_mappings,
-          {
-            nested_root: "",
-            shadow_root: ""
-          }
-        ]
+        root_mappings: [...draft.paths.root_mappings, { nested_root: "", shadow_root: "" }]
       }
     });
   };
 
-  const startPicker = (index: number, key: "nested_root" | "shadow_root") => {
-    setPickerTarget({ index, key });
-  };
-
-  const applyPickedPath = (path: string) => {
-    if (!pickerTarget) {
-      return;
-    }
-    setRootMapping(pickerTarget.index, pickerTarget.key, path);
-    setPickerTarget(null);
-  };
-
-  const runRadarrConnectionTest = async () => {
-    setRadarrTesting(true);
-    try {
-      const result = await testRadarrConnection(draft.radarr.url, draft.radarr.api_key);
-      setRadarrTestStatus(result);
-    } catch (error: unknown) {
-      const message =
-        typeof error === "object" &&
-        error !== null &&
-        "message" in error &&
-        typeof (error as { message?: unknown }).message === "string"
-          ? (error as { message: string }).message
-          : "Failed to connect to Radarr";
-      setRadarrTestStatus({ ok: false, message });
-    } finally {
-      setRadarrTesting(false);
-    }
-  };
-
-  const runSonarrConnectionTest = async () => {
-    setSonarrTesting(true);
-    try {
-      const result = await testSonarrConnection(draft.sonarr.url, draft.sonarr.api_key);
-      setSonarrTestStatus(result);
-    } catch (error: unknown) {
-      const message =
-        typeof error === "object" &&
-        error !== null &&
-        "message" in error &&
-        typeof (error as { message?: unknown }).message === "string"
-          ? (error as { message: string }).message
-          : "Failed to connect to Sonarr";
-      setSonarrTestStatus({ ok: false, message });
-    } finally {
-      setSonarrTesting(false);
-    }
-  };
-
   const pickerInitialPath =
-    pickerTarget == null
-      ? ""
-      : draft.paths.root_mappings[pickerTarget.index]?.[pickerTarget.key] ?? "";
-  const radarrOpenUrl = toOpenToolUrl(draft.radarr.url, 7878);
-  const sonarrOpenUrl = toOpenToolUrl(draft.sonarr.url, 8989);
+    pickerTarget == null ? "" : draft.paths.root_mappings[pickerTarget.index]?.[pickerTarget.key] ?? "";
 
   return (
     <Stack>
@@ -247,145 +153,171 @@ export default function ConfigEditor({
 
       <Card withBorder>
         <Title order={4}>General</Title>
-        <Group grow align="flex-end" mt="sm">
-          <NumberInput
-            label="Debounce Seconds"
-            value={draft.runtime.debounce_seconds}
-            min={1}
-            onChange={(value) => setRuntime("debounce_seconds", Number(value) || 1)}
-          />
-          <NumberInput
-            label="Maintenance Interval (minutes)"
-            value={draft.runtime.maintenance_interval_minutes}
-            min={0}
-            onChange={(value) =>
-              setRuntime("maintenance_interval_minutes", Number(value) || 0)
+        <Stack mt="sm">
+          <Group grow align="flex-end">
+            <NumberInput
+              label="Debounce Seconds"
+              value={draft.runtime.debounce_seconds}
+              min={0}
+              onChange={(value) => setSectionField("runtime", "debounce_seconds", Number(value) || 0)}
+            />
+            <NumberInput
+              label="Maintenance Interval (minutes)"
+              value={draft.runtime.maintenance_interval_minutes}
+              min={0}
+              onChange={(value) =>
+                setSectionField("runtime", "maintenance_interval_minutes", Number(value) || 0)
+              }
+            />
+            <NumberInput
+              label="Arr Root Poll Interval (minutes)"
+              value={draft.runtime.arr_root_poll_interval_minutes}
+              min={0}
+              onChange={(value) =>
+                setSectionField("runtime", "arr_root_poll_interval_minutes", Number(value) || 0)
+              }
+            />
+          </Group>
+          <TextInput
+            label="Scan Video Extensions (comma-separated)"
+            value={(draft.runtime.scan_video_extensions ?? []).join(", ")}
+            onChange={(event) =>
+              setSectionField(
+                "runtime",
+                "scan_video_extensions",
+                parseCommaSeparated(event.currentTarget.value)
+              )
             }
           />
-          <NumberInput
-            label="Arr Root Poll Interval (minutes)"
-            value={draft.runtime.arr_root_poll_interval_minutes}
-            min={0}
-            onChange={(value) =>
-              setRuntime("arr_root_poll_interval_minutes", Number(value) || 0)
-            }
-          />
-        </Group>
+        </Stack>
       </Card>
 
       <Card withBorder>
-        <Title order={4}>Radarr</Title>
-        <Group mt="sm" mb="sm">
-          <Switch
-            label="Enabled"
-            checked={draft.radarr.enabled}
-            onChange={(event) => setRadarr("enabled", event.currentTarget.checked)}
-          />
-          <Checkbox
-            label="Sync enabled"
-            checked={draft.radarr.sync_enabled}
-            onChange={(event) => setRadarr("sync_enabled", event.currentTarget.checked)}
-          />
-          <Checkbox
-            label="Auto-add unmatched"
-            checked={draft.radarr.auto_add_unmatched}
-            onChange={(event) => setRadarr("auto_add_unmatched", event.currentTarget.checked)}
-          />
-        </Group>
-        <Stack>
-          <TextInput
-            label="Radarr URL"
-            value={draft.radarr.url}
-            onChange={(event) => setRadarr("url", event.currentTarget.value)}
-          />
-          <TextInput
-            label="Radarr API Key"
-            value={draft.radarr.api_key}
-            onChange={(event) => setRadarr("api_key", event.currentTarget.value)}
-          />
+        <Title order={4}>Cleanup</Title>
+        <Stack mt="sm">
           <Group>
-            <Button
-              component="a"
-              variant="default"
-              href={radarrOpenUrl ?? undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              disabled={!radarrOpenUrl}
-            >
-              Open Radarr
-            </Button>
-            <Button
-              variant="light"
-              onClick={runRadarrConnectionTest}
-              loading={radarrTesting}
-            >
-              Test Radarr Connection
-            </Button>
-            {radarrTestStatus ? (
-              <Text size="sm" c={radarrTestStatus.ok ? "green" : "red"}>
-                {radarrTestStatus.message}
-              </Text>
-            ) : null}
+            <Checkbox
+              label="Remove orphaned links"
+              checked={draft.cleanup.remove_orphaned_links}
+              onChange={(event) =>
+                setSectionField("cleanup", "remove_orphaned_links", event.currentTarget.checked)
+              }
+            />
+            <Checkbox
+              label="Legacy unmonitor_on_delete"
+              checked={draft.cleanup.unmonitor_on_delete}
+              onChange={(event) =>
+                setSectionField("cleanup", "unmonitor_on_delete", event.currentTarget.checked)
+              }
+            />
+            <Checkbox
+              label="Legacy delete_from_radarr_on_missing"
+              checked={draft.cleanup.delete_from_radarr_on_missing}
+              onChange={(event) =>
+                setSectionField("cleanup", "delete_from_radarr_on_missing", event.currentTarget.checked)
+              }
+            />
+            <Checkbox
+              label="Legacy delete_from_sonarr_on_missing"
+              checked={draft.cleanup.delete_from_sonarr_on_missing}
+              onChange={(event) =>
+                setSectionField("cleanup", "delete_from_sonarr_on_missing", event.currentTarget.checked)
+              }
+            />
+          </Group>
+          <Group grow align="flex-end">
+            <Select
+              label="Radarr Action On Missing"
+              data={["none", "unmonitor", "delete"]}
+              value={draft.cleanup.radarr_action_on_missing}
+              onChange={(value) =>
+                setSectionField("cleanup", "radarr_action_on_missing", value ?? "none")
+              }
+            />
+            <Select
+              label="Sonarr Action On Missing"
+              data={["none", "unmonitor", "delete"]}
+              value={draft.cleanup.sonarr_action_on_missing}
+              onChange={(value) =>
+                setSectionField("cleanup", "sonarr_action_on_missing", value ?? "none")
+              }
+            />
+            <NumberInput
+              label="Missing Grace Seconds"
+              value={draft.cleanup.missing_grace_seconds}
+              min={0}
+              onChange={(value) =>
+                setSectionField("cleanup", "missing_grace_seconds", Number(value) || 0)
+              }
+            />
           </Group>
         </Stack>
       </Card>
 
       <Card withBorder>
-        <Title order={4}>Sonarr</Title>
-        <Group mt="sm" mb="sm">
+        <Title order={4}>Analysis</Title>
+        <Stack mt="sm">
+          <Group>
+            <Checkbox
+              label="Use NFO"
+              checked={draft.analysis.use_nfo}
+              onChange={(event) => setSectionField("analysis", "use_nfo", event.currentTarget.checked)}
+            />
+            <Checkbox
+              label="Use Media Probe"
+              checked={draft.analysis.use_media_probe}
+              onChange={(event) =>
+                setSectionField("analysis", "use_media_probe", event.currentTarget.checked)
+              }
+            />
+          </Group>
+          <TextInput
+            label="Media Probe Binary"
+            value={draft.analysis.media_probe_bin}
+            onChange={(event) => setSectionField("analysis", "media_probe_bin", event.currentTarget.value)}
+          />
+        </Stack>
+      </Card>
+
+      <Card withBorder>
+        <Title order={4}>Ingest</Title>
+        <Stack mt="sm">
           <Switch
             label="Enabled"
-            checked={draft.sonarr.enabled}
-            onChange={(event) => setSonarr("enabled", event.currentTarget.checked)}
+            checked={draft.ingest.enabled}
+            onChange={(event) => setSectionField("ingest", "enabled", event.currentTarget.checked)}
           />
-          <Checkbox
-            label="Sync enabled"
-            checked={draft.sonarr.sync_enabled}
-            onChange={(event) => setSonarr("sync_enabled", event.currentTarget.checked)}
-          />
-          <Checkbox
-            label="Auto-add unmatched"
-            checked={draft.sonarr.auto_add_unmatched}
-            onChange={(event) => setSonarr("auto_add_unmatched", event.currentTarget.checked)}
-          />
-        </Group>
-        <Stack>
-          <TextInput
-            label="Sonarr URL"
-            value={draft.sonarr.url}
-            onChange={(event) => setSonarr("url", event.currentTarget.value)}
-          />
-          <TextInput
-            label="Sonarr API Key"
-            value={draft.sonarr.api_key}
-            onChange={(event) => setSonarr("api_key", event.currentTarget.value)}
-          />
-          <Group>
-            <Button
-              component="a"
-              variant="default"
-              href={sonarrOpenUrl ?? undefined}
-              target="_blank"
-              rel="noopener noreferrer"
-              disabled={!sonarrOpenUrl}
-            >
-              Open Sonarr
-            </Button>
-            <Button
-              variant="light"
-              onClick={runSonarrConnectionTest}
-              loading={sonarrTesting}
-            >
-              Test Sonarr Connection
-            </Button>
-            {sonarrTestStatus ? (
-              <Text size="sm" c={sonarrTestStatus.ok ? "green" : "red"}>
-                {sonarrTestStatus.message}
-              </Text>
-            ) : null}
+          <Group grow align="flex-end">
+            <NumberInput
+              label="Minimum Age Seconds"
+              value={draft.ingest.min_age_seconds}
+              min={0}
+              onChange={(value) => setSectionField("ingest", "min_age_seconds", Number(value) || 0)}
+            />
+            <Select
+              label="Collision Policy"
+              data={["qualify", "skip"]}
+              value={draft.ingest.collision_policy}
+              onChange={(value) => setSectionField("ingest", "collision_policy", value ?? "qualify")}
+            />
+            <TextInput
+              label="Quarantine Root"
+              value={draft.ingest.quarantine_root}
+              onChange={(event) => setSectionField("ingest", "quarantine_root", event.currentTarget.value)}
+            />
           </Group>
         </Stack>
       </Card>
+
+      <RadarrSection
+        value={draft.radarr}
+        onChange={(nextRadarr) => onChange({ ...draft, radarr: nextRadarr })}
+      />
+
+      <SonarrSection
+        value={draft.sonarr}
+        onChange={(nextSonarr) => onChange({ ...draft, sonarr: nextSonarr })}
+      />
 
       <Card withBorder>
         <Group justify="space-between">
@@ -402,11 +334,9 @@ export default function ConfigEditor({
                   <TextInput
                     label={`Nested Root ${index + 1}`}
                     value={mapping.nested_root}
-                    onChange={(event) =>
-                      setRootMapping(index, "nested_root", event.currentTarget.value)
-                    }
+                    onChange={(event) => setRootMapping(index, "nested_root", event.currentTarget.value)}
                   />
-                  <Button variant="light" onClick={() => startPicker(index, "nested_root")}>
+                  <Button variant="light" onClick={() => setPickerTarget({ index, key: "nested_root" })}>
                     Pick Directory
                   </Button>
                 </Group>
@@ -414,11 +344,9 @@ export default function ConfigEditor({
                   <TextInput
                     label={`Shadow Root ${index + 1}`}
                     value={mapping.shadow_root}
-                    onChange={(event) =>
-                      setRootMapping(index, "shadow_root", event.currentTarget.value)
-                    }
+                    onChange={(event) => setRootMapping(index, "shadow_root", event.currentTarget.value)}
                   />
-                  <Button variant="light" onClick={() => startPicker(index, "shadow_root")}>
+                  <Button variant="light" onClick={() => setPickerTarget({ index, key: "shadow_root" })}>
                     Pick Directory
                   </Button>
                 </Group>
@@ -457,7 +385,13 @@ export default function ConfigEditor({
         roots={pickerRoots}
         initialPath={pickerInitialPath}
         onClose={() => setPickerTarget(null)}
-        onSelect={applyPickedPath}
+        onSelect={(path) => {
+          if (!pickerTarget) {
+            return;
+          }
+          setRootMapping(pickerTarget.index, pickerTarget.key, path);
+          setPickerTarget(null);
+        }}
       />
     </Stack>
   );

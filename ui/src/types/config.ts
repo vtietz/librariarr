@@ -17,6 +17,7 @@ export type ConfigModel = {
     sync_enabled: boolean;
     url: string;
     api_key: string;
+    refresh_debounce_seconds: number;
     auto_add_unmatched: boolean;
     auto_add_quality_profile_id: number | null;
     auto_add_search_on_add: boolean;
@@ -31,6 +32,7 @@ export type ConfigModel = {
     sync_enabled: boolean;
     url: string;
     api_key: string;
+    refresh_debounce_seconds: number;
     auto_add_unmatched: boolean;
     auto_add_quality_profile_id: number | null;
     auto_add_language_profile_id: number | null;
@@ -44,7 +46,10 @@ export type ConfigModel = {
   };
   cleanup: {
     remove_orphaned_links: boolean;
+    unmonitor_on_delete: boolean;
+    delete_from_radarr_on_missing: boolean;
     radarr_action_on_missing: string;
+    delete_from_sonarr_on_missing: boolean;
     sonarr_action_on_missing: string;
     missing_grace_seconds: number;
   };
@@ -52,6 +57,18 @@ export type ConfigModel = {
     debounce_seconds: number;
     maintenance_interval_minutes: number;
     arr_root_poll_interval_minutes: number;
+    scan_video_extensions: string[] | null;
+  };
+  analysis: {
+    use_nfo: boolean;
+    use_media_probe: boolean;
+    media_probe_bin: string;
+  };
+  ingest: {
+    enabled: boolean;
+    min_age_seconds: number;
+    collision_policy: "qualify" | "skip";
+    quarantine_root: string;
   };
 };
 
