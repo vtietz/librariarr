@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 
 TITLE_YEAR_RE = re.compile(r"^(?P<title>.+?)\s*\((?P<year>\d{4})\)(?:\s+.*)?$")
+PATH_SEPARATOR_TRANSLATION = str.maketrans({"/": "-", "\\": "-"})
 
 
 @dataclass(frozen=True)
@@ -25,6 +26,10 @@ def canonical_name_from_folder(name: str) -> str:
         return name.strip()
     title, year = parsed
     return f"{title} ({year})"
+
+
+def safe_path_component(name: str) -> str:
+    return name.translate(PATH_SEPARATOR_TRANSLATION).strip()
 
 
 def parse_movie_ref(name: str) -> MovieRef:

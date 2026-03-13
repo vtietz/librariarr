@@ -4,7 +4,7 @@ import logging
 import re
 from pathlib import Path
 
-from .naming import canonical_name_from_folder
+from .naming import canonical_name_from_folder, safe_path_component
 
 NON_ALNUM_RE = re.compile(r"[^a-zA-Z0-9._-]+")
 
@@ -37,13 +37,15 @@ class ShadowLinkManager:
         return link, created
 
     def _safe_link_name(self, folder: Path) -> str:
-        return folder.name.replace("/", "-").strip()
+        return safe_path_component(folder.name)
 
     def _canonical_link_name(self, folder: Path, movie: dict | None) -> str:
         if movie is None:
             return canonical_name_from_folder(self._safe_link_name(folder))
 
-        title = str(movie.get("title") or "").strip() or folder.name
+        title = safe_path_component(str(movie.get("title") or "").strip()) or self._safe_link_name(
+            folder
+        )
         year = movie.get("year")
         if isinstance(year, int):
             return f"{title} ({year})"

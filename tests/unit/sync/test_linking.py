@@ -36,6 +36,22 @@ def test_link_manager_uses_movie_metadata_name(tmp_path: Path) -> None:
     assert link.is_symlink()
 
 
+def test_link_manager_sanitizes_movie_title_path_separators(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    folder = nested_root / "Face Off Source"
+    folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True)
+
+    movie = {"title": "Face/Off\\Redux", "year": 1997}
+    manager = ShadowLinkManager([nested_root])
+
+    link, _ = manager.ensure_link(folder, shadow_root, existing_links=set(), movie=movie)
+
+    assert link.name == "Face-Off-Redux (1997)"
+    assert link.is_symlink()
+
+
 def test_link_manager_qualifies_colliding_names(tmp_path: Path) -> None:
     shadow_root = tmp_path / "radarr_library"
     root_a = tmp_path / "age_12"

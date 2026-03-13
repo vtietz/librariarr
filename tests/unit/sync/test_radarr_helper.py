@@ -228,3 +228,19 @@ def test_resolve_auto_add_profile_does_not_pick_incompatible_sd_profile(tmp_path
     profile_id = helper._resolve_auto_add_quality_profile_id(folder)
 
     assert profile_id == 7
+
+
+def test_canonical_name_from_movie_sanitizes_path_separators(tmp_path: Path) -> None:
+    config = _make_config(tmp_path)
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: FakeRadarr(),
+    )
+
+    canonical_name = helper._canonical_name_from_movie(
+        {"title": "Face/Off\\Redux", "year": 1997},
+        tmp_path / "fallback",
+    )
+
+    assert canonical_name == "Face-Off-Redux (1997)"
