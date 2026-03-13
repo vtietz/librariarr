@@ -23,6 +23,13 @@ SAMPLE_SERIES: list[tuple[str, int]] = [
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
+    if path.is_dir():
+        raise ValueError(
+            f"Config path points to a directory, expected a file: {path}. "
+            "Run './run.sh setup' to create config.yaml from the example."
+        )
+    if not path.exists():
+        raise FileNotFoundError(f"Config file not found at {path}. Run './run.sh setup' first.")
     raw = yaml.safe_load(path.read_text(encoding="utf-8"))
     if isinstance(raw, dict):
         return raw

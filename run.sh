@@ -110,6 +110,7 @@ case "$cmd" in
     compose run --rm "$SERVICE" --config /config/config.yaml --once
     ;;
   test)
+    compose_dev build "$DEV_SERVICE"
     compose_dev run --rm "$DEV_SERVICE" \
       "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
     ;;
@@ -165,6 +166,7 @@ case "$cmd" in
     compose_dev restart "$DEV_SERVICE"
     ;;
   dev-seed)
+    "$0" setup
     compose_dev run --rm --user "0:0" "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.seed && python -m librariarr.dev.media_permissions"
     ;;

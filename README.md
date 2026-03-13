@@ -184,9 +184,16 @@ These `run.sh` wrappers are for contributors and local repository development.
 
 ### Dev GUI + Local Arr Stack
 
+Prerequisites:
+
+- Docker with Compose support (`docker compose` or `docker-compose`)
+- Writable host media root (`MEDIA_ROOT`) for local folder/bootstrap operations
+- A repo-local `config.yaml` file (auto-created by wrappers when missing)
+
 - Create env file: `cp .env.dev.example .env`
 - Start full dev stack: `./run.sh dev-up`
 - One-time/bootstrap only (optional): `./run.sh dev-bootstrap`
+- Seed sample folders/files into configured nested roots (optional): `./run.sh dev-seed`
 - GUI API: `http://localhost:8787`
 - Vite dev UI: `http://localhost:5173`
 - Radarr dev instance: `http://localhost:17878`

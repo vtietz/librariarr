@@ -1,16 +1,20 @@
 from __future__ import annotations
 
+import json
+import os
 import time
 from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..service import LibrariArrService
+from .docker_logs import read_docker_logs, stream_docker_logs
 
 
 class ArrConnectionRequest(BaseModel):
@@ -43,6 +47,45 @@ def _safe_directory_entries(root: Path) -> list[Path]:
 
 def build_operations_router() -> APIRouter:  # noqa: C901
     router = APIRouter()
+
+    @router.get("/api/logs/docker")
+    def docker_logs(
+        container: str | None = Query(default=None),
+        tail: int = Query(default=250, ge=10, le=2000),
+    ) -> dict[str, Any]:
+        selected_container = container or os.getenv(
+            "LIBRARIARR_DOCKER_LOGS_CONTAINER", "librariarr"
+        )
+        items = read_docker_logs(container=selected_container, tail=tail)
+        return {
+            "container": selected_container,
+            "tail": tail,
+            "items": items,
+        }
+
+    @router.get("/api/logs/docker/stream")
+    async def docker_logs_stream(
+        container: str | None = Query(default=None),
+        tail: int = Query(default=0, ge=0, le=2000),
+    ) -> StreamingResponse:
+        selected_container = container or os.getenv(
+            "LIBRARIARR_DOCKER_LOGS_CONTAINER", "librariarr"
+        )
+
+        async def event_stream():
+            async for item in stream_docker_logs(container=selected_container, tail=tail):
+                payload = json.dumps(item, ensure_ascii=False)
+                yield f"data: {payload}\n\n"
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @router.post("/api/radarr/test")
     def test_radarr_connection(payload: ArrConnectionRequest) -> dict[str, Any]:

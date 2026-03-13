@@ -11,6 +11,7 @@ import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import DirectoryMapper from "./components/DirectoryMapper";
+import LogsPanel from "./components/LogsPanel";
 import type { ConfigModel, ConfigResponse, Issue } from "./types/config";
 
 const cloneConfig = (value: ConfigModel): ConfigModel => JSON.parse(JSON.stringify(value));
@@ -145,6 +146,7 @@ export default function App() {
             <Tabs.Tab value="config">Config Editor</Tabs.Tab>
             <Tabs.Tab value="mapper">Directory Mapper</Tabs.Tab>
             <Tabs.Tab value="diagnostics">Diagnostics</Tabs.Tab>
+            <Tabs.Tab value="logs">Logs</Tabs.Tab>
           </Tabs.List>
 
           <Tabs.Panel value="dashboard" pt="md">
@@ -189,6 +191,10 @@ export default function App() {
                 }
               }}
             />
+          </Tabs.Panel>
+
+          <Tabs.Panel value="logs" pt="md">
+            <LogsPanel />
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

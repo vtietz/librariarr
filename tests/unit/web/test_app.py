@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -294,3 +295,81 @@ def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
     assert len(payload["items"]) == 1
     assert payload["items"][0]["virtual_path"] == str(shadow_link)
     assert payload["items"][0]["real_path"] == str(movie_dir)
+
+
+def test_docker_logs_endpoint_returns_newest_first(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    def _stub_run(*_args, **_kwargs):
+        return subprocess.CompletedProcess(
+            args=["docker", "logs"],
+            returncode=0,
+            stdout="2026-03-13 INFO Started\n2026-03-13 ERROR Failed\n",
+            stderr="",
+        )
+
+    monkeypatch.setattr("librariarr.web.docker_logs.subprocess.run", _stub_run)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/logs/docker", params={"container": "librariarr", "tail": 20})
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["container"] == "librariarr"
+    assert payload["items"][0]["line"].endswith("ERROR Failed")
+    assert payload["items"][0]["level"] == "ERROR"
+    assert payload["items"][1]["level"] == "INFO"
+
+
+def test_docker_logs_endpoint_rejects_invalid_container_name(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/logs/docker", params={"container": "bad;name", "tail": 20})
+
+    assert response.status_code == 400
+
+
+def test_docker_logs_stream_endpoint_emits_sse(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    async def _stub_stream_docker_logs(*_args, **_kwargs):
+        yield {"line": "INFO started", "level": "INFO"}
+
+    monkeypatch.setattr("librariarr.web.operations.stream_docker_logs", _stub_stream_docker_logs)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    with client.stream(
+        "GET",
+        "/api/logs/docker/stream",
+        params={"container": "librariarr", "tail": 0},
+    ) as r:
+        first_line = next(r.iter_lines())
+
+    assert r.status_code == 200
+    assert first_line.startswith("data: ")
+    assert "INFO started" in first_line
