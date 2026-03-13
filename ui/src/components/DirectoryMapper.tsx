@@ -1,5 +1,6 @@
 import {
   Badge,
+  Button,
   Card,
   Group,
   Select,
@@ -9,7 +10,7 @@ import {
   TextInput,
   Title
 } from "@mantine/core";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getMappedDirectories } from "../api/client";
 
 type MappedDirectory = {
@@ -25,27 +26,54 @@ export default function DirectoryMapper() {
   const [mappedRootFilter, setMappedRootFilter] = useState<string>("all");
   const [mappedRoots, setMappedRoots] = useState<string[]>([]);
   const [mappedTruncated, setMappedTruncated] = useState(false);
+  const [isReloading, setIsReloading] = useState(false);
 
-  const loadMappedDirectories = async (search: string, rootFilter: string) => {
-    const result = await getMappedDirectories({
-      search: search || undefined,
-      shadowRoot: rootFilter === "all" ? undefined : rootFilter,
-      limit: 1000
-    });
-    setMappedDirectories(result.items);
-    setMappedRoots(result.shadow_roots);
-    setMappedTruncated(result.truncated);
-  };
-
-  useEffect(() => {
-    void (async () => {
-      await loadMappedDirectories("", "all");
-    })();
+  const loadMappedDirectories = useCallback(async () => {
+    setIsReloading(true);
+    try {
+      const result = await getMappedDirectories({
+        limit: 5000
+      });
+      const sortedItems = [...result.items].sort((left, right) => {
+        const rootCompare = left.shadow_root.localeCompare(right.shadow_root);
+        if (rootCompare !== 0) {
+          return rootCompare;
+        }
+        const virtualCompare = left.virtual_path.localeCompare(right.virtual_path);
+        if (virtualCompare !== 0) {
+          return virtualCompare;
+        }
+        return left.real_path.localeCompare(right.real_path);
+      });
+      setMappedDirectories(sortedItems);
+      setMappedRoots([...result.shadow_roots].sort((left, right) => left.localeCompare(right)));
+      setMappedTruncated(result.truncated);
+    } finally {
+      setIsReloading(false);
+    }
   }, []);
 
   useEffect(() => {
-    void loadMappedDirectories(mappedSearch, mappedRootFilter);
-  }, [mappedSearch, mappedRootFilter]);
+    void (async () => {
+      await loadMappedDirectories();
+    })();
+  }, [loadMappedDirectories]);
+
+  const filteredMappedDirectories = useMemo(() => {
+    const loweredSearch = mappedSearch.trim().toLowerCase();
+    return mappedDirectories.filter((mapped) => {
+      if (mappedRootFilter !== "all" && mapped.shadow_root !== mappedRootFilter) {
+        return false;
+      }
+      if (!loweredSearch) {
+        return true;
+      }
+      return (
+        mapped.virtual_path.toLowerCase().includes(loweredSearch) ||
+        mapped.real_path.toLowerCase().includes(loweredSearch)
+      );
+    });
+  }, [mappedDirectories, mappedRootFilter, mappedSearch]);
 
   const mappedRootOptions = useMemo(
     () => [
@@ -63,7 +91,12 @@ export default function DirectoryMapper() {
         <Stack>
           <Group justify="space-between">
             <Text fw={600}>Mapped Directories (Virtual vs Real)</Text>
-            <Badge color="blue">{mappedDirectories.length}</Badge>
+            <Group gap="sm">
+              <Badge color="blue">{filteredMappedDirectories.length}</Badge>
+              <Button variant="light" onClick={() => void loadMappedDirectories()} loading={isReloading}>
+                Reload
+              </Button>
+            </Group>
           </Group>
 
           <Group grow>
@@ -91,8 +124,8 @@ export default function DirectoryMapper() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {mappedDirectories.map((mapped) => (
-                <Table.Tr key={mapped.virtual_path}>
+              {filteredMappedDirectories.map((mapped) => (
+                <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
                   <Table.Td>{mapped.shadow_root}</Table.Td>
                   <Table.Td>{mapped.virtual_path}</Table.Td>
                   <Table.Td>{mapped.real_path}</Table.Td>
@@ -108,7 +141,7 @@ export default function DirectoryMapper() {
 
           {mappedTruncated ? (
             <Text size="sm" c="dimmed">
-              Results truncated to 1000 entries. Narrow with search or shadow root filter.
+              Results truncated to 5000 entries. Click Reload to refresh and then filter locally.
             </Text>
           ) : null}
         </Stack>
