@@ -111,8 +111,11 @@ export default function DirectoryMapper() {
           <Group justify="space-between">
             <Text fw={600}>Mapped Directories (Virtual vs Real)</Text>
             <Group gap="sm">
-              <Badge color="blue">{filteredMappedDirectories.length}</Badge>
-              <Button variant="light" onClick={() => void loadMappedDirectories()} loading={isReloading}>
+              <Text size="sm" c="dimmed">
+                Showing {filteredMappedDirectories.length} of {mappedDirectories.length}
+                {mappedTruncated ? " (list truncated)" : ""}
+              </Text>
+              <Button variant="light" size="xs" onClick={() => void loadMappedDirectories()} loading={isReloading}>
                 Reload
               </Button>
             </Group>
@@ -157,12 +160,6 @@ export default function DirectoryMapper() {
               ))}
             </Table.Tbody>
           </Table>
-
-          {mappedTruncated ? (
-            <Text size="sm" c="dimmed">
-              Results truncated to 5000 entries. Click Reload to refresh and then filter locally.
-            </Text>
-          ) : null}
         </Stack>
       </Card>
     </Stack>

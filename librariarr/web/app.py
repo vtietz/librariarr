@@ -25,6 +25,7 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..quality import VIDEO_EXTENSIONS
 from ..sync.discovery import discover_movie_folders, discover_series_folders
+from .log_buffer import install_log_buffer
 from .operations import build_operations_router
 from .runtime_supervisor import RuntimeSupervisor
 
@@ -337,6 +338,7 @@ def create_app(  # noqa: C901
         config_path = os.getenv("LIBRARIARR_CONFIG_PATH", "/config/config.yaml")
 
     app = FastAPI(title="LibrariArr Web API", version="0.1.0")
+    install_log_buffer()
     state = WebState(config_path=Path(config_path), runtime_supervisor=runtime_supervisor)
     app.state.web = state
     app.include_router(build_operations_router())

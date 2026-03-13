@@ -1,9 +1,10 @@
-import subprocess
+import logging
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from librariarr.web import create_app
+from librariarr.web.log_buffer import LogRingBuffer
 from librariarr.web.runtime_supervisor import RuntimeSupervisor
 
 
@@ -321,7 +322,7 @@ def test_mapped_directories_stream_endpoint_emits_sse(tmp_path: Path) -> None:
     assert '"changed": false' in first_line
 
 
-def test_docker_logs_endpoint_returns_newest_first(tmp_path: Path, monkeypatch) -> None:
+def test_app_logs_endpoint_returns_entries(tmp_path: Path, monkeypatch) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
     nested_root.mkdir()
@@ -330,30 +331,29 @@ def test_docker_logs_endpoint_returns_newest_first(tmp_path: Path, monkeypatch) 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, nested_root, shadow_root)
 
-    def _stub_run(*_args, **_kwargs):
-        return subprocess.CompletedProcess(
-            args=["docker", "logs"],
-            returncode=0,
-            stdout="2026-03-13 INFO Started\n2026-03-13 ERROR Failed\n",
-            stderr="",
-        )
+    buf = LogRingBuffer(maxlen=100)
+    buf.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
+    monkeypatch.setattr("librariarr.web.operations.get_log_buffer", lambda: buf)
 
-    monkeypatch.setattr("librariarr.web.docker_logs.subprocess.run", _stub_run)
+    logger = logging.getLogger("test.logs")
+    logger.addHandler(buf)
+    logger.setLevel(logging.DEBUG)
+    logger.info("Started")
+    logger.error("Failed")
 
     app = create_app(config_path=config_path)
     client = TestClient(app)
 
-    response = client.get("/api/logs/docker", params={"container": "librariarr", "tail": 20})
+    response = client.get("/api/logs", params={"tail": 20})
 
     assert response.status_code == 200
     payload = response.json()
-    assert payload["container"] == "librariarr"
-    assert payload["items"][0]["line"].endswith("ERROR Failed")
     assert payload["items"][0]["level"] == "ERROR"
     assert payload["items"][1]["level"] == "INFO"
+    logger.removeHandler(buf)
 
 
-def test_docker_logs_endpoint_rejects_invalid_container_name(tmp_path: Path) -> None:
+def test_app_logs_stream_endpoint_emits_sse(tmp_path: Path, monkeypatch) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
     nested_root.mkdir()
@@ -362,38 +362,22 @@ def test_docker_logs_endpoint_rejects_invalid_container_name(tmp_path: Path) -> 
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, nested_root, shadow_root)
 
-    app = create_app(config_path=config_path)
-    client = TestClient(app)
+    buf = LogRingBuffer(maxlen=100)
+    buf.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
+    monkeypatch.setattr("librariarr.web.operations.get_log_buffer", lambda: buf)
 
-    response = client.get("/api/logs/docker", params={"container": "bad;name", "tail": 20})
-
-    assert response.status_code == 400
-
-
-def test_docker_logs_stream_endpoint_emits_sse(tmp_path: Path, monkeypatch) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "shadow"
-    nested_root.mkdir()
-    shadow_root.mkdir()
-
-    config_path = tmp_path / "config.yaml"
-    _write_config(config_path, nested_root, shadow_root)
-
-    async def _stub_stream_docker_logs(*_args, **_kwargs):
-        yield {"line": "INFO started", "level": "INFO"}
-
-    monkeypatch.setattr("librariarr.web.operations.stream_docker_logs", _stub_stream_docker_logs)
+    logger = logging.getLogger("test.stream")
+    logger.addHandler(buf)
+    logger.setLevel(logging.DEBUG)
+    logger.info("stream test line")
 
     app = create_app(config_path=config_path)
     client = TestClient(app)
 
-    with client.stream(
-        "GET",
-        "/api/logs/docker/stream",
-        params={"container": "librariarr", "tail": 0},
-    ) as r:
+    with client.stream("GET", "/api/logs/stream", params={"max_events": 1}) as r:
         first_line = next(r.iter_lines())
 
     assert r.status_code == 200
     assert first_line.startswith("data: ")
-    assert "INFO started" in first_line
+    assert '"connected": true' in first_line
+    logger.removeHandler(buf)

@@ -16,7 +16,7 @@ from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..service import LibrariArrService
-from .docker_logs import read_docker_logs, stream_docker_logs
+from .log_buffer import get_log_buffer
 
 
 class ArrConnectionRequest(BaseModel):
@@ -74,34 +74,53 @@ def _mapped_directories_fingerprint(roots: list[Path]) -> str:
 def build_operations_router() -> APIRouter:  # noqa: C901
     router = APIRouter()
 
-    @router.get("/api/logs/docker")
-    def docker_logs(
-        container: str | None = Query(default=None),
+    @router.get("/api/logs")
+    def app_logs(
         tail: int = Query(default=250, ge=10, le=2000),
     ) -> dict[str, Any]:
-        selected_container = container or os.getenv(
-            "LIBRARIARR_DOCKER_LOGS_CONTAINER", "librariarr"
-        )
-        items = read_docker_logs(container=selected_container, tail=tail)
-        return {
-            "container": selected_container,
-            "tail": tail,
-            "items": items,
-        }
+        buf = get_log_buffer()
+        if buf is None:
+            return {"tail": tail, "items": []}
+        return {"tail": tail, "items": buf.get_entries(tail=tail)}
 
-    @router.get("/api/logs/docker/stream")
-    async def docker_logs_stream(
-        container: str | None = Query(default=None),
-        tail: int = Query(default=0, ge=0, le=2000),
+    @router.get("/api/logs/stream")
+    async def app_logs_stream(
+        request: Request,
+        max_events: int = Query(default=0, ge=0),
     ) -> StreamingResponse:
-        selected_container = container or os.getenv(
-            "LIBRARIARR_DOCKER_LOGS_CONTAINER", "librariarr"
-        )
+        buf = get_log_buffer()
 
         async def event_stream():
-            async for item in stream_docker_logs(container=selected_container, tail=tail):
-                payload = json.dumps(item, ensure_ascii=False)
-                yield f"data: {payload}\n\n"
+            if buf is None:
+                return
+            last_seq = buf.sequence
+            connected_payload = json.dumps(
+                {"connected": True, "buffered": len(buf.get_entries(tail=0))},
+                ensure_ascii=False,
+            )
+            yield f"data: {connected_payload}\n\n"
+            event_count = 1
+            if max_events > 0 and event_count >= max_events:
+                return
+            while True:
+                if await request.is_disconnected():
+                    break
+                entries = buf.get_entries(tail=50)
+                new_entries = [e for e in entries if int(e["seq"]) > last_seq]
+                if new_entries:
+                    new_entries.reverse()
+                    for entry in new_entries:
+                        payload = json.dumps(entry, ensure_ascii=False)
+                        yield f"data: {payload}\n\n"
+                        event_count += 1
+                        seq_val = int(entry["seq"])
+                        if seq_val > last_seq:
+                            last_seq = seq_val
+                        if max_events > 0 and event_count >= max_events:
+                            return
+                else:
+                    yield ": keepalive\n\n"
+                await asyncio.sleep(0.5)
 
         return StreamingResponse(
             event_stream(),

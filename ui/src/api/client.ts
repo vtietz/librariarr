@@ -156,33 +156,24 @@ export const runReconcileNow = async () => {
   return data;
 };
 
-export type DockerLogItem = {
+export type LogItem = {
   line: string;
   level: string;
+  seq: string;
 };
 
-export const getDockerLogs = async (params?: { container?: string; tail?: number }) => {
+export const getAppLogs = async (params?: { tail?: number }) => {
   const { data } = await api.get<{
-    container: string;
     tail: number;
-    items: DockerLogItem[];
-  }>("/logs/docker", {
+    items: LogItem[];
+  }>("/logs", {
     params: {
-      container: params?.container,
       tail: params?.tail
     }
   });
   return data;
 };
 
-export const getDockerLogStreamUrl = (params?: { container?: string; tail?: number }) => {
-  const search = new URLSearchParams();
-  if (params?.container) {
-    search.set("container", params.container);
-  }
-  if (typeof params?.tail === "number") {
-    search.set("tail", String(params.tail));
-  }
-  const query = search.toString();
-  return query ? `/api/logs/docker/stream?${query}` : "/api/logs/docker/stream";
+export const getAppLogStreamUrl = () => {
+  return "/api/logs/stream";
 };
