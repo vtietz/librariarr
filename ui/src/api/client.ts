@@ -257,13 +257,15 @@ export const runReconcileNow = async () => {
 export type JobRecord = {
   job_id: string;
   kind: string;
-  status: "queued" | "running" | "succeeded" | "failed";
+  status: "queued" | "running" | "succeeded" | "failed" | "canceled";
   queued_at: number;
   started_at: number | null;
   finished_at: number | null;
   updated_at: number;
   error: string | null;
   result: unknown;
+  cancel_requested?: boolean;
+  cancel_requested_at?: number | null;
   payload?: Record<string, unknown>;
 };
 
@@ -273,6 +275,7 @@ export type JobsSummary = {
   active: number;
   succeeded: number;
   failed: number;
+  canceled?: number;
   latest_finished: JobRecord | null;
   updated_at: number;
 };
@@ -309,6 +312,16 @@ export const getJobs = async (params?: { limit?: number; status?: string }) => {
   return data.items;
 };
 
+export const cancelJob = async (jobId: string) => {
+  const { data } = await api.post<{
+    ok: boolean;
+    job_id: string;
+    status: string;
+    message: string;
+  }>(`/jobs/${jobId}/cancel`);
+  return data;
+};
+
 export const waitForJob = async (
   jobId: string,
   options?: { intervalMs?: number; timeoutMs?: number }
@@ -319,7 +332,7 @@ export const waitForJob = async (
 
   while (true) {
     const job = await getJob(jobId);
-    if (job.status === "succeeded" || job.status === "failed") {
+    if (job.status === "succeeded" || job.status === "failed" || job.status === "canceled") {
       return job;
     }
     if (Date.now() - startedAt > timeoutMs) {
@@ -332,6 +345,9 @@ export const waitForJob = async (
 };
 
 const parseJobResult = <T>(job: JobRecord): T => {
+  if (job.status === "canceled") {
+    throw new Error(job.error ?? "Background job was canceled.");
+  }
   if (job.status === "failed") {
     throw new Error(job.error ?? "Background job failed.");
   }

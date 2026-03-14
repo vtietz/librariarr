@@ -507,6 +507,14 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             raise HTTPException(status_code=404, detail="Job not found")
         return item
 
+    @router.post("/api/jobs/{job_id}/cancel")
+    def jobs_cancel(job_id: str, request: Request) -> dict[str, Any]:
+        manager = _job_manager_or_http(request)
+        result = manager.cancel(job_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return result
+
     @router.get("/api/runtime/status")
     def runtime_status_endpoint(request: Request) -> dict[str, Any]:
         payload = runtime_status.snapshot()

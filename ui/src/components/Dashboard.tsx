@@ -1,7 +1,7 @@
-import { Badge, Card, Group, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import { Badge, Button, Card, Group, Loader, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
-import { getDiscoveryWarnings } from "../api/client";
-import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
+import { cancelJob, getDiscoveryWarnings, getJobs } from "../api/client";
+import type { JobRecord, JobsSummary, RuntimeStatusResponse } from "../api/client";
 
 type Status = "idle" | "ok" | "warning" | "disabled";
 
@@ -32,6 +32,9 @@ export default function Dashboard({
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
+  const [recentJobs, setRecentJobs] = useState<JobRecord[]>([]);
+  const [loadingJobs, setLoadingJobs] = useState(false);
+  const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -60,6 +63,38 @@ export default function Dashboard({
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+
+    const loadJobs = async () => {
+      setLoadingJobs(true);
+      try {
+        const items = await getJobs({ limit: 12 });
+        if (active) {
+          setRecentJobs(items);
+        }
+      } catch {
+        if (active) {
+          setRecentJobs([]);
+        }
+      } finally {
+        if (active) {
+          setLoadingJobs(false);
+        }
+      }
+    };
+
+    void loadJobs();
+    const interval = window.setInterval(() => {
+      void loadJobs();
+    }, 2000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
   const excludedCandidates = discoveryWarnings?.summary.excluded_movie_candidates ?? 0;
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
   const hasDiscoveryWarnings = excludedCandidates > 0 || duplicateCandidates > 0;
@@ -76,6 +111,61 @@ export default function Dashboard({
   const activeJobs = jobsSummary?.active ?? 0;
   const latestFinishedJob = jobsSummary?.latest_finished;
   const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
+
+  const formatAge = (timestamp: number | null | undefined) => {
+    if (typeof timestamp !== "number") {
+      return "-";
+    }
+    const seconds = Math.max(0, Math.round(Date.now() / 1000 - timestamp));
+    if (seconds < 60) {
+      return `${seconds}s ago`;
+    }
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) {
+      return `${minutes}m ago`;
+    }
+    const hours = Math.floor(minutes / 60);
+    return `${hours}h ago`;
+  };
+
+  const formatDuration = (job: JobRecord) => {
+    if (typeof job.started_at !== "number") {
+      return "-";
+    }
+    const end = typeof job.finished_at === "number" ? job.finished_at : Date.now() / 1000;
+    return `${Math.max(0, (end - job.started_at)).toFixed(1)}s`;
+  };
+
+  const badgeForJob = (job: JobRecord) => {
+    if (job.status === "succeeded") {
+      return "green";
+    }
+    if (job.status === "failed") {
+      return "red";
+    }
+    if (job.status === "canceled") {
+      return "gray";
+    }
+    if (job.status === "running") {
+      return "blue";
+    }
+    return "yellow";
+  };
+
+  const canCancel = (job: JobRecord) => job.status === "queued" || job.status === "running";
+
+  const handleCancel = async (jobId: string) => {
+    setCancelingJobId(jobId);
+    try {
+      await cancelJob(jobId);
+      const items = await getJobs({ limit: 12 });
+      setRecentJobs(items);
+    } catch (error) {
+      console.error("[Dashboard] Failed to cancel job", jobId, error);
+    } finally {
+      setCancelingJobId(null);
+    }
+  };
 
   return (
     <Stack>
@@ -177,6 +267,66 @@ export default function Dashboard({
         <Text c="dimmed" size="sm">
           {lastDryRunSummary || "No dry-run executed yet."}
         </Text>
+      </Card>
+
+      <Card withBorder>
+        <Group justify="space-between" mb="xs">
+          <Text fw={600}>Recent Jobs</Text>
+          {loadingJobs ? <Loader size="xs" /> : <Text size="xs" c="dimmed">live</Text>}
+        </Group>
+        {recentJobs.length === 0 ? (
+          <Text size="sm" c="dimmed">
+            No jobs yet.
+          </Text>
+        ) : (
+          <ScrollArea>
+            <Table highlightOnHover withTableBorder withColumnBorders>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>Type</Table.Th>
+                  <Table.Th>Status</Table.Th>
+                  <Table.Th>Queued</Table.Th>
+                  <Table.Th>Duration</Table.Th>
+                  <Table.Th>Error</Table.Th>
+                  <Table.Th>Action</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {recentJobs.map((job) => (
+                  <Table.Tr key={job.job_id}>
+                    <Table.Td>{job.kind}</Table.Td>
+                    <Table.Td>
+                      <Badge color={badgeForJob(job)}>{job.status}</Badge>
+                    </Table.Td>
+                    <Table.Td>{formatAge(job.queued_at)}</Table.Td>
+                    <Table.Td>{formatDuration(job)}</Table.Td>
+                    <Table.Td>
+                      <Text size="xs" c="dimmed" lineClamp={1}>
+                        {job.error ?? "-"}
+                      </Text>
+                    </Table.Td>
+                    <Table.Td>
+                      {canCancel(job) ? (
+                        <Button
+                          size="compact-xs"
+                          color="red"
+                          variant="light"
+                          loading={cancelingJobId === job.job_id}
+                          disabled={Boolean(job.cancel_requested)}
+                          onClick={() => void handleCancel(job.job_id)}
+                        >
+                          {job.cancel_requested ? "Cancel Requested" : "Cancel"}
+                        </Button>
+                      ) : (
+                        <Text size="xs" c="dimmed">-</Text>
+                      )}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+        )}
       </Card>
     </Stack>
   );

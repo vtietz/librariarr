@@ -69,6 +69,8 @@ class JobManager:
             "updated_at": now,
             "error": None,
             "result": None,
+            "cancel_requested": False,
+            "cancel_requested_at": None,
             "payload": payload or {},
         }
         with self._lock:
@@ -85,6 +87,47 @@ class JobManager:
                 return None
             return dict(item)
 
+    def cancel(self, job_id: str) -> dict[str, Any] | None:
+        now = time.time()
+        with self._lock:
+            item = self._jobs.get(job_id)
+            if item is None:
+                return None
+
+            state = str(item.get("status") or "")
+            if state in {"succeeded", "failed", "canceled"}:
+                return {
+                    "ok": False,
+                    "job_id": job_id,
+                    "status": state,
+                    "message": f"Job is already {state}.",
+                }
+
+            if state == "queued":
+                item["status"] = "canceled"
+                item["updated_at"] = now
+                item["finished_at"] = now
+                item["error"] = "Canceled by user."
+                item["result"] = None
+                item["cancel_requested"] = True
+                item["cancel_requested_at"] = now
+                return {
+                    "ok": True,
+                    "job_id": job_id,
+                    "status": "canceled",
+                    "message": "Queued job canceled.",
+                }
+
+            item["cancel_requested"] = True
+            item["cancel_requested_at"] = now
+            item["updated_at"] = now
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "status": state,
+                "message": "Cancellation requested for running job.",
+            }
+
     def list(self, *, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             ordered = [
@@ -100,6 +143,7 @@ class JobManager:
             running = 0
             succeeded = 0
             failed = 0
+            canceled = 0
             latest_finished: dict[str, Any] | None = None
 
             for item in self._jobs.values():
@@ -112,6 +156,8 @@ class JobManager:
                     succeeded += 1
                 elif state == "failed":
                     failed += 1
+                elif state == "canceled":
+                    canceled += 1
 
                 finished_at = item.get("finished_at")
                 if finished_at is None:
@@ -127,6 +173,7 @@ class JobManager:
                 "active": queued + running,
                 "succeeded": succeeded,
                 "failed": failed,
+                "canceled": canceled,
                 "latest_finished": dict(latest_finished) if latest_finished is not None else None,
                 "updated_at": time.time(),
             }
@@ -136,6 +183,14 @@ class JobManager:
             queued_job = self._queue.get()
             if queued_job.job_id == "__stop__":
                 continue
+
+            with self._lock:
+                item = self._jobs.get(queued_job.job_id)
+                if item is None:
+                    continue
+                if item.get("status") == "canceled":
+                    continue
+
             self._mark_running(queued_job.job_id)
             try:
                 result = queued_job.func()
