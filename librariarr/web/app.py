@@ -293,7 +293,6 @@ def create_app(  # noqa: C901
     @app.put("/api/config")
     def put_config(request: ConfigPayload) -> dict[str, Any]:
         LOG.info("Config save requested")
-        runtime_restarted = False
         with state.lock:
             disk_yaml = _load_disk_yaml(state.config_path)
             try:
@@ -339,22 +338,18 @@ def create_app(  # noqa: C901
             state.draft_yaml = None
             LOG.info("Config saved to %s (backup written)", state.config_path)
 
-        if state.runtime_supervisor is not None:
-            LOG.info("Scheduling background runtime restart after config save")
-            threading.Thread(
-                target=state.runtime_supervisor.restart_for_config_change,
-                args=("config updated via API",),
-                daemon=True,
-                name="config-save-restart",
-            ).start()
-            runtime_restarted = True
+        # The RuntimeSupervisor config-watch loop detects the mtime change
+        # and triggers a restart automatically — no explicit restart needed.
+        runtime_will_restart = state.runtime_supervisor is not None
+        if runtime_will_restart:
+            LOG.info("Config file written; runtime config-watcher will pick up the change")
 
         return {
             "saved": True,
             "issues": [],
             "checksum": _checksum(candidate_yaml),
-            "runtime_restart_recommended": not runtime_restarted,
-            "runtime_restarted": runtime_restarted,
+            "runtime_restart_recommended": not runtime_will_restart,
+            "runtime_restarted": runtime_will_restart,
             "config": _serialize_config(config, include_secrets=False),
         }
 
@@ -428,7 +423,7 @@ def create_app(  # noqa: C901
         if not config.radarr.enabled:
             return {"enabled": False, "items": [], "error": None}
 
-        client = RadarrClient(config.radarr.url, config.radarr.api_key)
+        client = RadarrClient(config.radarr.url, config.radarr.api_key, timeout=5)
         try:
             items = fetch(client)
             count = len(items) if isinstance(items, list) else 0
@@ -443,7 +438,7 @@ def create_app(  # noqa: C901
         if not config.sonarr.enabled:
             return {"enabled": False, "items": [], "error": None}
 
-        client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
+        client = SonarrClient(config.sonarr.url, config.sonarr.api_key, timeout=5)
         try:
             items = fetch(client)
             count = len(items) if isinstance(items, list) else 0

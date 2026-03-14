@@ -3,8 +3,11 @@ import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/con
 
 const api = axios.create({
   baseURL: "/api",
-  timeout: 20000
+  timeout: 10000
 });
+
+/** Short timeout for Arr metadata proxy calls (tags, profiles, etc.). */
+const ARR_METADATA_TIMEOUT = 6000;
 
 api.interceptors.response.use(
   (response) => {
@@ -48,7 +51,9 @@ export const validateConfig = async (config: ConfigModel) => {
 };
 
 export const saveConfig = async (config: ConfigModel) => {
-  const { data } = await api.put<ValidateResponse>("/config", { config });
+  const { data } = await api.put<ValidateResponse>("/config", { config }, {
+    timeout: 15000
+  });
   return data;
 };
 
@@ -134,35 +139,40 @@ export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
 
 export const getRadarrProfiles = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
-    "/radarr/quality-profiles"
+    "/radarr/quality-profiles",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data.items;
 };
 
 export const getRadarrQualityDefinitions = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name?: string }> }>(
-    "/radarr/quality-definitions"
+    "/radarr/quality-definitions",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data.items;
 };
 
 export const getRadarrCustomFormats = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
-    "/radarr/custom-formats"
+    "/radarr/custom-formats",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data.items;
 };
 
 export const getRadarrTags = async () => {
   const { data } = await api.get<{ items: Array<{ id?: number; label?: string }> }>(
-    "/radarr/tags"
+    "/radarr/tags",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data.items;
 };
 
 export const getSonarrProfiles = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
-    "/sonarr/quality-profiles"
+    "/sonarr/quality-profiles",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data.items;
 };
@@ -173,25 +183,33 @@ export const getSonarrLanguageProfiles = async () => {
     items: Array<{ id: number; name: string }>;
     error: string | null;
   }>(
-    "/sonarr/language-profiles"
+    "/sonarr/language-profiles",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data;
 };
 
 export const getSonarrTags = async () => {
   const { data } = await api.get<{ items: Array<{ id?: number; label?: string }> }>(
-    "/sonarr/tags"
+    "/sonarr/tags",
+    { timeout: ARR_METADATA_TIMEOUT }
   );
   return data.items;
 };
 
 export const getRadarrRootFolders = async () => {
-  const { data } = await api.get<{ items: Array<{ path: string }> }>("/radarr/root-folders");
+  const { data } = await api.get<{ items: Array<{ path: string }> }>(
+    "/radarr/root-folders",
+    { timeout: ARR_METADATA_TIMEOUT }
+  );
   return data.items;
 };
 
 export const getSonarrRootFolders = async () => {
-  const { data } = await api.get<{ items: Array<{ path: string }> }>("/sonarr/root-folders");
+  const { data } = await api.get<{ items: Array<{ path: string }> }>(
+    "/sonarr/root-folders",
+    { timeout: ARR_METADATA_TIMEOUT }
+  );
   return data.items;
 };
 

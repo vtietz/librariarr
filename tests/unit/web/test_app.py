@@ -211,12 +211,13 @@ def test_put_config_restarts_runtime_when_supervisor_present(tmp_path: Path) -> 
     assert response.status_code == 200
     payload = response.json()
     assert payload["saved"] is True
+    # Config save no longer triggers an explicit restart — the
+    # RuntimeSupervisor config-watcher detects the mtime change and restarts
+    # automatically.  The response signals that a supervisor is present.
     assert payload["runtime_restarted"] is True
     assert payload["runtime_restart_recommended"] is False
-    deadline = time.time() + 2
-    while time.time() < deadline and runtime_supervisor.reasons != ["config updated via API"]:
-        time.sleep(0.05)
-    assert runtime_supervisor.reasons == ["config updated via API"]
+    # No explicit restart_for_config_change call; the watcher handles it.
+    assert runtime_supervisor.reasons == []
 
 
 def test_fs_ls_rejects_outside_allowed_paths(tmp_path: Path) -> None:
