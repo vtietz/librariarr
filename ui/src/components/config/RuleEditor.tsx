@@ -62,12 +62,12 @@ export default function RuleEditor<T extends RuleRow>({
     <Stack gap="xs">
       <Group justify="space-between" mt="xs">
         <Title order={5}>{title}</Title>
-        <Button variant="light" onClick={onAdd}>
+        <Button variant="light" size="xs" onClick={onAdd}>
           Add Rule
         </Button>
       </Group>
-      <Card withBorder p="sm">
-        <Table verticalSpacing="xs" horizontalSpacing="sm" layout="fixed">
+      <Card withBorder p="xs">
+        <Table verticalSpacing={6} horizontalSpacing="xs" layout="fixed">
           <Table.Thead>
             <Table.Tr>
               <Table.Th>Match Tags</Table.Th>
@@ -99,16 +99,12 @@ export default function RuleEditor<T extends RuleRow>({
                         label: `${currentId} (configured, unavailable)`
                       }
                     ];
-                const currentOptionLabel =
-                  mappedIdOptions.find((item) => item.value === currentIdValue)?.label ?? currentIdValue;
-                const idName = currentOptionLabel.startsWith(`${currentIdValue} - `)
-                  ? currentOptionLabel.slice(currentIdValue.length + 3)
-                  : currentOptionLabel;
 
                 return (
                   <Table.Tr key={`${keyPrefix}-${index}`}>
                     <Table.Td>
                       <MultiSelect
+                        size="sm"
                         aria-label="Match Tags"
                         placeholder={mergedTagOptions.length > 0 ? "Select tags" : "No tags available"}
                         data={mergedTagOptions}
@@ -120,28 +116,24 @@ export default function RuleEditor<T extends RuleRow>({
                       />
                     </Table.Td>
                     <Table.Td>
-                      <Group gap="xs" wrap="nowrap" align="center">
-                        <Select
-                          aria-label={idLabel}
-                          data={mappedIdOptions}
-                          value={currentIdValue}
-                          searchable
-                          nothingFoundMessage="No values"
-                          style={{ flex: 1 }}
-                          onChange={(value) => {
-                            const parsed = Number(value);
-                            if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
-                              onIdChange(index, parsed);
-                            }
-                          }}
-                        />
-                        <Text size="xs" c="dimmed" style={{ whiteSpace: "nowrap" }}>
-                          {idName}
-                        </Text>
-                      </Group>
+                      <Select
+                        size="sm"
+                        aria-label={idLabel}
+                        data={mappedIdOptions}
+                        value={currentIdValue}
+                        searchable
+                        nothingFoundMessage="No values"
+                        onChange={(value) => {
+                          const parsed = Number(value);
+                          if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+                            onIdChange(index, parsed);
+                          }
+                        }}
+                      />
                     </Table.Td>
                     <Table.Td>
                       <TextInput
+                        size="sm"
                         aria-label="Name"
                         value={row.name}
                         onChange={(event) => onNameChange(index, event.currentTarget.value)}
@@ -149,6 +141,7 @@ export default function RuleEditor<T extends RuleRow>({
                     </Table.Td>
                     <Table.Td>
                       <ActionIcon
+                        size="sm"
                         color="red"
                         variant="subtle"
                         aria-label="Remove rule"

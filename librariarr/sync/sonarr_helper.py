@@ -196,7 +196,7 @@ class SonarrSyncHelper:
                 season_folder=self.config.sonarr.auto_add_season_folder,
                 search_for_missing_episodes=self.config.sonarr.auto_add_search_on_add,
             )
-        except requests.HTTPError as exc:
+        except requests.RequestException as exc:
             self.log.warning(
                 "Sonarr auto-add failed for folder=%s canonical=%s profile_id=%s: %s",
                 folder,

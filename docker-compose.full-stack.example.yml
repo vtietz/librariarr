@@ -1,37 +1,32 @@
-# Example full media stack using one shared media root mount.
-# Copy and adapt for your environment.
-# This file is intentionally not used by run.sh wrappers.
-
 services:
-  # gluetun:
-  #   image: qmcgaw/gluetun:latest
-  #   container_name: gluetun
-  #   cap_add:
-  #     - NET_ADMIN
-  #   devices:
-  #     - /dev/net/tun:/dev/net/tun
-  #   env_file: .env
-  #   environment:
-  #     - OPENVPN_CUSTOM_CONFIG=/gluetun/${OPENVPN_CUSTOM_CONFIG}
-  #     - FIREWALL_INPUT_PORTS=${HOST_PORT_SABNZBD}
-  #   volumes:
-  #     - ${CONFIG_ROOT}/gluetun:/gluetun
-  #   ports:
-  #     - "${HOST_PORT_SABNZBD}:8080"
-  #   restart: unless-stopped
+  gluetun:
+    image: qmcgaw/gluetun:latest
+    container_name: gluetun
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    env_file: .env
+    environment:
+      - FIREWALL_INPUT_PORTS=${HOST_PORT_SABNZBD}
+    volumes:
+      - ${CONFIG_ROOT}/gluetun:/gluetun
+    ports:
+      - "${HOST_PORT_SABNZBD:-8080}:8080"   # Maps your custom port to internal 8080
+    restart: unless-stopped
 
   sabnzbd:
     image: lscr.io/linuxserver/sabnzbd:latest
     container_name: sabnzbd
-    # network_mode: "service:gluetun"
-    # depends_on:
-    #   - gluetun
+    network_mode: "service:gluetun"
+    depends_on:
+      - gluetun
     env_file: .env
     volumes:
       - ${CONFIG_ROOT}/sabnzbd:/config
       - ${MEDIA_ROOT}:/data
-    ports:
-      - "${HOST_PORT_SABNZBD}:8080"
+#    ports:
+#      - "${HOST_PORT_SABNZBD:-8080}:8080"
     restart: unless-stopped
 
   radarr:
@@ -51,7 +46,7 @@ services:
       interval: 10s
       timeout: 3s
       retries: 12
-      start_period: 20s
+      start_period: 20s      
 
   sonarr:
     image: lscr.io/linuxserver/sonarr:latest
@@ -61,7 +56,7 @@ services:
       - ${CONFIG_ROOT}/sonarr:/config
       - ${MEDIA_ROOT}:/data
     ports:
-      - "${HOST_PORT_SONARR}:8989"
+      - "${HOST_PORT_SONARR:-8989}:8989"
     restart: unless-stopped
     depends_on:
       - sabnzbd
@@ -73,7 +68,7 @@ services:
     volumes:
       - ${CONFIG_ROOT}/prowlarr:/config
     ports:
-      - "${HOST_PORT_PROWLARR}:9696"
+      - "${HOST_PORT_PROWLARR:-9696}:9696"
     restart: unless-stopped
 
   librariarr:
@@ -87,19 +82,20 @@ services:
       - ${CONFIG_ROOT}/librariarr:/config
       - ${MEDIA_ROOT}:/data
     ports:
-      - "8787:8787"
+      - "${HOST_PORT_LIBRARIARR:-8787}:8787"
     command: ["--config", "/config/config.yaml", "--log-level", "${LIBRARIARR_LOG_LEVEL:-INFO}", "--web"]
     restart: unless-stopped
     depends_on:
       radarr:
         condition: service_healthy
-
+        
   mediathekarr:
     image: pcjones/mediathekarr:beta
     container_name: mediathekarr
     restart: unless-stopped
     env_file: .env
     environment:
+      # PUID/PGID/TZ are pulled from your .env
       - DOWNLOAD_INCOMPLETE_PATH=/data/movies/temp/Download/.mediathekarr/incomplete
       - DOWNLOAD_COMPLETE_PATH=/data/movies/temp/Download/.mediathekarr/complete
       - CATEGORIES=tv,movies,sonarr_blackhole,radarr_blackhole
@@ -107,4 +103,27 @@ services:
       - ${CONFIG_ROOT}/mediathekarr:/app/config
       - ${MEDIA_ROOT}:/data
     ports:
-      - "${HOST_PORT_MEDIATHEKARR}:5007"
+      - "${HOST_PORT_MEDIATHEKARR:-5007}:5007" # Beta uses 5007 by default
+      
+  trailarr:
+    image: nandyalu/trailarr:latest
+    container_name: trailarr
+    env_file: .env
+    environment:
+      - PUID=${PUID:-1024}
+      - PGID=${PGID:-100}
+      - TZ=${TZ:-Europe/Berlin}
+      - HOST=0.0.0.0
+      # The Search Suffix ensures it looks for German trailers on YouTube
+      - SEARCH_SUFFIX=German Trailer
+    volumes:
+      - ${CONFIG_ROOT}/trailarr:/config
+      # IMPORTANT: Use the same /data mapping as Radarr/Sonarr 
+      # so the paths in the API match the paths on disk.
+      - ${MEDIA_ROOT}:/data
+    ports:
+      - "${HOST_PORT_TRAILARR:-7889}:7889"
+    restart: unless-stopped
+    depends_on:
+      radarr:
+        condition: service_healthy

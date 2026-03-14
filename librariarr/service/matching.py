@@ -317,7 +317,17 @@ class ServiceMatchingMixin:
 
     def _build_series_index(self) -> dict[MovieRef, dict]:
         index: dict[MovieRef, dict] = {}
-        for series in self.sonarr.get_series():
+        try:
+            series_list = self.sonarr.get_series()
+        except requests.RequestException as exc:
+            self._log_sonarr_sync_config_hint(exc)
+            LOG.warning(
+                "Continuing reconcile without Sonarr series index due to request failure: %s",
+                exc,
+            )
+            return index
+
+        for series in series_list:
             self._index_series(index=index, series=series)
         return index
 
@@ -472,7 +482,25 @@ class ServiceMatchingMixin:
                     series_title,
                 )
                 return
-            raise
+            self._log_sonarr_sync_config_hint(exc)
+            LOG.warning(
+                "Skipping Sonarr sync for series id=%s title=%s "
+                "due to request failure while updating path: %s",
+                series_id,
+                series_title,
+                exc,
+            )
+            return
+        except requests.RequestException as exc:
+            self._log_sonarr_sync_config_hint(exc)
+            LOG.warning(
+                "Skipping Sonarr sync for series id=%s title=%s "
+                "due to request failure while updating path: %s",
+                series_id,
+                series_title,
+                exc,
+            )
+            return
 
         if force_refresh or path_updated:
             try:
@@ -485,7 +513,23 @@ class ServiceMatchingMixin:
                         series_title,
                     )
                     return
-                raise
+                self._log_sonarr_sync_config_hint(exc)
+                LOG.warning(
+                    "Skipping Sonarr refresh for series id=%s title=%s due to request failure: %s",
+                    series_id,
+                    series_title,
+                    exc,
+                )
+                return
+            except requests.RequestException as exc:
+                self._log_sonarr_sync_config_hint(exc)
+                LOG.warning(
+                    "Skipping Sonarr refresh for series id=%s title=%s due to request failure: %s",
+                    series_id,
+                    series_title,
+                    exc,
+                )
+                return
 
     def _resolve_series_for_link_name(
         self,

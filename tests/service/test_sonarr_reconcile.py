@@ -296,6 +296,73 @@ def test_reconcile_continues_when_sonarr_update_returns_404(tmp_path: Path, capl
     assert "Skipping Sonarr sync for missing series" in caplog.text
 
 
+def test_reconcile_continues_when_sonarr_update_times_out(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Fixture Show (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(nested_root, shadow_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(
+        series=[
+            {
+                "id": 120,
+                "title": "Fixture Show",
+                "year": 2020,
+                "path": "/old/path",
+                "monitored": True,
+            }
+        ]
+    )
+
+    def _raise_timeout(series: dict, new_path: str) -> bool:
+        del series
+        del new_path
+        raise requests.Timeout("read timed out")
+
+    fake.update_series_path = _raise_timeout  # type: ignore[method-assign]
+    service.sonarr = fake
+    caplog.set_level("WARNING", logger="librariarr.service")
+
+    service.reconcile()
+
+    link = shadow_root / "Fixture Show (2020)"
+    assert link.is_symlink()
+    assert fake.refreshed == []
+    assert "Skipping Sonarr sync for series id=120" in caplog.text
+
+
+def test_reconcile_continues_when_sonarr_series_index_times_out(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Fixture Show (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(nested_root, shadow_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(series=[])
+
+    def _raise_timeout() -> list[dict]:
+        raise requests.Timeout("read timed out")
+
+    fake.get_series = _raise_timeout  # type: ignore[method-assign]
+    service.sonarr = fake
+    caplog.set_level("WARNING", logger="librariarr.service")
+
+    service.reconcile()
+
+    link = shadow_root / "Fixture Show (2020)"
+    assert link.is_symlink()
+    assert "Continuing reconcile without Sonarr series index" in caplog.text
+
+
 def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path, caplog) -> None:
     nested_root = tmp_path / "series"
     shadow_root = tmp_path / "sonarr_library"

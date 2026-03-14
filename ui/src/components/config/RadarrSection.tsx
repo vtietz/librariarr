@@ -114,11 +114,19 @@ export default function RadarrSection({ value, onChange }: Props) {
 
       const nextQualityTargets = qualityDefinitions
         .map((definition) => {
-          const id = typeof definition.id === "number" ? definition.id : Number.NaN;
+          const definitionRecord = definition as {
+            id?: number;
+            name?: string;
+            title?: string;
+            quality?: { name?: string };
+          };
+          const id = typeof definitionRecord.id === "number" ? definitionRecord.id : Number.NaN;
           if (!Number.isFinite(id)) {
             return null;
           }
-          const name = String(definition.name ?? "").trim();
+          const name = String(
+            definitionRecord.name ?? definitionRecord.quality?.name ?? definitionRecord.title ?? ""
+          ).trim();
           return {
             value: String(id),
             label: name.length > 0 ? `${id} - ${name}` : String(id)
