@@ -2,7 +2,8 @@ import axios from "axios";
 import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/config";
 
 const api = axios.create({
-  baseURL: "/api"
+  baseURL: "/api",
+  timeout: 20000
 });
 
 api.interceptors.response.use(
@@ -19,7 +20,7 @@ api.interceptors.response.use(
         typeof error.response?.data === "object" &&
         error.response?.data !== null &&
         "detail" in error.response.data
-          ? error.response.data.detail
+          ? String(error.response.data.detail)
           : error.message;
       console.error(
         `[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${status}: ${detail}`

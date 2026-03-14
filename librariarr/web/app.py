@@ -72,6 +72,10 @@ def _write_config_with_backup(config_path: Path, previous_yaml: str, next_yaml: 
     config_path.write_text(next_yaml, encoding="utf-8")
 
 
+def _is_permission_error(exc: OSError) -> bool:
+    return isinstance(exc, PermissionError)
+
+
 def _redact_secrets(value: Any) -> Any:
     if isinstance(value, dict):
         out: dict[str, Any] = {}
@@ -283,11 +287,32 @@ def create_app(  # noqa: C901
                     "checksum": _checksum(candidate_yaml),
                 }
 
-            _write_config_with_backup(
-                config_path=state.config_path,
-                previous_yaml=disk_yaml,
-                next_yaml=candidate_yaml,
-            )
+            try:
+                _write_config_with_backup(
+                    config_path=state.config_path,
+                    previous_yaml=disk_yaml,
+                    next_yaml=candidate_yaml,
+                )
+            except OSError as exc:
+                if _is_permission_error(exc):
+                    LOG.error(
+                        "Config save failed due to permissions for %s: %s",
+                        state.config_path,
+                        exc,
+                    )
+                    raise HTTPException(
+                        status_code=500,
+                        detail=(
+                            "Unable to save config file due to permissions. "
+                            "Ensure the runtime user can write both config.yaml "
+                            "and config.yaml.bak."
+                        ),
+                    ) from exc
+                LOG.error("Config save failed due to filesystem error: %s", exc)
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Unable to save config file: {exc}",
+                ) from exc
             state.draft_yaml = None
             LOG.info("Config saved to %s (backup written)", state.config_path)
 
