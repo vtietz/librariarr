@@ -17,10 +17,11 @@ import {
   TextInput,
   Title
 } from "@mantine/core";
-import { IconTrash } from "@tabler/icons-react";
+import { IconFolder, IconTrash } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { getFsRoots } from "../api/client";
 import type { ConfigModel, Issue } from "../types/config";
+import { EXCLUDE_PATH_SUGGESTIONS, normalizeExcludePaths } from "./config/pathExcludes";
 import RadarrSection from "./config/RadarrSection";
 import SonarrSection from "./config/SonarrSection";
 import DirectoryPickerModal from "./DirectoryPickerModal";
@@ -359,9 +360,9 @@ export default function ConfigEditor({
           <Table.Thead>
             <Table.Tr>
               <Table.Th py={6} fz="sm">Nested Root</Table.Th>
-              <Table.Th py={6} w={140} />
+              <Table.Th py={6} w={44} />
               <Table.Th py={6} fz="sm">Shadow Root</Table.Th>
-              <Table.Th py={6} w={140} />
+              <Table.Th py={6} w={44} />
               <Table.Th py={6} w={44} />
             </Table.Tr>
           </Table.Thead>
@@ -384,14 +385,14 @@ export default function ConfigEditor({
                     />
                   </Table.Td>
                   <Table.Td>
-                    <Button
+                    <ActionIcon
                       size="sm"
                       variant="light"
-                      fullWidth
+                      aria-label="Pick nested root directory"
                       onClick={() => setPickerTarget({ index, key: "nested_root" })}
                     >
-                      Pick Directory
-                    </Button>
+                      <IconFolder size={16} />
+                    </ActionIcon>
                   </Table.Td>
                   <Table.Td>
                     <TextInput
@@ -402,14 +403,14 @@ export default function ConfigEditor({
                     />
                   </Table.Td>
                   <Table.Td>
-                    <Button
+                    <ActionIcon
                       size="sm"
                       variant="light"
-                      fullWidth
+                      aria-label="Pick shadow root directory"
                       onClick={() => setPickerTarget({ index, key: "shadow_root" })}
                     >
-                      Pick Directory
-                    </Button>
+                      <IconFolder size={16} />
+                    </ActionIcon>
                   </Table.Td>
                   <Table.Td>
                     <ActionIcon
@@ -427,6 +428,26 @@ export default function ConfigEditor({
             )}
           </Table.Tbody>
         </Table>
+        <TagsInput
+          mt="md"
+          label="Exclude Paths"
+          description="Case-insensitive glob-style patterns, relative to each nested root (e.g. .deletedByTMM/, specials/, .librariarr/**)"
+          placeholder="Add pattern and press Enter"
+          data={EXCLUDE_PATH_SUGGESTIONS}
+          value={draft.paths.exclude_paths ?? []}
+          splitChars={[","]}
+          clearable
+          acceptValueOnBlur
+          onChange={(values) =>
+            onChange({
+              ...draft,
+              paths: {
+                ...draft.paths,
+                exclude_paths: normalizeExcludePaths(values)
+              }
+            })
+          }
+        />
       </Card>
 
       {diffText && (

@@ -7,19 +7,6 @@ from pathlib import Path
 
 SEASON_DIR_RE = re.compile(r"^(?:season|staffel)\s*\d{1,2}$|^s\d{1,2}$", re.IGNORECASE)
 EPISODE_TOKEN_RE = re.compile(r"\bs\d{1,2}e\d{1,3}\b", re.IGNORECASE)
-COMMON_NON_MOVIE_DIR_NAMES = frozenset(
-    {
-        "specials",
-        "special",
-        "extras",
-        "extra",
-        "bonus",
-        "bonusfeatures",
-        "featurettes",
-        "samples",
-        "sample",
-    }
-)
 
 
 def _contains_video_file(folder: Path, video_exts: set[str]) -> bool:
@@ -98,10 +85,6 @@ def _normalize_exclude_patterns(exclude_patterns: list[str] | None) -> list[str]
     return normalized
 
 
-def _is_common_non_movie_dir(path: Path) -> bool:
-    return path.name.strip().lower() in COMMON_NON_MOVIE_DIR_NAMES
-
-
 def _is_excluded_path(
     path: Path,
     root: Path,
@@ -165,9 +148,7 @@ def discover_movie_folders(
 
     for current, dirs, files in os.walk(root):
         cur_path = Path(current)
-        if _is_excluded_path(cur_path, root, excludes, is_dir=True) or _is_common_non_movie_dir(
-            cur_path
-        ):
+        if _is_excluded_path(cur_path, root, excludes, is_dir=True):
             dirs[:] = []
             continue
 
@@ -175,7 +156,6 @@ def discover_movie_folders(
             dirname
             for dirname in dirs
             if not _is_excluded_path(cur_path / dirname, root, excludes, is_dir=True)
-            and not _is_common_non_movie_dir(cur_path / dirname)
         ]
 
         if any(

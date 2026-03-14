@@ -10,12 +10,16 @@ paths:
   # Optional gitignore-style patterns (relative to each nested_root) to skip
   # during movie/series discovery. Matching is case-insensitive.
   # Useful for trash/temp folders like TMM deletes.
-  # Note: movie discovery also skips common non-movie folder names by default,
-  # e.g. Specials/Extras/Sample (case-insensitive).
   exclude_paths:
     - ".deletedByTMM/"
     - ".trash/"
     - ".librariarr/**"
+    - "specials/"
+    - "extras/"
+    - "featurettes/"
+    - "bonus/"
+    - "sample/"
+    - "samples/"
 
 radarr:
   # Enabled by default. Disable for Sonarr-only mode.

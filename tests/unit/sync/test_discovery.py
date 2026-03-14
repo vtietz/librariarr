@@ -126,22 +126,3 @@ def test_discover_movie_folders_honors_exclude_paths_case_insensitive(tmp_path: 
 
     assert valid_dir in found
     assert deleted_dir not in found
-
-
-def test_discover_movie_folders_ignores_common_non_movie_folder_names(tmp_path: Path) -> None:
-    root = tmp_path / "movies"
-    movie_dir = root / "Movie A (2020)"
-    specials_dir = root / "Specials"
-    extras_dir = root / "EXTRAS"
-    movie_dir.mkdir(parents=True)
-    specials_dir.mkdir(parents=True)
-    extras_dir.mkdir(parents=True)
-    (movie_dir / "Movie.A.2020.1080p.mkv").write_text("x", encoding="utf-8")
-    (specials_dir / "Show.S00E01.1080p.mkv").write_text("x", encoding="utf-8")
-    (extras_dir / "Featurette.mp4").write_text("x", encoding="utf-8")
-
-    found = discover_movie_folders(root, {".mkv", ".mp4"})
-
-    assert movie_dir in found
-    assert specials_dir not in found
-    assert extras_dir not in found
