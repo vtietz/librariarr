@@ -128,6 +128,17 @@ export default function App() {
   };
 
   const handleDiff = async () => {
+    if (!draft) {
+      return;
+    }
+
+    const saveResult = await saveConfig(draft);
+    setIssues(saveResult.issues ?? []);
+    if (!saveResult.saved) {
+      return;
+    }
+
+    await reloadFromDisk();
     const result = await getDiff();
     setDiffText(result.diff);
   };
