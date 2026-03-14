@@ -97,21 +97,21 @@ export default function DiagnosticsPanel({ draft, onDryRunSummary, onStatuses }:
 
   return (
     <Stack>
-      <Title order={3}>Diagnostics, Dry-Run & Maintenance</Title>
+      <Title order={3}>Troubleshooting (Advanced Users) & Maintenance</Title>
       <Text size="sm" c="dimmed">
-        Available now: run diagnostics, run dry-run, and trigger a full reconcile cycle.
+        Use these actions when validating integrations, investigating errors, or forcing maintenance operations.
       </Text>
 
       <MapperOverviewPanels draft={draft} />
 
       <Group>
-        <Button loading={loadingRadarr} onClick={() => void executeRadarr()}>Run Radarr Diagnostics</Button>
-        <Button loading={loadingSonarr} onClick={() => void executeSonarr()}>Run Sonarr Diagnostics</Button>
+        <Button loading={loadingRadarr} onClick={() => void executeRadarr()}>Run Radarr Health Check</Button>
+        <Button loading={loadingSonarr} onClick={() => void executeSonarr()}>Run Sonarr Health Check</Button>
         <Button variant="light" loading={loadingDryRun} onClick={() => void executeDryRun()}>
-          Run Dry-Run
+          Run Dry-Run Analysis
         </Button>
         <Button variant="filled" color="grape" loading={loadingReconcile} onClick={() => void executeMaintenanceReconcile()}>
-          Run Reconcile Now
+          Run Full Reconcile Now
         </Button>
       </Group>
 

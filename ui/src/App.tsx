@@ -12,12 +12,47 @@ import {
 import type { JobsSummary, RuntimeStatusResponse } from "./api/client";
 import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
-import DiagnosticsPanel from "./components/DiagnosticsPanel";
 import DirectoryMapper from "./components/DirectoryMapper";
 import LogsPanel from "./components/LogsPanel";
 import type { ConfigModel, ConfigResponse, Issue } from "./types/config";
 
 const cloneConfig = (value: ConfigModel): ConfigModel => JSON.parse(JSON.stringify(value));
+
+const TAB_PATHS = {
+  dashboard: "/dashboard",
+  config: "/config",
+  mapper: "/mapper",
+  logs: "/logs"
+} as const;
+
+type TabKey = keyof typeof TAB_PATHS;
+
+const PATH_TO_TAB: Record<string, TabKey> = {
+  "/": "dashboard",
+  "/dashboard": "dashboard",
+  "/config": "config",
+  "/mapper": "mapper",
+  "/logs": "logs"
+};
+
+const normalizePath = (pathname: string): string => {
+  if (!pathname || pathname === "/") {
+    return "/";
+  }
+  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
+};
+
+const resolveTabFromPath = (pathname: string): TabKey => {
+  const normalized = normalizePath(pathname);
+  return PATH_TO_TAB[normalized] ?? "dashboard";
+};
+
+const resolvePathFromTab = (tab: string | null): string => {
+  if (tab && tab in TAB_PATHS) {
+    return TAB_PATHS[tab as TabKey];
+  }
+  return TAB_PATHS.dashboard;
+};
 
 export default function App() {
   const [response, setResponse] = useState<ConfigResponse | null>(null);
@@ -31,7 +66,9 @@ export default function App() {
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
   const [jobsSummary, setJobsSummary] = useState<JobsSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState("dashboard");
+  const [activeTab, setActiveTab] = useState<TabKey>(() =>
+    resolveTabFromPath(window.location.pathname)
+  );
 
   const parseLoadError = (error: unknown): string => {
     if (typeof error !== "object" || error === null) {
@@ -103,6 +140,34 @@ export default function App() {
       window.clearInterval(interval);
     };
   }, []);
+
+  useEffect(() => {
+    const syncFromPath = () => {
+      const nextTab = resolveTabFromPath(window.location.pathname);
+      setActiveTab(nextTab);
+
+      const canonicalPath = resolvePathFromTab(nextTab);
+      if (normalizePath(window.location.pathname) !== canonicalPath) {
+        window.history.replaceState({}, "", canonicalPath);
+      }
+    };
+
+    syncFromPath();
+    window.addEventListener("popstate", syncFromPath);
+    return () => {
+      window.removeEventListener("popstate", syncFromPath);
+    };
+  }, []);
+
+  const handleTabChange = (value: string | null) => {
+    const nextTab = resolveTabFromPath(resolvePathFromTab(value));
+    setActiveTab(nextTab);
+
+    const nextPath = resolvePathFromTab(nextTab);
+    if (normalizePath(window.location.pathname) !== nextPath) {
+      window.history.pushState({}, "", nextPath);
+    }
+  };
 
   const hasUnsavedChanges = useMemo(() => {
     if (!response || !draft) {
@@ -188,23 +253,32 @@ export default function App() {
         </Group>
       </AppShell.Header>
       <AppShell.Main>
-        <Tabs defaultValue="dashboard" onChange={(value) => setActiveTab(value ?? "dashboard")}>
+        <Tabs value={activeTab} onChange={handleTabChange}>
           <Tabs.List>
             <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
             <Tabs.Tab value="config">Config Editor</Tabs.Tab>
             <Tabs.Tab value="mapper">Directory Mapper</Tabs.Tab>
-            <Tabs.Tab value="diagnostics">Diagnostics</Tabs.Tab>
             <Tabs.Tab value="logs">Logs</Tabs.Tab>
           </Tabs.List>
 
           <Tabs.Panel value="dashboard" pt="md">
             <Dashboard
+              draft={draft}
               radarrStatus={radarrStatus}
               sonarrStatus={sonarrStatus}
               hasUnsavedChanges={hasUnsavedChanges}
               lastDryRunSummary={lastDryRunSummary}
               runtimeStatus={runtimeStatus}
               jobsSummary={jobsSummary}
+              onDryRunSummary={setLastDryRunSummary}
+              onStatuses={(radarr, sonarr) => {
+                if (radarr !== "idle") {
+                  setRadarrStatus(radarr as "ok" | "warning" | "disabled");
+                }
+                if (sonarr !== "idle") {
+                  setSonarrStatus(sonarr as "ok" | "warning" | "disabled");
+                }
+              }}
             />
           </Tabs.Panel>
 
@@ -224,21 +298,6 @@ export default function App() {
 
           <Tabs.Panel value="mapper" pt="md">
             {activeTab === "mapper" && <DirectoryMapper />}
-          </Tabs.Panel>
-
-          <Tabs.Panel value="diagnostics" pt="md">
-            <DiagnosticsPanel
-              draft={draft}
-              onDryRunSummary={setLastDryRunSummary}
-              onStatuses={(radarr, sonarr) => {
-                if (radarr !== "idle") {
-                  setRadarrStatus(radarr as "ok" | "warning" | "disabled");
-                }
-                if (sonarr !== "idle") {
-                  setSonarrStatus(sonarr as "ok" | "warning" | "disabled");
-                }
-              }}
-            />
           </Tabs.Panel>
 
           <Tabs.Panel value="logs" pt="md">

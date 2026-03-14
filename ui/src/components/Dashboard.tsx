@@ -1,17 +1,22 @@
 import { Badge, Button, Card, Group, Loader, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { cancelJob, getDiscoveryWarnings, getJobs } from "../api/client";
+import DiagnosticsPanel from "./DiagnosticsPanel";
 import type { JobRecord, JobsSummary, RuntimeStatusResponse } from "../api/client";
+import type { ConfigModel } from "../types/config";
 
 type Status = "idle" | "ok" | "warning" | "disabled";
 
 type Props = {
+  draft: ConfigModel;
   radarrStatus: Status;
   sonarrStatus: Status;
   hasUnsavedChanges: boolean;
   lastDryRunSummary: string;
   runtimeStatus: RuntimeStatusResponse | null;
   jobsSummary: JobsSummary | null;
+  onDryRunSummary: (summary: string) => void;
+  onStatuses: (radarrStatus: string, sonarrStatus: string) => void;
 };
 
 const toneByStatus: Record<Status, string> = {
@@ -22,12 +27,15 @@ const toneByStatus: Record<Status, string> = {
 };
 
 export default function Dashboard({
+  draft,
   radarrStatus,
   sonarrStatus,
   hasUnsavedChanges,
   lastDryRunSummary,
   runtimeStatus,
-  jobsSummary
+  jobsSummary,
+  onDryRunSummary,
+  onStatuses
 }: Props) {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
@@ -328,6 +336,8 @@ export default function Dashboard({
           </ScrollArea>
         )}
       </Card>
+
+      <DiagnosticsPanel draft={draft} onDryRunSummary={onDryRunSummary} onStatuses={onStatuses} />
     </Stack>
   );
 }
