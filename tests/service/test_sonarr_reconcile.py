@@ -1,5 +1,7 @@
 from pathlib import Path
 
+import requests
+
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
@@ -249,6 +251,49 @@ def test_reconcile_auto_adds_unmatched_series(tmp_path: Path) -> None:
     assert fake.added_series
     assert fake.added_series[0]["quality_profile_id"] == 3
     assert fake.refreshed == [10]
+
+
+def test_reconcile_continues_when_sonarr_update_returns_404(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Fixture Show (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(nested_root, shadow_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(
+        series=[
+            {
+                "id": 120,
+                "title": "Fixture Show",
+                "year": 2020,
+                "path": "/old/path",
+                "monitored": True,
+            }
+        ]
+    )
+
+    def _raise_not_found(series: dict, new_path: str) -> bool:
+        del series
+        del new_path
+        response = requests.Response()
+        response.status_code = 404
+        response.url = "http://sonarr:8989/api/v3/series/120"
+        raise requests.HTTPError("404 Client Error: Not Found", response=response)
+
+    fake.update_series_path = _raise_not_found  # type: ignore[method-assign]
+    service.sonarr = fake
+    caplog.set_level("WARNING", logger="librariarr.service")
+
+    service.reconcile()
+
+    link = shadow_root / "Fixture Show (2020)"
+    assert link.is_symlink()
+    assert fake.refreshed == []
+    assert "Skipping Sonarr sync for missing series" in caplog.text
 
 
 def test_reconcile_skips_sonarr_auto_add_when_root_is_missing(tmp_path: Path, caplog) -> None:

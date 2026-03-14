@@ -2,12 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import requests
+
 from ..quality import map_quality_id
 from ..sync import MovieRef, parse_movie_ref
 from .common import (
     IMDB_ID_RE,
     IMDB_NEAR_TOKEN_RE,
     IMDB_UNIQUE_ID_RE,
+    LOG,
     TITLE_TOKEN_RE,
     TMDB_ID_RE,
     TMDB_UNIQUE_ID_RE,
@@ -17,6 +20,10 @@ from .common import (
 
 
 class ServiceMatchingMixin:
+    def _is_http_not_found(self, exc: requests.HTTPError) -> bool:
+        response = exc.response
+        return response is not None and response.status_code == 404
+
     def _match_movie_for_folder(
         self,
         folder: Path,
@@ -251,7 +258,20 @@ class ServiceMatchingMixin:
         movie: dict,
         force_refresh: bool = False,
     ) -> None:
-        path_updated = self.radarr.update_movie_path(movie, str(link))
+        movie_id = movie.get("id")
+        movie_title = movie.get("title")
+        try:
+            path_updated = self.radarr.update_movie_path(movie, str(link))
+        except requests.HTTPError as exc:
+            if self._is_http_not_found(exc):
+                LOG.warning(
+                    "Skipping Radarr sync for missing movie id=%s title=%s while updating path",
+                    movie_id,
+                    movie_title,
+                )
+                return
+            raise
+
         quality_updated = False
         quality_map = self.config.effective_radarr_quality_map()
         if quality_map:
@@ -265,7 +285,17 @@ class ServiceMatchingMixin:
             quality_updated = self.radarr.try_update_moviefile_quality(movie, quality_id)
 
         if force_refresh or path_updated or quality_updated:
-            self.radarr.refresh_movie(int(movie["id"]), force=force_refresh)
+            try:
+                self.radarr.refresh_movie(int(movie["id"]), force=force_refresh)
+            except requests.HTTPError as exc:
+                if self._is_http_not_found(exc):
+                    LOG.warning(
+                        "Skipping Radarr refresh for missing movie id=%s title=%s",
+                        movie_id,
+                        movie_title,
+                    )
+                    return
+                raise
 
     def _resolve_movie_for_link_name(
         self,
@@ -429,9 +459,32 @@ class ServiceMatchingMixin:
         series: dict,
         force_refresh: bool = False,
     ) -> None:
-        path_updated = self.sonarr.update_series_path(series, str(link))
+        series_id = series.get("id")
+        series_title = series.get("title")
+        try:
+            path_updated = self.sonarr.update_series_path(series, str(link))
+        except requests.HTTPError as exc:
+            if self._is_http_not_found(exc):
+                LOG.warning(
+                    "Skipping Sonarr sync for missing series id=%s title=%s while updating path",
+                    series_id,
+                    series_title,
+                )
+                return
+            raise
+
         if force_refresh or path_updated:
-            self.sonarr.refresh_series(int(series["id"]), force=force_refresh)
+            try:
+                self.sonarr.refresh_series(int(series["id"]), force=force_refresh)
+            except requests.HTTPError as exc:
+                if self._is_http_not_found(exc):
+                    LOG.warning(
+                        "Skipping Sonarr refresh for missing series id=%s title=%s",
+                        series_id,
+                        series_title,
+                    )
+                    return
+                raise
 
     def _resolve_series_for_link_name(
         self,

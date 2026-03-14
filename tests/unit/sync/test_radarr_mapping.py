@@ -76,3 +76,40 @@ def test_pick_lookup_candidate_prefers_year_and_best_title_match(tmp_path: Path)
 
     assert selected is not None
     assert selected.get("tmdbId") == 1
+
+
+def test_pick_lookup_candidate_fallback_matches_localized_articles(tmp_path: Path) -> None:
+    folder = tmp_path / "Die Simpsons"
+    folder.mkdir()
+
+    candidates = [
+        {"title": "The Simpsons", "tmdbId": 1},
+        {"title": "Simpsons Shorts", "tmdbId": 2},
+    ]
+
+    selected = pick_lookup_candidate(folder, candidates)
+
+    assert selected is not None
+    assert selected.get("tmdbId") == 1
+
+
+def test_pick_lookup_candidate_considers_alternate_titles(tmp_path: Path) -> None:
+    folder = tmp_path / "Die Simpsons"
+    folder.mkdir()
+
+    candidates = [
+        {
+            "title": "The Simpsons",
+            "alternateTitles": [{"title": "Die Simpsons"}],
+            "tmdbId": 1,
+        },
+        {
+            "title": "Totally Different Show",
+            "tmdbId": 2,
+        },
+    ]
+
+    selected = pick_lookup_candidate(folder, candidates)
+
+    assert selected is not None
+    assert selected.get("tmdbId") == 1

@@ -1,6 +1,8 @@
 from pathlib import Path
 from unittest.mock import patch
 
+import requests
+
 from librariarr.service import LibrariArrService
 from librariarr.sync.discovery import discover_movie_folders as discover_movie_folders_impl
 from tests.service.helpers import FakeRadarr, make_config
@@ -147,6 +149,49 @@ def test_reconcile_syncs_radarr_when_enabled(tmp_path: Path) -> None:
     assert fake.updated_paths and fake.updated_paths[0][0] == 1
     assert fake.updated_qualities == [(1, 7)]
     assert fake.refreshed == [1]
+
+
+def test_reconcile_continues_when_radarr_update_returns_404(tmp_path: Path, caplog) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 120,
+                "title": "Fixture Catalog A",
+                "year": 2008,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+
+    def _raise_not_found(movie: dict, new_path: str) -> bool:
+        del movie
+        del new_path
+        response = requests.Response()
+        response.status_code = 404
+        response.url = "http://radarr:7878/api/v3/movie/120"
+        raise requests.HTTPError("404 Client Error: Not Found", response=response)
+
+    fake.update_movie_path = _raise_not_found  # type: ignore[method-assign]
+    service.radarr = fake
+    caplog.set_level("WARNING", logger="librariarr.service")
+
+    service.reconcile()
+
+    link = shadow_root / "Fixture Catalog A (2008)"
+    assert link.is_symlink()
+    assert fake.refreshed == []
+    assert "Skipping Radarr sync for missing movie" in caplog.text
 
 
 def test_reconcile_skips_radarr_when_sync_disabled(tmp_path: Path) -> None:
