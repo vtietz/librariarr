@@ -5,6 +5,32 @@ const api = axios.create({
   baseURL: "/api"
 });
 
+api.interceptors.response.use(
+  (response) => {
+    console.debug(
+      `[API] ${response.config.method?.toUpperCase()} ${response.config.url} → ${response.status}`
+    );
+    return response;
+  },
+  (error) => {
+    if (axios.isAxiosError(error)) {
+      const status = error.response?.status ?? "no response";
+      const detail =
+        typeof error.response?.data === "object" &&
+        error.response?.data !== null &&
+        "detail" in error.response.data
+          ? error.response.data.detail
+          : error.message;
+      console.error(
+        `[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${status}: ${detail}`
+      );
+    } else {
+      console.error("[API] Request failed:", error);
+    }
+    return Promise.reject(error);
+  }
+);
+
 export const getConfig = async (source: "disk" | "draft" = "disk") => {
   const { data } = await api.get<ConfigResponse>("/config", {
     params: { source, include_secrets: true }

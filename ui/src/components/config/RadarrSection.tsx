@@ -76,15 +76,19 @@ export default function RadarrSection({ value, onChange }: Props) {
 
       const failedSources: string[] = [];
       if (tagsResult.status === "rejected") {
+        console.warn("[RadarrSection] Failed to load tags:", tagsResult.reason);
         failedSources.push("tags");
       }
       if (qualityDefinitionsResult.status === "rejected") {
+        console.warn("[RadarrSection] Failed to load quality definitions:", qualityDefinitionsResult.reason);
         failedSources.push("quality definitions");
       }
       if (customFormatsResult.status === "rejected") {
+        console.warn("[RadarrSection] Failed to load custom formats:", customFormatsResult.reason);
         failedSources.push("custom formats");
       }
       if (qualityProfilesResult.status === "rejected") {
+        console.warn("[RadarrSection] Failed to load quality profiles:", qualityProfilesResult.reason);
         failedSources.push("quality profiles");
       }
       setMetadataWarning(
@@ -193,8 +197,9 @@ export default function RadarrSection({ value, onChange }: Props) {
         setTesting(true);
         try {
           setTestStatus(await testRadarrConnection(value.url, value.api_key));
-        } catch {
-          setTestStatus({ ok: false, message: "Failed to connect to Radarr" });
+        } catch (error: unknown) {
+          console.error("[RadarrSection] Connection test failed:", error);
+          setTestStatus({ ok: false, message: "Failed to connect to Radarr. Check browser console for details." });
         } finally {
           setTesting(false);
         }

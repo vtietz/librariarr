@@ -20,30 +20,59 @@ export default function DiagnosticsPanel({ draft, onDryRunSummary, onStatuses }:
   const [sonarrIssues, setSonarrIssues] = useState<Issue[]>([]);
   const [dryRunIssues, setDryRunIssues] = useState<Issue[]>([]);
   const [maintenanceMessage, setMaintenanceMessage] = useState<string | null>(null);
+  const [loadingRadarr, setLoadingRadarr] = useState(false);
+  const [loadingSonarr, setLoadingSonarr] = useState(false);
+  const [loadingDryRun, setLoadingDryRun] = useState(false);
+  const [loadingReconcile, setLoadingReconcile] = useState(false);
 
   const executeRadarr = async () => {
-    const result = await runRadarrDiagnostics();
-    setRadarrIssues(result.issues);
-    onStatuses(result.status, "idle");
+    setLoadingRadarr(true);
+    try {
+      const result = await runRadarrDiagnostics();
+      setRadarrIssues(result.issues);
+      onStatuses(result.status, "idle");
+    } catch (error: unknown) {
+      console.error("[Diagnostics] Radarr diagnostics failed:", error);
+      setRadarrIssues([{ severity: "error", message: "Request failed. Check browser console and docker logs." }]);
+    } finally {
+      setLoadingRadarr(false);
+    }
   };
 
   const executeSonarr = async () => {
-    const result = await runSonarrDiagnostics();
-    setSonarrIssues(result.issues);
-    onStatuses("idle", result.status);
+    setLoadingSonarr(true);
+    try {
+      const result = await runSonarrDiagnostics();
+      setSonarrIssues(result.issues);
+      onStatuses("idle", result.status);
+    } catch (error: unknown) {
+      console.error("[Diagnostics] Sonarr diagnostics failed:", error);
+      setSonarrIssues([{ severity: "error", message: "Request failed. Check browser console and docker logs." }]);
+    } finally {
+      setLoadingSonarr(false);
+    }
   };
 
   const executeDryRun = async () => {
-    const result = await runDryRun();
-    setDryRunIssues(result.issues);
-    if (result.summary) {
-      onDryRunSummary(
-        `Movies=${result.summary.movie_folders_detected}, Series=${result.summary.series_folders_detected}, Mappings=${result.summary.root_mappings}`
-      );
+    setLoadingDryRun(true);
+    try {
+      const result = await runDryRun();
+      setDryRunIssues(result.issues);
+      if (result.summary) {
+        onDryRunSummary(
+          `Movies=${result.summary.movie_folders_detected}, Series=${result.summary.series_folders_detected}, Mappings=${result.summary.root_mappings}`
+        );
+      }
+    } catch (error: unknown) {
+      console.error("[Diagnostics] Dry-run failed:", error);
+      setDryRunIssues([{ severity: "error", message: "Request failed. Check browser console and docker logs." }]);
+    } finally {
+      setLoadingDryRun(false);
     }
   };
 
   const executeMaintenanceReconcile = async () => {
+    setLoadingReconcile(true);
     try {
       const result = await runReconcileNow();
       const durationSuffix =
@@ -52,6 +81,7 @@ export default function DiagnosticsPanel({ draft, onDryRunSummary, onStatuses }:
         result.ingest_pending === true ? " Ingest still has pending quiescent candidates." : "";
       setMaintenanceMessage(`${result.message}${durationSuffix}${pendingSuffix}`);
     } catch (error: unknown) {
+      console.error("[Diagnostics] Reconcile failed:", error);
       const message =
         typeof error === "object" &&
         error !== null &&
@@ -60,6 +90,8 @@ export default function DiagnosticsPanel({ draft, onDryRunSummary, onStatuses }:
           ? (error as { message: string }).message
           : "Failed to trigger reconcile.";
       setMaintenanceMessage(message);
+    } finally {
+      setLoadingReconcile(false);
     }
   };
 
@@ -73,12 +105,12 @@ export default function DiagnosticsPanel({ draft, onDryRunSummary, onStatuses }:
       <MapperOverviewPanels draft={draft} />
 
       <Group>
-        <Button onClick={executeRadarr}>Run Radarr Diagnostics</Button>
-        <Button onClick={executeSonarr}>Run Sonarr Diagnostics</Button>
-        <Button variant="light" onClick={executeDryRun}>
+        <Button loading={loadingRadarr} onClick={() => void executeRadarr()}>Run Radarr Diagnostics</Button>
+        <Button loading={loadingSonarr} onClick={() => void executeSonarr()}>Run Sonarr Diagnostics</Button>
+        <Button variant="light" loading={loadingDryRun} onClick={() => void executeDryRun()}>
           Run Dry-Run
         </Button>
-        <Button variant="filled" color="grape" onClick={executeMaintenanceReconcile}>
+        <Button variant="filled" color="grape" loading={loadingReconcile} onClick={() => void executeMaintenanceReconcile()}>
           Run Reconcile Now
         </Button>
       </Group>

@@ -78,12 +78,15 @@ export default function SonarrSection({ value, onChange }: Props) {
 
       const failedSources: string[] = [];
       if (tagsResult.status === "rejected") {
+        console.warn("[SonarrSection] Failed to load tags:", tagsResult.reason);
         failedSources.push("tags");
       }
       if (qualityProfilesResult.status === "rejected") {
+        console.warn("[SonarrSection] Failed to load quality profiles:", qualityProfilesResult.reason);
         failedSources.push("quality profiles");
       }
       if (languageProfilesResult.status === "rejected") {
+        console.warn("[SonarrSection] Failed to load language profiles:", languageProfilesResult.reason);
         failedSources.push("language profiles");
       } else if (!languageProfilesAvailable) {
         failedSources.push("language profiles (not available)");
@@ -170,8 +173,9 @@ export default function SonarrSection({ value, onChange }: Props) {
         setTesting(true);
         try {
           setTestStatus(await testSonarrConnection(value.url, value.api_key));
-        } catch {
-          setTestStatus({ ok: false, message: "Failed to connect to Sonarr" });
+        } catch (error: unknown) {
+          console.error("[SonarrSection] Connection test failed:", error);
+          setTestStatus({ ok: false, message: "Failed to connect to Sonarr. Check browser console for details." });
         } finally {
           setTesting(false);
         }

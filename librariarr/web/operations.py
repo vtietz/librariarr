@@ -3,10 +3,12 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import json
+import logging
 import os
 import time
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -20,6 +22,21 @@ from ..service import LibrariArrService
 from ..sync.discovery import discover_movie_folders
 from ..sync.naming import parse_movie_ref
 from .log_buffer import get_log_buffer
+
+LOG = logging.getLogger(__name__)
+
+
+def _safe_log_url(url: str) -> str:
+    """Return URL with only scheme + host for safe logging (no credentials/paths)."""
+    try:
+        parsed = urlparse(url)
+        return (
+            f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"
+            if parsed.port
+            else f"{parsed.scheme}://{parsed.hostname}"
+        )
+    except Exception:
+        return "<invalid-url>"
 
 
 class ArrConnectionRequest(BaseModel):
@@ -140,6 +157,191 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
     }
 
 
+def run_radarr_diagnostics(config: AppConfig) -> dict[str, Any]:
+    if not config.radarr.enabled:
+        return {"status": "disabled", "issues": [], "details": {}}
+
+    client = RadarrClient(
+        config.radarr.url,
+        config.radarr.api_key,
+        refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
+    )
+    issues: list[dict[str, str]] = []
+    details: dict[str, Any] = {}
+
+    try:
+        details["system_status"] = client.get_system_status()
+    except Exception as exc:
+        issues.append({"severity": "error", "message": f"System status failed: {exc}"})
+
+    quality_profiles: list[dict[str, Any]] = []
+    quality_definitions: list[dict[str, Any]] = []
+    custom_formats: list[dict[str, Any]] = []
+
+    try:
+        quality_profiles = client.get_quality_profiles()
+    except Exception as exc:
+        issues.append({"severity": "warning", "message": f"Quality profiles failed: {exc}"})
+
+    try:
+        quality_definitions = client.get_quality_definitions()
+    except Exception as exc:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": f"Quality definitions failed: {exc}",
+            }
+        )
+
+    try:
+        custom_formats = client.get_custom_formats()
+    except Exception as exc:
+        issues.append({"severity": "warning", "message": f"Custom formats failed: {exc}"})
+
+    try:
+        details["root_folders"] = client.get_root_folders()
+    except Exception as exc:
+        issues.append({"severity": "warning", "message": f"Root folders failed: {exc}"})
+
+    configured_quality_ids = {rule.target_id for rule in config.effective_radarr_quality_map()}
+    available_quality_ids = {
+        item.get("id")
+        for item in quality_definitions
+        if isinstance(item, dict) and isinstance(item.get("id"), int)
+    }
+    missing_quality_ids = sorted(
+        quality_id
+        for quality_id in configured_quality_ids
+        if quality_id not in available_quality_ids
+    )
+    if missing_quality_ids:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": "Configured Radarr quality_map target_id values "
+                f"are missing: {missing_quality_ids}",
+            }
+        )
+
+    configured_format_ids = {rule.format_id for rule in config.effective_radarr_custom_format_map()}
+    available_format_ids = {
+        item.get("id")
+        for item in custom_formats
+        if isinstance(item, dict) and isinstance(item.get("id"), int)
+    }
+    missing_format_ids = sorted(
+        format_id for format_id in configured_format_ids if format_id not in available_format_ids
+    )
+    if missing_format_ids:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": "Configured Radarr custom_format_map format_id "
+                f"values are missing: {missing_format_ids}",
+            }
+        )
+
+    details["quality_profiles_count"] = len(quality_profiles)
+    details["quality_definitions_count"] = len(quality_definitions)
+    details["custom_formats_count"] = len(custom_formats)
+
+    return {
+        "status": "ok" if not issues else "warning",
+        "issues": issues,
+        "details": details,
+    }
+
+
+def run_sonarr_diagnostics(config: AppConfig) -> dict[str, Any]:
+    if not config.sonarr.enabled:
+        return {"status": "disabled", "issues": [], "details": {}}
+
+    client = SonarrClient(
+        config.sonarr.url,
+        config.sonarr.api_key,
+        refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
+    )
+    issues: list[dict[str, str]] = []
+    details: dict[str, Any] = {}
+
+    try:
+        details["system_status"] = client.get_system_status()
+    except Exception as exc:
+        issues.append({"severity": "error", "message": f"System status failed: {exc}"})
+
+    quality_profiles: list[dict[str, Any]] = []
+    language_profiles: list[dict[str, Any]] = []
+
+    try:
+        quality_profiles = client.get_quality_profiles()
+    except Exception as exc:
+        issues.append({"severity": "warning", "message": f"Quality profiles failed: {exc}"})
+
+    try:
+        language_profiles = client.get_language_profiles()
+    except Exception as exc:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": f"Language profiles failed: {exc}",
+            }
+        )
+
+    try:
+        details["root_folders"] = client.get_root_folders()
+    except Exception as exc:
+        issues.append({"severity": "warning", "message": f"Root folders failed: {exc}"})
+
+    available_quality_ids = {
+        item.get("id") for item in quality_profiles if isinstance(item.get("id"), int)
+    }
+    configured_quality_ids = {
+        rule.profile_id for rule in config.effective_sonarr_quality_profile_map()
+    }
+    missing_quality_ids = sorted(
+        profile_id
+        for profile_id in configured_quality_ids
+        if profile_id not in available_quality_ids
+    )
+    if missing_quality_ids:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": "Configured Sonarr quality_profile_map profile_id"
+                f" values are missing: {missing_quality_ids}",
+            }
+        )
+
+    available_language_ids = {
+        item.get("id") for item in language_profiles if isinstance(item.get("id"), int)
+    }
+    configured_language_ids = {
+        rule.profile_id for rule in config.effective_sonarr_language_profile_map()
+    }
+    missing_language_ids = sorted(
+        profile_id
+        for profile_id in configured_language_ids
+        if profile_id not in available_language_ids
+    )
+    if missing_language_ids:
+        issues.append(
+            {
+                "severity": "warning",
+                "message": "Configured Sonarr language_profile_map profile_id"
+                f" values are missing: {missing_language_ids}",
+            }
+        )
+
+    details["quality_profiles_count"] = len(quality_profiles)
+    details["language_profiles_count"] = len(language_profiles)
+
+    return {
+        "status": "ok" if not issues else "warning",
+        "issues": issues,
+        "details": details,
+    }
+
+
 def build_operations_router() -> APIRouter:  # noqa: C901
     router = APIRouter()
     runtime_status = get_runtime_status_tracker()
@@ -204,28 +406,37 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
     @router.post("/api/radarr/test")
     def test_radarr_connection(payload: ArrConnectionRequest) -> dict[str, Any]:
+        safe_url = _safe_log_url(payload.url)
+        LOG.info("Testing Radarr connection to %s", safe_url)
         client = RadarrClient(payload.url, payload.api_key)
         try:
             status = client.get_system_status()
             version = status.get("version") if isinstance(status, dict) else None
             suffix = f" (version={version})" if isinstance(version, str) and version else ""
+            LOG.info("Radarr connection test succeeded: %s%s", safe_url, suffix)
             return {"ok": True, "message": f"Connected to Radarr{suffix}."}
         except Exception as exc:
+            LOG.error("Radarr connection test failed for %s: %s", safe_url, exc)
             return {"ok": False, "message": str(exc)}
 
     @router.post("/api/sonarr/test")
     def test_sonarr_connection(payload: ArrConnectionRequest) -> dict[str, Any]:
+        safe_url = _safe_log_url(payload.url)
+        LOG.info("Testing Sonarr connection to %s", safe_url)
         client = SonarrClient(payload.url, payload.api_key)
         try:
             status = client.get_system_status()
             version = status.get("version") if isinstance(status, dict) else None
             suffix = f" (version={version})" if isinstance(version, str) and version else ""
+            LOG.info("Sonarr connection test succeeded: %s%s", safe_url, suffix)
             return {"ok": True, "message": f"Connected to Sonarr{suffix}."}
         except Exception as exc:
+            LOG.error("Sonarr connection test failed for %s: %s", safe_url, exc)
             return {"ok": False, "message": str(exc)}
 
     @router.post("/api/maintenance/reconcile")
     def run_maintenance_reconcile(request: Request) -> dict[str, Any]:
+        LOG.info("Manual reconcile triggered via API")
         config = _load_config_or_http(_read_config_path(request))
         started = time.perf_counter()
         runtime_status.mark_reconcile_started(trigger_source="manual")
@@ -234,6 +445,11 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             ingest_pending = service.reconcile()
             duration_ms = int((time.perf_counter() - started) * 1000)
             runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
+            LOG.info(
+                "Manual reconcile completed in %d ms (ingest_pending=%s)",
+                duration_ms,
+                ingest_pending,
+            )
             return {
                 "ok": True,
                 "message": "Reconcile completed.",
@@ -246,6 +462,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 ingest_pending=False,
                 error=str(exc),
             )
+            LOG.error("Manual reconcile failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
     @router.get("/api/runtime/status")

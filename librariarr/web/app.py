@@ -27,7 +27,7 @@ from ..config import AppConfig, load_config
 from ..quality import VIDEO_EXTENSIONS
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .log_buffer import install_log_buffer
-from .operations import build_operations_router
+from .operations import build_operations_router, run_radarr_diagnostics, run_sonarr_diagnostics
 from .runtime_supervisor import RuntimeSupervisor
 
 LOG = logging.getLogger(__name__)
@@ -179,181 +179,6 @@ def _safe_load_disk_config(config_path: Path) -> AppConfig:
         raise HTTPException(status_code=500, detail=f"Unable to load config: {exc}") from exc
 
 
-def _radarr_diagnostics(config: AppConfig) -> dict[str, Any]:
-    if not config.radarr.enabled:
-        return {"status": "disabled", "issues": [], "details": {}}
-
-    client = RadarrClient(
-        config.radarr.url,
-        config.radarr.api_key,
-        refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
-    )
-    issues: list[dict[str, str]] = []
-    details: dict[str, Any] = {}
-
-    try:
-        details["system_status"] = client.get_system_status()
-    except Exception as exc:
-        issues.append({"severity": "error", "message": f"System status failed: {exc}"})
-
-    quality_profiles: list[dict[str, Any]] = []
-    quality_definitions: list[dict[str, Any]] = []
-    custom_formats: list[dict[str, Any]] = []
-
-    try:
-        quality_profiles = client.get_quality_profiles()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Quality profiles failed: {exc}"})
-
-    try:
-        quality_definitions = client.get_quality_definitions()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Quality definitions failed: {exc}"})
-
-    try:
-        custom_formats = client.get_custom_formats()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Custom formats failed: {exc}"})
-
-    try:
-        details["root_folders"] = client.get_root_folders()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Root folders failed: {exc}"})
-
-    configured_quality_ids = {rule.target_id for rule in config.effective_radarr_quality_map()}
-    available_quality_ids = {
-        item.get("id")
-        for item in quality_definitions
-        if isinstance(item, dict) and isinstance(item.get("id"), int)
-    }
-    missing_quality_ids = sorted(
-        quality_id
-        for quality_id in configured_quality_ids
-        if quality_id not in available_quality_ids
-    )
-    if missing_quality_ids:
-        issues.append(
-            {
-                "severity": "warning",
-                "message": "Configured Radarr quality_map target_id values are missing: "
-                f"{missing_quality_ids}",
-            }
-        )
-
-    configured_format_ids = {rule.format_id for rule in config.effective_radarr_custom_format_map()}
-    available_format_ids = {
-        item.get("id")
-        for item in custom_formats
-        if isinstance(item, dict) and isinstance(item.get("id"), int)
-    }
-    missing_format_ids = sorted(
-        format_id for format_id in configured_format_ids if format_id not in available_format_ids
-    )
-    if missing_format_ids:
-        issues.append(
-            {
-                "severity": "warning",
-                "message": "Configured Radarr custom_format_map format_id values are missing: "
-                f"{missing_format_ids}",
-            }
-        )
-
-    details["quality_profiles_count"] = len(quality_profiles)
-    details["quality_definitions_count"] = len(quality_definitions)
-    details["custom_formats_count"] = len(custom_formats)
-
-    return {
-        "status": "ok" if not issues else "warning",
-        "issues": issues,
-        "details": details,
-    }
-
-
-def _sonarr_diagnostics(config: AppConfig) -> dict[str, Any]:
-    if not config.sonarr.enabled:
-        return {"status": "disabled", "issues": [], "details": {}}
-
-    client = SonarrClient(
-        config.sonarr.url,
-        config.sonarr.api_key,
-        refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
-    )
-    issues: list[dict[str, str]] = []
-    details: dict[str, Any] = {}
-
-    try:
-        details["system_status"] = client.get_system_status()
-    except Exception as exc:
-        issues.append({"severity": "error", "message": f"System status failed: {exc}"})
-
-    quality_profiles: list[dict[str, Any]] = []
-    language_profiles: list[dict[str, Any]] = []
-
-    try:
-        quality_profiles = client.get_quality_profiles()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Quality profiles failed: {exc}"})
-
-    try:
-        language_profiles = client.get_language_profiles()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Language profiles failed: {exc}"})
-
-    try:
-        details["root_folders"] = client.get_root_folders()
-    except Exception as exc:
-        issues.append({"severity": "warning", "message": f"Root folders failed: {exc}"})
-
-    available_quality_ids = {
-        item.get("id") for item in quality_profiles if isinstance(item.get("id"), int)
-    }
-    configured_quality_ids = {
-        rule.profile_id for rule in config.effective_sonarr_quality_profile_map()
-    }
-    missing_quality_ids = sorted(
-        profile_id
-        for profile_id in configured_quality_ids
-        if profile_id not in available_quality_ids
-    )
-    if missing_quality_ids:
-        issues.append(
-            {
-                "severity": "warning",
-                "message": "Configured Sonarr quality_profile_map profile_id values are "
-                f"missing: {missing_quality_ids}",
-            }
-        )
-
-    available_language_ids = {
-        item.get("id") for item in language_profiles if isinstance(item.get("id"), int)
-    }
-    configured_language_ids = {
-        rule.profile_id for rule in config.effective_sonarr_language_profile_map()
-    }
-    missing_language_ids = sorted(
-        profile_id
-        for profile_id in configured_language_ids
-        if profile_id not in available_language_ids
-    )
-    if missing_language_ids:
-        issues.append(
-            {
-                "severity": "warning",
-                "message": "Configured Sonarr language_profile_map profile_id values are "
-                f"missing: {missing_language_ids}",
-            }
-        )
-
-    details["quality_profiles_count"] = len(quality_profiles)
-    details["language_profiles_count"] = len(language_profiles)
-
-    return {
-        "status": "ok" if not issues else "warning",
-        "issues": issues,
-        "details": details,
-    }
-
-
 def create_app(  # noqa: C901
     *,
     config_path: str | Path | None = None,
@@ -407,6 +232,7 @@ def create_app(  # noqa: C901
 
     @app.post("/api/config/validate")
     def validate_config(request: ValidateRequest) -> dict[str, Any]:
+        LOG.info("Config validation requested (source=%s)", request.source)
         with state.lock:
             disk_yaml = _load_disk_yaml(state.config_path)
             base_yaml = disk_yaml
@@ -422,12 +248,14 @@ def create_app(  # noqa: C901
 
         config, error = _validate_yaml_text(candidate_yaml)
         if config is None:
+            LOG.warning("Config validation failed: %s", error)
             return {
                 "valid": False,
                 "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
                 "checksum": _checksum(candidate_yaml),
             }
 
+        LOG.info("Config validation passed")
         return {
             "valid": True,
             "issues": [],
@@ -437,6 +265,7 @@ def create_app(  # noqa: C901
 
     @app.put("/api/config")
     def put_config(request: ConfigPayload) -> dict[str, Any]:
+        LOG.info("Config save requested")
         runtime_restarted = False
         with state.lock:
             disk_yaml = _load_disk_yaml(state.config_path)
@@ -447,6 +276,7 @@ def create_app(  # noqa: C901
 
             config, error = _validate_yaml_text(candidate_yaml)
             if config is None:
+                LOG.warning("Config save validation failed: %s", error)
                 return {
                     "saved": False,
                     "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
@@ -459,6 +289,7 @@ def create_app(  # noqa: C901
                 next_yaml=candidate_yaml,
             )
             state.draft_yaml = None
+            LOG.info("Config saved to %s (backup written)", state.config_path)
 
         if state.runtime_supervisor is not None:
             runtime_restarted = state.runtime_supervisor.restart_for_config_change(
@@ -546,8 +377,12 @@ def create_app(  # noqa: C901
 
         client = RadarrClient(config.radarr.url, config.radarr.api_key)
         try:
-            return {"enabled": True, "items": fetch(client), "error": None}
+            items = fetch(client)
+            count = len(items) if isinstance(items, list) else 0
+            LOG.debug("Radarr metadata fetch returned %d items", count)
+            return {"enabled": True, "items": items, "error": None}
         except Exception as exc:
+            LOG.error("Radarr metadata fetch failed: %s", exc)
             return {"enabled": True, "items": [], "error": str(exc)}
 
     def _sonarr_items(fetch: callable) -> dict[str, Any]:
@@ -557,8 +392,12 @@ def create_app(  # noqa: C901
 
         client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
         try:
-            return {"enabled": True, "items": fetch(client), "error": None}
+            items = fetch(client)
+            count = len(items) if isinstance(items, list) else 0
+            LOG.debug("Sonarr metadata fetch returned %d items", count)
+            return {"enabled": True, "items": items, "error": None}
         except Exception as exc:
+            LOG.error("Sonarr metadata fetch failed: %s", exc)
             return {"enabled": True, "items": [], "error": str(exc)}
 
     @app.get("/api/radarr/quality-profiles")
@@ -599,13 +438,29 @@ def create_app(  # noqa: C901
 
     @app.post("/api/diagnostics/radarr")
     def diagnostics_radarr() -> dict[str, Any]:
+        LOG.info("Running Radarr diagnostics")
         config = _safe_load_disk_config(state.config_path)
-        return _radarr_diagnostics(config)
+        result = run_radarr_diagnostics(config)
+        issue_count = len(result.get("issues", []))
+        LOG.info(
+            "Radarr diagnostics completed: status=%s, issues=%d",
+            result.get("status"),
+            issue_count,
+        )
+        return result
 
     @app.post("/api/diagnostics/sonarr")
     def diagnostics_sonarr() -> dict[str, Any]:
+        LOG.info("Running Sonarr diagnostics")
         config = _safe_load_disk_config(state.config_path)
-        return _sonarr_diagnostics(config)
+        result = run_sonarr_diagnostics(config)
+        issue_count = len(result.get("issues", []))
+        LOG.info(
+            "Sonarr diagnostics completed: status=%s, issues=%d",
+            result.get("status"),
+            issue_count,
+        )
+        return result
 
     @app.post("/api/dry-run")
     def dry_run(request: DryRunRequest) -> dict[str, Any]:
