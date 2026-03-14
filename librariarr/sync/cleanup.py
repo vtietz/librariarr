@@ -12,8 +12,7 @@ class ShadowCleanupManager:
         self,
         shadow_roots: list[Path],
         sync_enabled: bool,
-        unmonitor_on_delete: bool,
-        delete_from_radarr_on_missing: bool,
+        on_missing_action: str,
         missing_grace_seconds: int,
         get_radarr_client: Callable[[], Any],
         resolve_movie_for_link_name: Callable[[str, dict[Any, dict]], dict | None],
@@ -21,8 +20,10 @@ class ShadowCleanupManager:
     ) -> None:
         self.shadow_roots = shadow_roots
         self.sync_enabled = sync_enabled
-        self.unmonitor_on_delete = unmonitor_on_delete
-        self.delete_from_radarr_on_missing = delete_from_radarr_on_missing
+        normalized_action = str(on_missing_action).strip().lower()
+        if normalized_action not in {"none", "unmonitor", "delete"}:
+            raise ValueError("on_missing_action must be one of: none, unmonitor, delete")
+        self.on_missing_action = normalized_action
         self.missing_grace_seconds = max(0, int(missing_grace_seconds))
         self.get_radarr_client = get_radarr_client
         self.resolve_movie_for_link_name = resolve_movie_for_link_name
@@ -48,7 +49,7 @@ class ShadowCleanupManager:
         movies_by_ref: dict[Any, dict],
         matched_movie_ids: set[int],
     ) -> None:
-        if not self.sync_enabled or not self.unmonitor_on_delete:
+        if not self.sync_enabled or self.on_missing_action == "none":
             self._missing_since_by_movie_id.clear()
             return
 
@@ -76,7 +77,7 @@ class ShadowCleanupManager:
             if radarr is None:
                 radarr = self.get_radarr_client()
 
-            if self.delete_from_radarr_on_missing:
+            if self.on_missing_action == "delete":
                 radarr.delete_movie(movie_id, delete_files=False)
             else:
                 radarr.unmonitor_movie(movie)
@@ -89,7 +90,7 @@ class ShadowCleanupManager:
         movies_by_ref: dict[Any, dict],
         matched_movie_ids: set[int],
     ) -> None:
-        if not self.sync_enabled or not self.unmonitor_on_delete:
+        if not self.sync_enabled or self.on_missing_action == "none":
             return
 
         movie = self.resolve_movie_for_link_name(link_name, movies_by_ref)

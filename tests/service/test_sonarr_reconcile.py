@@ -136,7 +136,7 @@ def _make_config(
             sync_enabled=sonarr_sync_enabled,
             auto_add_unmatched=sonarr_auto_add_unmatched,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(
             debounce_seconds=1,
             maintenance_interval_minutes=60,

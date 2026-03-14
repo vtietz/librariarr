@@ -36,8 +36,7 @@ def test_cleanup_manager_removes_orphan_and_unmonitors_movie(tmp_path: Path) -> 
     manager = ShadowCleanupManager(
         shadow_roots=[shadow_root],
         sync_enabled=True,
-        unmonitor_on_delete=True,
-        delete_from_radarr_on_missing=False,
+        on_missing_action="unmonitor",
         missing_grace_seconds=0,
         get_radarr_client=lambda: radarr,
         resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
@@ -74,8 +73,7 @@ def test_cleanup_manager_removes_orphan_and_deletes_movie_when_configured(tmp_pa
     manager = ShadowCleanupManager(
         shadow_roots=[shadow_root],
         sync_enabled=True,
-        unmonitor_on_delete=True,
-        delete_from_radarr_on_missing=True,
+        on_missing_action="delete",
         missing_grace_seconds=0,
         get_radarr_client=lambda: radarr,
         resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
@@ -114,8 +112,7 @@ def test_cleanup_manager_defers_missing_action_until_grace_expires(
     manager = ShadowCleanupManager(
         shadow_roots=[shadow_root],
         sync_enabled=True,
-        unmonitor_on_delete=True,
-        delete_from_radarr_on_missing=False,
+        on_missing_action="unmonitor",
         missing_grace_seconds=60,
         get_radarr_client=lambda: radarr,
         resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
@@ -177,8 +174,7 @@ def test_cleanup_manager_clears_pending_missing_when_movie_rematches(
     manager = ShadowCleanupManager(
         shadow_roots=[shadow_root],
         sync_enabled=True,
-        unmonitor_on_delete=True,
-        delete_from_radarr_on_missing=False,
+        on_missing_action="unmonitor",
         missing_grace_seconds=60,
         get_radarr_client=lambda: radarr,
         resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(

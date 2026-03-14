@@ -188,7 +188,7 @@ def test_sonarr_e2e_reconcile_updates_existing_series_path() -> None:
             api_key=api_key,
             sync_enabled=True,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -249,7 +249,7 @@ def test_sonarr_e2e_ingest_moves_series_folder_and_updates_series_path() -> None
             api_key=api_key,
             sync_enabled=True,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True, min_age_seconds=0),
     )
@@ -319,7 +319,7 @@ def test_sonarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
             api_key=api_key,
             sync_enabled=True,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True, min_age_seconds=0, collision_policy="skip"),
     )
@@ -384,7 +384,7 @@ def test_sonarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path(
             api_key=api_key,
             sync_enabled=True,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True, min_age_seconds=0, collision_policy="qualify"),
     )

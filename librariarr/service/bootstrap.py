@@ -65,8 +65,7 @@ class ServiceBootstrapMixin:
         self.cleanup_manager = ShadowCleanupManager(
             shadow_roots=self.shadow_roots,
             sync_enabled=self.sync_enabled,
-            unmonitor_on_delete=config.cleanup.unmonitor_on_delete,
-            delete_from_radarr_on_missing=config.cleanup.delete_from_radarr_on_missing,
+            on_missing_action=config.cleanup.radarr_action_on_missing,
             missing_grace_seconds=config.cleanup.missing_grace_seconds,
             get_radarr_client=lambda: self.radarr,
             resolve_movie_for_link_name=self._resolve_movie_for_link_name,
@@ -75,8 +74,7 @@ class ServiceBootstrapMixin:
         self.sonarr_cleanup_manager = ShadowCleanupManager(
             shadow_roots=self.shadow_roots,
             sync_enabled=self.sonarr_sync_enabled,
-            unmonitor_on_delete=config.cleanup.unmonitor_on_delete,
-            delete_from_radarr_on_missing=config.cleanup.delete_from_sonarr_on_missing,
+            on_missing_action=config.cleanup.sonarr_action_on_missing,
             missing_grace_seconds=config.cleanup.missing_grace_seconds,
             get_radarr_client=lambda: self.sonarr,
             resolve_movie_for_link_name=self._resolve_series_for_link_name,

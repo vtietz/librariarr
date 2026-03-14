@@ -32,7 +32,7 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
             ),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=0),
     )
 
@@ -133,7 +133,7 @@ def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
             ),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True, min_age_seconds=0),
     )

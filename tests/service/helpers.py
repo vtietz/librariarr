@@ -141,7 +141,7 @@ def make_config(
     shadow_root: Path,
     sync_enabled: bool = True,
     radarr_enabled: bool = True,
-    delete_from_radarr_on_missing: bool = False,
+    radarr_action_on_missing: str = "unmonitor",
     auto_add_unmatched: bool = False,
     auto_add_quality_profile_id: int | None = None,
 ) -> AppConfig:
@@ -162,8 +162,7 @@ def make_config(
         ),
         cleanup=CleanupConfig(
             remove_orphaned_links=True,
-            unmonitor_on_delete=True,
-            delete_from_radarr_on_missing=delete_from_radarr_on_missing,
+            radarr_action_on_missing=radarr_action_on_missing,
             missing_grace_seconds=0,
         ),
         runtime=RuntimeConfig(

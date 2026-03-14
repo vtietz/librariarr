@@ -44,10 +44,7 @@ class SonarrMappingConfig:
 @dataclass
 class CleanupConfig:
     remove_orphaned_links: bool = True
-    unmonitor_on_delete: bool = True
-    delete_from_radarr_on_missing: bool = False
     radarr_action_on_missing: str = "unmonitor"
-    delete_from_sonarr_on_missing: bool = False
     sonarr_action_on_missing: str = "unmonitor"
     missing_grace_seconds: int = 3600
 
@@ -153,26 +150,6 @@ def _env_or_default(name: str, default: str) -> str:
     if not value.strip():
         return default
     return value
-
-
-def _resolve_missing_action(
-    cleanup_raw: dict[str, Any],
-    action_key: str,
-    legacy_delete_key: str,
-    unmonitor_on_delete: bool,
-) -> tuple[str, bool]:
-    configured_action = str(cleanup_raw.get(action_key, "")).strip().lower()
-    if configured_action:
-        if configured_action not in {"none", "unmonitor", "delete"}:
-            raise ValueError(f"cleanup.{action_key} must be one of: none, unmonitor, delete")
-        return configured_action, configured_action == "delete"
-
-    delete_on_missing = bool(cleanup_raw.get(legacy_delete_key, False))
-    if not unmonitor_on_delete:
-        return "none", delete_on_missing
-    if delete_on_missing:
-        return "delete", delete_on_missing
-    return "unmonitor", delete_on_missing
 
 
 def load_config(path: str | Path) -> AppConfig:
@@ -298,37 +275,33 @@ def load_config(path: str | Path) -> AppConfig:
     cleanup_raw = raw.get("cleanup", {})
     configured_radarr_action = str(cleanup_raw.get("radarr_action_on_missing", "")).strip().lower()
     configured_sonarr_action = str(cleanup_raw.get("sonarr_action_on_missing", "")).strip().lower()
-    if "unmonitor_on_delete" in cleanup_raw:
-        unmonitor_on_delete = bool(cleanup_raw.get("unmonitor_on_delete", True))
-    elif configured_radarr_action or configured_sonarr_action:
-        selected_actions = [
-            action for action in (configured_radarr_action, configured_sonarr_action) if action
-        ]
-        unmonitor_on_delete = any(action in {"unmonitor", "delete"} for action in selected_actions)
-    else:
-        unmonitor_on_delete = True
+    if configured_radarr_action and configured_radarr_action not in {"none", "unmonitor", "delete"}:
+        raise ValueError("cleanup.radarr_action_on_missing must be one of: none, unmonitor, delete")
+    if configured_sonarr_action and configured_sonarr_action not in {"none", "unmonitor", "delete"}:
+        raise ValueError("cleanup.sonarr_action_on_missing must be one of: none, unmonitor, delete")
 
-    resolved_missing_action, delete_from_radarr_on_missing = _resolve_missing_action(
-        cleanup_raw=cleanup_raw,
-        action_key="radarr_action_on_missing",
-        legacy_delete_key="delete_from_radarr_on_missing",
-        unmonitor_on_delete=unmonitor_on_delete,
-    )
-    resolved_sonarr_missing_action, delete_from_sonarr_on_missing = _resolve_missing_action(
-        cleanup_raw=cleanup_raw,
-        action_key="sonarr_action_on_missing",
-        legacy_delete_key="delete_from_sonarr_on_missing",
-        unmonitor_on_delete=unmonitor_on_delete,
-    )
+    resolved_missing_action = configured_radarr_action or "unmonitor"
+    resolved_sonarr_missing_action = configured_sonarr_action or "unmonitor"
 
     missing_grace_seconds = max(0, int(cleanup_raw.get("missing_grace_seconds", 3600)))
     runtime_raw = raw.get("runtime", {})
+    runtime_scan_video_extensions = runtime_raw.get("scan_video_extensions")
+    if isinstance(runtime_scan_video_extensions, list):
+        normalized_scan_video_extensions = [
+            f".{text}"
+            for text in (
+                str(item).strip().lower().lstrip(".") for item in runtime_scan_video_extensions
+            )
+            if text
+        ]
+    else:
+        normalized_scan_video_extensions = runtime_scan_video_extensions
 
     runtime = RuntimeConfig(
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),
         maintenance_interval_minutes=int(runtime_raw.get("maintenance_interval_minutes", 1440)),
         arr_root_poll_interval_minutes=int(runtime_raw.get("arr_root_poll_interval_minutes", 1)),
-        scan_video_extensions=runtime_raw.get("scan_video_extensions"),
+        scan_video_extensions=normalized_scan_video_extensions,
     )
 
     analysis_raw = raw.get("analysis", {})
@@ -392,10 +365,7 @@ def load_config(path: str | Path) -> AppConfig:
         ),
         cleanup=CleanupConfig(
             remove_orphaned_links=bool(cleanup_raw.get("remove_orphaned_links", True)),
-            unmonitor_on_delete=unmonitor_on_delete,
-            delete_from_radarr_on_missing=delete_from_radarr_on_missing,
             radarr_action_on_missing=resolved_missing_action,
-            delete_from_sonarr_on_missing=delete_from_sonarr_on_missing,
             sonarr_action_on_missing=resolved_sonarr_missing_action,
             missing_grace_seconds=missing_grace_seconds,
         ),

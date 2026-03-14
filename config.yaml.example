@@ -130,11 +130,6 @@ cleanup:
   sonarr_action_on_missing: "none"
   # Grace period before unmonitor/delete action is applied.
   missing_grace_seconds: 21600
-  # Legacy compatibility keys (prefer radarr_action_on_missing above):
-  # unmonitor_on_delete: true
-  # delete_from_radarr_on_missing: false
-  # Legacy compatibility key for Sonarr:
-  # delete_from_sonarr_on_missing: false
 
 runtime:
   # Debounce window for filesystem event bursts (seconds).
@@ -146,7 +141,7 @@ runtime:
   # configured shadow roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
   # File extensions used to detect movie folders.
-  scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]
+  scan_video_extensions: ["mkv", "mp4", "avi", "m2ts", "mov", "wmv", "ts"]
 
 analysis:
   # Include NFO text in quality detection.

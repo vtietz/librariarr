@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -10,11 +11,13 @@ import {
   Select,
   Stack,
   Switch,
+  Table,
   TagsInput,
   Text,
   TextInput,
   Title
 } from "@mantine/core";
+import { IconTrash } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { getFsRoots } from "../api/client";
 import type { ConfigModel, Issue } from "../types/config";
@@ -23,24 +26,26 @@ import SonarrSection from "./config/SonarrSection";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 
 const VIDEO_EXTENSION_SUGGESTIONS = [
-  ".mkv",
-  ".mp4",
-  ".avi",
-  ".mov",
-  ".wmv",
-  ".flv",
-  ".webm",
-  ".m4v",
-  ".mpg",
-  ".mpeg"
+  "mkv",
+  "mp4",
+  "avi",
+  "m2ts",
+  "mov",
+  "wmv",
+  "ts",
+  "flv",
+  "webm",
+  "m4v",
+  "mpg",
+  "mpeg"
 ];
 
 function normalizeVideoExtensions(values: string[]): string[] {
   const normalized = values
     .map((value) => String(value).trim().toLowerCase())
+    .map((value) => value.replace(/^\.+/, ""))
     .filter((value) => value.length > 0)
-    .map((value) => (value.startsWith(".") ? value : `.${value}`))
-    .filter((value) => value.length > 1);
+    .filter((value) => !value.includes(" "));
   return Array.from(new Set(normalized));
 }
 
@@ -97,6 +102,30 @@ export default function ConfigEditor({
       [section]: {
         ...draft[section],
         [field]: value
+      }
+    });
+  };
+
+  const normalizeCleanupAction = (value: string | null): "none" | "unmonitor" | "delete" => {
+    if (value === "delete" || value === "unmonitor" || value === "none") {
+      return value;
+    }
+    return "none";
+  };
+
+  const setCleanupAction = (target: "radarr" | "sonarr", value: string | null) => {
+    const nextAction = normalizeCleanupAction(value);
+    const nextRadarrAction =
+      target === "radarr" ? nextAction : normalizeCleanupAction(draft.cleanup.radarr_action_on_missing);
+    const nextSonarrAction =
+      target === "sonarr" ? nextAction : normalizeCleanupAction(draft.cleanup.sonarr_action_on_missing);
+
+    onChange({
+      ...draft,
+      cleanup: {
+        ...draft.cleanup,
+        radarr_action_on_missing: nextRadarrAction,
+        sonarr_action_on_missing: nextSonarrAction
       }
     });
   };
@@ -204,7 +233,9 @@ export default function ConfigEditor({
             label="Scan Video Extensions"
             placeholder="Add extension and press Enter"
             data={VIDEO_EXTENSION_SUGGESTIONS}
-            value={draft.runtime.scan_video_extensions ?? []}
+            value={(draft.runtime.scan_video_extensions ?? []).map((value) =>
+              String(value).replace(/^\.+/, "")
+            )}
             splitChars={[",", " "]}
             clearable
             acceptValueOnBlur
@@ -226,44 +257,19 @@ export default function ConfigEditor({
                 setSectionField("cleanup", "remove_orphaned_links", event.currentTarget.checked)
               }
             />
-            <Checkbox
-              label="Legacy unmonitor_on_delete"
-              checked={draft.cleanup.unmonitor_on_delete}
-              onChange={(event) =>
-                setSectionField("cleanup", "unmonitor_on_delete", event.currentTarget.checked)
-              }
-            />
-            <Checkbox
-              label="Legacy delete_from_radarr_on_missing"
-              checked={draft.cleanup.delete_from_radarr_on_missing}
-              onChange={(event) =>
-                setSectionField("cleanup", "delete_from_radarr_on_missing", event.currentTarget.checked)
-              }
-            />
-            <Checkbox
-              label="Legacy delete_from_sonarr_on_missing"
-              checked={draft.cleanup.delete_from_sonarr_on_missing}
-              onChange={(event) =>
-                setSectionField("cleanup", "delete_from_sonarr_on_missing", event.currentTarget.checked)
-              }
-            />
           </Group>
           <Group grow align="flex-end">
             <Select
               label="Radarr Action On Missing"
               data={["none", "unmonitor", "delete"]}
               value={draft.cleanup.radarr_action_on_missing}
-              onChange={(value) =>
-                setSectionField("cleanup", "radarr_action_on_missing", value ?? "none")
-              }
+              onChange={(value) => setCleanupAction("radarr", value)}
             />
             <Select
               label="Sonarr Action On Missing"
               data={["none", "unmonitor", "delete"]}
               value={draft.cleanup.sonarr_action_on_missing}
-              onChange={(value) =>
-                setSectionField("cleanup", "sonarr_action_on_missing", value ?? "none")
-              }
+              onChange={(value) => setCleanupAction("sonarr", value)}
             />
             <NumberInput
               label="Missing Grace Seconds"
@@ -349,39 +355,78 @@ export default function ConfigEditor({
             Add Mapping
           </Button>
         </Group>
-        <Stack mt="sm">
-          {draft.paths.root_mappings.map((mapping, index) => (
-            <Card key={`mapping-${index}`} withBorder>
-              <Stack>
-                <Group grow align="end">
-                  <TextInput
-                    label={`Nested Root ${index + 1}`}
-                    value={mapping.nested_root}
-                    onChange={(event) => setRootMapping(index, "nested_root", event.currentTarget.value)}
-                  />
-                  <Button variant="light" onClick={() => setPickerTarget({ index, key: "nested_root" })}>
-                    Pick Directory
-                  </Button>
-                </Group>
-                <Group grow align="end">
-                  <TextInput
-                    label={`Shadow Root ${index + 1}`}
-                    value={mapping.shadow_root}
-                    onChange={(event) => setRootMapping(index, "shadow_root", event.currentTarget.value)}
-                  />
-                  <Button variant="light" onClick={() => setPickerTarget({ index, key: "shadow_root" })}>
-                    Pick Directory
-                  </Button>
-                </Group>
-                <Group justify="flex-end">
-                  <Button color="red" variant="subtle" onClick={() => removeRootMapping(index)}>
-                    Remove Mapping
-                  </Button>
-                </Group>
-              </Stack>
-            </Card>
-          ))}
-        </Stack>
+        <Table mt="sm" verticalSpacing={6} horizontalSpacing="xs" layout="fixed">
+          <Table.Thead>
+            <Table.Tr>
+              <Table.Th py={6} fz="sm">Nested Root</Table.Th>
+              <Table.Th py={6} w={140} />
+              <Table.Th py={6} fz="sm">Shadow Root</Table.Th>
+              <Table.Th py={6} w={140} />
+              <Table.Th py={6} w={44} />
+            </Table.Tr>
+          </Table.Thead>
+          <Table.Tbody>
+            {draft.paths.root_mappings.length === 0 ? (
+              <Table.Tr>
+                <Table.Td colSpan={5}>
+                  <Text c="dimmed" size="sm">No mappings yet. Use Add Mapping.</Text>
+                </Table.Td>
+              </Table.Tr>
+            ) : (
+              draft.paths.root_mappings.map((mapping, index) => (
+                <Table.Tr key={`mapping-${index}`}>
+                  <Table.Td>
+                    <TextInput
+                      size="sm"
+                      aria-label={`Nested Root ${index + 1}`}
+                      value={mapping.nested_root}
+                      onChange={(event) => setRootMapping(index, "nested_root", event.currentTarget.value)}
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <Button
+                      size="sm"
+                      variant="light"
+                      fullWidth
+                      onClick={() => setPickerTarget({ index, key: "nested_root" })}
+                    >
+                      Pick Directory
+                    </Button>
+                  </Table.Td>
+                  <Table.Td>
+                    <TextInput
+                      size="sm"
+                      aria-label={`Shadow Root ${index + 1}`}
+                      value={mapping.shadow_root}
+                      onChange={(event) => setRootMapping(index, "shadow_root", event.currentTarget.value)}
+                    />
+                  </Table.Td>
+                  <Table.Td>
+                    <Button
+                      size="sm"
+                      variant="light"
+                      fullWidth
+                      onClick={() => setPickerTarget({ index, key: "shadow_root" })}
+                    >
+                      Pick Directory
+                    </Button>
+                  </Table.Td>
+                  <Table.Td>
+                    <ActionIcon
+                      size="sm"
+                      color="red"
+                      variant="subtle"
+                      aria-label="Remove mapping"
+                      onClick={() => removeRootMapping(index)}
+                    >
+                      <IconTrash size={16} />
+                    </ActionIcon>
+                  </Table.Td>
+                </Table.Tr>
+              ))
+            )}
+          </Table.Tbody>
+        </Table>
       </Card>
 
       {diffText && (

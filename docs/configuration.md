@@ -325,11 +325,6 @@ Note:
 - Delay before `unmonitor` or `delete` is applied.
 - Helps avoid false actions during temporary storage/network outages.
 
-Legacy compatibility keys (prefer `cleanup.radarr_action_on_missing`):
-- `cleanup.unmonitor_on_delete`
-- `cleanup.delete_from_radarr_on_missing`
-- `cleanup.delete_from_sonarr_on_missing`
-
 ## Runtime
 
 `runtime.debounce_seconds`:
@@ -348,6 +343,7 @@ Legacy compatibility keys (prefer `cleanup.radarr_action_on_missing`):
 
 `runtime.scan_video_extensions`:
 - Extensions that mark a directory as a media folder.
+- Leading dots are optional (`mkv` and `.mkv` are treated the same).
 
 ## Env Overrides
 

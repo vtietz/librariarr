@@ -47,10 +47,7 @@ export type ConfigModel = {
   };
   cleanup: {
     remove_orphaned_links: boolean;
-    unmonitor_on_delete: boolean;
-    delete_from_radarr_on_missing: boolean;
     radarr_action_on_missing: string;
-    delete_from_sonarr_on_missing: boolean;
     sonarr_action_on_missing: string;
     missing_grace_seconds: number;
   };

@@ -70,10 +70,10 @@ export default function RuleEditor<T extends RuleRow>({
         <Table verticalSpacing={6} horizontalSpacing="xs" layout="fixed">
           <Table.Thead>
             <Table.Tr>
-              <Table.Th>Match Tags</Table.Th>
-              <Table.Th>{idLabel}</Table.Th>
-              <Table.Th>Name</Table.Th>
-              <Table.Th w={44} />
+              <Table.Th py={6} fz="sm">Match Tags</Table.Th>
+              <Table.Th py={6} fz="sm">{idLabel}</Table.Th>
+              <Table.Th py={6} fz="sm">Name</Table.Th>
+              <Table.Th py={6} w={44} />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>

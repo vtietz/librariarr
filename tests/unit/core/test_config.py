@@ -18,8 +18,6 @@ CONFIG_CONTENT = (
     "        target_id: 7\n"
     "cleanup:\n"
     "  remove_orphaned_links: true\n"
-    "  unmonitor_on_delete: true\n"
-    "  delete_from_radarr_on_missing: false\n"
     "runtime:\n"
     "  debounce_seconds: 8\n"
     "  maintenance_interval_minutes: 1440\n"
@@ -216,6 +214,29 @@ def test_load_config_reads_arr_root_poll_interval(tmp_path: Path) -> None:
     assert config.runtime.arr_root_poll_interval_minutes == 3
 
 
+def test_load_config_normalizes_dotless_scan_video_extensions(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime:\n"
+            "  scan_video_extensions: [mkv, .mp4, avi]\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.runtime.scan_video_extensions == [".mkv", ".mp4", ".avi"]
+
+
 def test_load_config_ingest_defaults(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(CONFIG_CONTENT, encoding="utf-8")
@@ -368,8 +389,6 @@ def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
     config = load_config(config_path)
 
     assert config.cleanup.radarr_action_on_missing == "none"
-    assert config.cleanup.unmonitor_on_delete is False
-    assert config.cleanup.delete_from_radarr_on_missing is False
     assert config.cleanup.missing_grace_seconds == 7200
 
 
@@ -417,7 +436,6 @@ def test_load_config_reads_sonarr_settings(tmp_path: Path) -> None:
     assert config.sonarr.auto_add_season_folder is False
     assert config.sonarr.refresh_debounce_seconds == 9
     assert config.cleanup.sonarr_action_on_missing == "delete"
-    assert config.cleanup.delete_from_sonarr_on_missing is True
 
 
 def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> None:

@@ -41,7 +41,7 @@ def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
             ),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
     service = LibrariArrService(config)
@@ -69,7 +69,7 @@ def test_reconcile_deletes_radarr_entry_when_configured(tmp_path: Path) -> None:
         nested_root,
         shadow_root,
         sync_enabled=True,
-        delete_from_radarr_on_missing=True,
+        radarr_action_on_missing="delete",
     )
     service = LibrariArrService(config)
 
@@ -123,7 +123,7 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
             ),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True, unmonitor_on_delete=True),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
