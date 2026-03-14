@@ -1,4 +1,4 @@
-import { Group, NumberInput, Select, Text } from "@mantine/core";
+import { Button, Collapse, Group, NumberInput, Select, Text } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import {
   getSonarrLanguageProfiles,
@@ -10,6 +10,7 @@ import type { ConfigModel } from "../../types/config";
 import { toOpenToolUrl } from "../../utils/toolUrl";
 import ArrBaseSection from "./ArrBaseSection";
 import { buildSonarrToggles } from "./arrToggleBuilders";
+import HelpLabel from "./HelpLabel";
 import RuleEditor from "./RuleEditor";
 import { addRule, removeRuleAt, updateRuleAt } from "./ruleListState";
 
@@ -29,6 +30,7 @@ export default function SonarrSection({ value, onChange }: Props) {
     Array<{ value: string; label: string }>
   >([]);
   const [metadataWarning, setMetadataWarning] = useState<string | null>(null);
+  const [showQualityMaps, setShowQualityMaps] = useState(true);
 
   const setField = (field: keyof ConfigModel["sonarr"], fieldValue: unknown) => {
     onChange({ ...value, [field]: fieldValue });
@@ -143,9 +145,11 @@ export default function SonarrSection({ value, onChange }: Props) {
       title="Sonarr"
       toggles={buildSonarrToggles(value, (field, checked) => setField(field, checked))}
       urlLabel="Sonarr URL"
+      urlHelp="Base URL for Sonarr, including protocol and port."
       urlValue={value.url}
       onUrlChange={(nextValue) => setField("url", nextValue)}
       apiKeyLabel="Sonarr API Key"
+      apiKeyHelp="API key used to authenticate requests to Sonarr."
       apiKeyValue={value.api_key}
       onApiKeyChange={(nextValue) => setField("api_key", nextValue)}
       openLabel="Open Sonarr"
@@ -166,7 +170,12 @@ export default function SonarrSection({ value, onChange }: Props) {
     >
       <Group grow align="flex-end">
         <NumberInput
-          label="Refresh Debounce Seconds"
+          label={
+            <HelpLabel
+              label="Refresh Debounce Seconds"
+              help="Minimum wait between per-series refresh calls. Use 0 to disable debounce."
+            />
+          }
           value={value.refresh_debounce_seconds}
           min={0}
           onChange={(fieldValue) => setField("refresh_debounce_seconds", Number(fieldValue) || 0)}
@@ -193,7 +202,12 @@ export default function SonarrSection({ value, onChange }: Props) {
 
           return (
             <Select
-              label="Auto-add Quality Profile ID"
+              label={
+                <HelpLabel
+                  label="Auto-add Quality Profile ID"
+                  help="Optional fixed quality profile for auto-added series. Leave empty to use quality profile map rules."
+                />
+              }
               data={options}
               value={currentValue}
               searchable
@@ -230,7 +244,12 @@ export default function SonarrSection({ value, onChange }: Props) {
 
           return (
             <Select
-              label="Auto-add Language Profile ID"
+              label={
+                <HelpLabel
+                  label="Auto-add Language Profile ID"
+                  help="Optional fixed language profile for auto-added series. Leave empty to use language profile map rules."
+                />
+              }
               data={options}
               value={currentValue}
               searchable
@@ -253,6 +272,17 @@ export default function SonarrSection({ value, onChange }: Props) {
         </Text>
       ) : null}
 
+      <Group justify="space-between" mt="xs">
+        <HelpLabel
+          label="Quality Maps"
+          help="Optional tag-based mappings for Sonarr quality and language profile selection during auto-add."
+        />
+        <Button variant="subtle" size="xs" onClick={() => setShowQualityMaps((current) => !current)}>
+          {showQualityMaps ? "Hide" : "Show"}
+        </Button>
+      </Group>
+
+      <Collapse in={showQualityMaps}>
         <RuleEditor
           title="Sonarr Quality Profile Map"
           idLabel="Profile ID"
@@ -326,6 +356,7 @@ export default function SonarrSection({ value, onChange }: Props) {
             )
           }
         />
+      </Collapse>
     </ArrBaseSection>
   );
 }

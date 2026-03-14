@@ -1,8 +1,10 @@
 import { Button, Card, Checkbox, Group, Stack, Switch, Text, TextInput, Title } from "@mantine/core";
 import type { ReactNode } from "react";
+import HelpLabel from "./HelpLabel";
 
 export type ToggleItem = {
   label: string;
+  help: string;
   checked: boolean;
   kind?: "switch" | "checkbox";
   onChange: (checked: boolean) => void;
@@ -12,9 +14,11 @@ type Props = {
   title: string;
   toggles: ToggleItem[];
   urlLabel: string;
+  urlHelp: string;
   urlValue: string;
   onUrlChange: (value: string) => void;
   apiKeyLabel: string;
+  apiKeyHelp: string;
   apiKeyValue: string;
   onApiKeyChange: (value: string) => void;
   openLabel: string;
@@ -30,9 +34,11 @@ export default function ArrBaseSection({
   title,
   toggles,
   urlLabel,
+  urlHelp,
   urlValue,
   onUrlChange,
   apiKeyLabel,
+  apiKeyHelp,
   apiKeyValue,
   onApiKeyChange,
   openLabel,
@@ -53,7 +59,7 @@ export default function ArrBaseSection({
               return (
                 <Switch
                   key={`arr-toggle-${index}`}
-                  label={toggle.label}
+                  label={<HelpLabel label={toggle.label} help={toggle.help} />}
                   checked={toggle.checked}
                   onChange={(event) => toggle.onChange(event.currentTarget.checked)}
                 />
@@ -62,7 +68,7 @@ export default function ArrBaseSection({
             return (
               <Checkbox
                 key={`arr-toggle-${index}`}
-                label={toggle.label}
+                label={<HelpLabel label={toggle.label} help={toggle.help} />}
                 checked={toggle.checked}
                 onChange={(event) => toggle.onChange(event.currentTarget.checked)}
               />
@@ -70,9 +76,13 @@ export default function ArrBaseSection({
           })}
         </Group>
 
-        <TextInput label={urlLabel} value={urlValue} onChange={(event) => onUrlChange(event.currentTarget.value)} />
         <TextInput
-          label={apiKeyLabel}
+          label={<HelpLabel label={urlLabel} help={urlHelp} />}
+          value={urlValue}
+          onChange={(event) => onUrlChange(event.currentTarget.value)}
+        />
+        <TextInput
+          label={<HelpLabel label={apiKeyLabel} help={apiKeyHelp} />}
           value={apiKeyValue}
           onChange={(event) => onApiKeyChange(event.currentTarget.value)}
         />

@@ -1,4 +1,4 @@
-import { Group, NumberInput, Select, Text } from "@mantine/core";
+import { Button, Collapse, Group, NumberInput, Select, Text } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import {
   getRadarrCustomFormats,
@@ -11,6 +11,7 @@ import type { ConfigModel } from "../../types/config";
 import { toOpenToolUrl } from "../../utils/toolUrl";
 import ArrBaseSection from "./ArrBaseSection";
 import { buildRadarrToggles } from "./arrToggleBuilders";
+import HelpLabel from "./HelpLabel";
 import RuleEditor from "./RuleEditor";
 import { addRule, removeRuleAt, updateRuleAt } from "./ruleListState";
 
@@ -33,6 +34,7 @@ export default function RadarrSection({ value, onChange }: Props) {
     []
   );
   const [metadataWarning, setMetadataWarning] = useState<string | null>(null);
+  const [showQualityMaps, setShowQualityMaps] = useState(true);
 
   const setField = (field: keyof ConfigModel["radarr"], fieldValue: unknown) => {
     onChange({ ...value, [field]: fieldValue });
@@ -177,9 +179,11 @@ export default function RadarrSection({ value, onChange }: Props) {
       title="Radarr"
       toggles={buildRadarrToggles(value, (field, checked) => setField(field, checked))}
       urlLabel="Radarr URL"
+      urlHelp="Base URL for Radarr, including protocol and port."
       urlValue={value.url}
       onUrlChange={(nextValue) => setField("url", nextValue)}
       apiKeyLabel="Radarr API Key"
+      apiKeyHelp="API key used to authenticate requests to Radarr."
       apiKeyValue={value.api_key}
       onApiKeyChange={(nextValue) => setField("api_key", nextValue)}
       openLabel="Open Radarr"
@@ -200,7 +204,12 @@ export default function RadarrSection({ value, onChange }: Props) {
     >
       <Group grow align="flex-end">
         <NumberInput
-          label="Refresh Debounce Seconds"
+          label={
+            <HelpLabel
+              label="Refresh Debounce Seconds"
+              help="Minimum wait between per-movie refresh calls. Use 0 to disable debounce."
+            />
+          }
           value={value.refresh_debounce_seconds}
           min={0}
           onChange={(fieldValue) => setField("refresh_debounce_seconds", Number(fieldValue) || 0)}
@@ -227,7 +236,12 @@ export default function RadarrSection({ value, onChange }: Props) {
 
           return (
             <Select
-              label="Auto-add Quality Profile ID"
+              label={
+                <HelpLabel
+                  label="Auto-add Quality Profile ID"
+                  help="Optional fixed quality profile for auto-added movies. Leave empty to rely on mapping logic."
+                />
+              }
               data={options}
               value={currentValue}
               searchable
@@ -250,6 +264,17 @@ export default function RadarrSection({ value, onChange }: Props) {
         </Text>
       ) : null}
 
+      <Group justify="space-between" mt="xs">
+        <HelpLabel
+          label="Quality Maps"
+          help="Optional tag-based mappings for Radarr quality definitions and custom formats used during auto-add decisions."
+        />
+        <Button variant="subtle" size="xs" onClick={() => setShowQualityMaps((current) => !current)}>
+          {showQualityMaps ? "Hide" : "Show"}
+        </Button>
+      </Group>
+
+      <Collapse in={showQualityMaps}>
         <RuleEditor
           title="Radarr Quality Map"
           idLabel="Target ID"
@@ -323,6 +348,7 @@ export default function RadarrSection({ value, onChange }: Props) {
             )
           }
         />
+      </Collapse>
     </ArrBaseSection>
   );
 }

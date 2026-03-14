@@ -12,6 +12,7 @@ import {
 } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
 import { useMemo } from "react";
+import HelpLabel from "./HelpLabel";
 
 type RuleRow = {
   match: string[];
@@ -66,8 +67,18 @@ export default function RuleEditor<T extends RuleRow>({
         <Table verticalSpacing={6} horizontalSpacing="xs" layout="fixed">
           <Table.Thead>
             <Table.Tr>
-              <Table.Th py={6} fz="sm">Match Tags</Table.Th>
-              <Table.Th py={6} fz="sm">{idLabel}</Table.Th>
+              <Table.Th py={6} fz="sm">
+                <HelpLabel
+                  label="Match Tags"
+                  help="All listed tags must match for this mapping rule to apply."
+                />
+              </Table.Th>
+              <Table.Th py={6} fz="sm">
+                <HelpLabel
+                  label={idLabel}
+                  help="Target ID assigned when the match tags rule is satisfied."
+                />
+              </Table.Th>
               <Table.Th py={6} w={44} />
             </Table.Tr>
           </Table.Thead>

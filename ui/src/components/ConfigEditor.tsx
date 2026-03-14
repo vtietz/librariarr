@@ -1,5 +1,4 @@
 import {
-  ActionIcon,
   Alert,
   Badge,
   Button,
@@ -11,19 +10,18 @@ import {
   Select,
   Stack,
   Switch,
-  Table,
   TagsInput,
   Text,
   TextInput,
   Title
 } from "@mantine/core";
-import { IconFolder, IconTrash } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { getFsRoots } from "../api/client";
 import type { ConfigModel, Issue } from "../types/config";
-import { EXCLUDE_PATH_SUGGESTIONS, normalizeExcludePaths } from "./config/pathExcludes";
 import RadarrSection from "./config/RadarrSection";
 import SonarrSection from "./config/SonarrSection";
+import HelpLabel from "./config/HelpLabel";
+import PathsSection from "./config/PathsSection";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 
 const VIDEO_EXTENSION_SUGGESTIONS = [
@@ -203,18 +201,163 @@ export default function ConfigEditor({
         </Alert>
       )}
 
+      <PathsSection
+        rootMappings={draft.paths.root_mappings}
+        excludePaths={draft.paths.exclude_paths ?? []}
+        onAddMapping={addRootMapping}
+        onRemoveMapping={removeRootMapping}
+        onSetMapping={setRootMapping}
+        onOpenPicker={(index, key) => setPickerTarget({ index, key })}
+        onExcludePathsChange={(excludePaths) =>
+          onChange({
+            ...draft,
+            paths: {
+              ...draft.paths,
+              exclude_paths: excludePaths
+            }
+          })
+        }
+      />
+
+      <RadarrSection
+        value={draft.radarr}
+        onChange={(nextRadarr) => onChange({ ...draft, radarr: nextRadarr })}
+      />
+
+      <SonarrSection
+        value={draft.sonarr}
+        onChange={(nextSonarr) => onChange({ ...draft, sonarr: nextSonarr })}
+      />
+
       <Card withBorder>
-        <Title order={4}>General</Title>
+        <Title order={4}>Ingest</Title>
+        <Stack mt="sm">
+          <Switch
+            label={
+              <HelpLabel
+                label="Enabled"
+                help="Moves real folders from shadow roots back to nested roots when safe."
+              />
+            }
+            checked={draft.ingest.enabled}
+            onChange={(event) => setSectionField("ingest", "enabled", event.currentTarget.checked)}
+          />
+          <Group grow align="flex-end">
+            <NumberInput
+              label={
+                <HelpLabel
+                  label="Minimum Age Seconds"
+                  help="Minimum stable age before ingest is allowed to move a folder."
+                />
+              }
+              value={draft.ingest.min_age_seconds}
+              min={0}
+              onChange={(value) => setSectionField("ingest", "min_age_seconds", Number(value) || 0)}
+            />
+            <Select
+              label={
+                <HelpLabel
+                  label="Collision Policy"
+                  help="How ingest handles name conflicts: qualify appends a suffix, skip leaves the source untouched."
+                />
+              }
+              data={["qualify", "skip"]}
+              value={draft.ingest.collision_policy}
+              onChange={(value) => setSectionField("ingest", "collision_policy", value ?? "qualify")}
+            />
+            <TextInput
+              label={
+                <HelpLabel
+                  label="Quarantine Root"
+                  help="Optional folder where failed ingest moves can be placed for recovery."
+                />
+              }
+              value={draft.ingest.quarantine_root}
+              onChange={(event) => setSectionField("ingest", "quarantine_root", event.currentTarget.value)}
+            />
+          </Group>
+        </Stack>
+      </Card>
+
+      <Card withBorder>
+        <Title order={4}>Cleanup</Title>
+        <Stack mt="sm">
+          <Group>
+            <Checkbox
+              label={
+                <HelpLabel
+                  label="Remove orphaned links"
+                  help="Deletes stale links in shadow roots when their source folder no longer exists."
+                />
+              }
+              checked={draft.cleanup.remove_orphaned_links}
+              onChange={(event) =>
+                setSectionField("cleanup", "remove_orphaned_links", event.currentTarget.checked)
+              }
+            />
+          </Group>
+          <Group grow align="flex-end">
+            <Select
+              label={
+                <HelpLabel
+                  label="Radarr Action On Missing"
+                  help="Action to apply in Radarr when a source folder stays missing after grace period."
+                />
+              }
+              data={["none", "unmonitor", "delete"]}
+              value={draft.cleanup.radarr_action_on_missing}
+              onChange={(value) => setCleanupAction("radarr", value)}
+            />
+            <Select
+              label={
+                <HelpLabel
+                  label="Sonarr Action On Missing"
+                  help="Action to apply in Sonarr when a source folder stays missing after grace period."
+                />
+              }
+              data={["none", "unmonitor", "delete"]}
+              value={draft.cleanup.sonarr_action_on_missing}
+              onChange={(value) => setCleanupAction("sonarr", value)}
+            />
+            <NumberInput
+              label={
+                <HelpLabel
+                  label="Missing Grace Seconds"
+                  help="How long an item may remain missing before unmonitor/delete actions are applied."
+                />
+              }
+              value={draft.cleanup.missing_grace_seconds}
+              min={0}
+              onChange={(value) =>
+                setSectionField("cleanup", "missing_grace_seconds", Number(value) || 0)
+              }
+            />
+          </Group>
+        </Stack>
+      </Card>
+
+      <Card withBorder>
+        <Title order={4}>Runtime</Title>
         <Stack mt="sm">
           <Group grow align="flex-end">
             <NumberInput
-              label="Debounce Seconds"
+              label={
+                <HelpLabel
+                  label="Debounce Seconds"
+                  help="Event burst window before running a reconcile cycle."
+                />
+              }
               value={draft.runtime.debounce_seconds}
               min={0}
               onChange={(value) => setSectionField("runtime", "debounce_seconds", Number(value) || 0)}
             />
             <NumberInput
-              label="Maintenance Interval (minutes)"
+              label={
+                <HelpLabel
+                  label="Maintenance Interval (minutes)"
+                  help="Interval for periodic full maintenance reconciles. Set 0 to disable periodic runs."
+                />
+              }
               value={draft.runtime.maintenance_interval_minutes}
               min={0}
               onChange={(value) =>
@@ -222,7 +365,12 @@ export default function ConfigEditor({
               }
             />
             <NumberInput
-              label="Arr Root Poll Interval (minutes)"
+              label={
+                <HelpLabel
+                  label="Arr Root Poll Interval (minutes)"
+                  help="How often Arr root folders are polled to auto-trigger reconcile when shadow roots appear later."
+                />
+              }
               value={draft.runtime.arr_root_poll_interval_minutes}
               min={0}
               onChange={(value) =>
@@ -231,7 +379,12 @@ export default function ConfigEditor({
             />
           </Group>
           <TagsInput
-            label="Scan Video Extensions"
+            label={
+              <HelpLabel
+                label="Scan Video Extensions"
+                help="File extensions treated as video files while detecting media folders."
+              />
+            }
             placeholder="Add extension and press Enter"
             data={VIDEO_EXTENSION_SUGGESTIONS}
             value={(draft.runtime.scan_video_extensions ?? []).map((value) =>
@@ -248,53 +401,21 @@ export default function ConfigEditor({
       </Card>
 
       <Card withBorder>
-        <Title order={4}>Cleanup</Title>
-        <Stack mt="sm">
-          <Group>
-            <Checkbox
-              label="Remove orphaned links"
-              checked={draft.cleanup.remove_orphaned_links}
-              onChange={(event) =>
-                setSectionField("cleanup", "remove_orphaned_links", event.currentTarget.checked)
-              }
-            />
-          </Group>
-          <Group grow align="flex-end">
-            <Select
-              label="Radarr Action On Missing"
-              data={["none", "unmonitor", "delete"]}
-              value={draft.cleanup.radarr_action_on_missing}
-              onChange={(value) => setCleanupAction("radarr", value)}
-            />
-            <Select
-              label="Sonarr Action On Missing"
-              data={["none", "unmonitor", "delete"]}
-              value={draft.cleanup.sonarr_action_on_missing}
-              onChange={(value) => setCleanupAction("sonarr", value)}
-            />
-            <NumberInput
-              label="Missing Grace Seconds"
-              value={draft.cleanup.missing_grace_seconds}
-              min={0}
-              onChange={(value) =>
-                setSectionField("cleanup", "missing_grace_seconds", Number(value) || 0)
-              }
-            />
-          </Group>
-        </Stack>
-      </Card>
-
-      <Card withBorder>
         <Title order={4}>Analysis</Title>
         <Stack mt="sm">
           <Group>
             <Checkbox
-              label="Use NFO"
+              label={<HelpLabel label="Use NFO" help="Includes NFO text tokens in quality detection." />}
               checked={draft.analysis.use_nfo}
               onChange={(event) => setSectionField("analysis", "use_nfo", event.currentTarget.checked)}
             />
             <Checkbox
-              label="Use Media Probe"
+              label={
+                <HelpLabel
+                  label="Use Media Probe"
+                  help="Includes media probe tokens in quality detection when available."
+                />
+              }
               checked={draft.analysis.use_media_probe}
               onChange={(event) =>
                 setSectionField("analysis", "use_media_probe", event.currentTarget.checked)
@@ -302,152 +423,16 @@ export default function ConfigEditor({
             />
           </Group>
           <TextInput
-            label="Media Probe Binary"
+            label={
+              <HelpLabel
+                label="Media Probe Binary"
+                help="Executable name or absolute path used for media probing (for example ffprobe)."
+              />
+            }
             value={draft.analysis.media_probe_bin}
             onChange={(event) => setSectionField("analysis", "media_probe_bin", event.currentTarget.value)}
           />
         </Stack>
-      </Card>
-
-      <Card withBorder>
-        <Title order={4}>Ingest</Title>
-        <Stack mt="sm">
-          <Switch
-            label="Enabled"
-            checked={draft.ingest.enabled}
-            onChange={(event) => setSectionField("ingest", "enabled", event.currentTarget.checked)}
-          />
-          <Group grow align="flex-end">
-            <NumberInput
-              label="Minimum Age Seconds"
-              value={draft.ingest.min_age_seconds}
-              min={0}
-              onChange={(value) => setSectionField("ingest", "min_age_seconds", Number(value) || 0)}
-            />
-            <Select
-              label="Collision Policy"
-              data={["qualify", "skip"]}
-              value={draft.ingest.collision_policy}
-              onChange={(value) => setSectionField("ingest", "collision_policy", value ?? "qualify")}
-            />
-            <TextInput
-              label="Quarantine Root"
-              value={draft.ingest.quarantine_root}
-              onChange={(event) => setSectionField("ingest", "quarantine_root", event.currentTarget.value)}
-            />
-          </Group>
-        </Stack>
-      </Card>
-
-      <RadarrSection
-        value={draft.radarr}
-        onChange={(nextRadarr) => onChange({ ...draft, radarr: nextRadarr })}
-      />
-
-      <SonarrSection
-        value={draft.sonarr}
-        onChange={(nextSonarr) => onChange({ ...draft, sonarr: nextSonarr })}
-      />
-
-      <Card withBorder>
-        <Group justify="space-between">
-          <Title order={4}>Root Mappings</Title>
-          <Button variant="light" onClick={addRootMapping}>
-            Add Mapping
-          </Button>
-        </Group>
-        <Table mt="sm" verticalSpacing={6} horizontalSpacing="xs" layout="fixed">
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th py={6} fz="sm">Nested Root</Table.Th>
-              <Table.Th py={6} w={44} />
-              <Table.Th py={6} fz="sm">Shadow Root</Table.Th>
-              <Table.Th py={6} w={44} />
-              <Table.Th py={6} w={44} />
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {draft.paths.root_mappings.length === 0 ? (
-              <Table.Tr>
-                <Table.Td colSpan={5}>
-                  <Text c="dimmed" size="sm">No mappings yet. Use Add Mapping.</Text>
-                </Table.Td>
-              </Table.Tr>
-            ) : (
-              draft.paths.root_mappings.map((mapping, index) => (
-                <Table.Tr key={`mapping-${index}`}>
-                  <Table.Td>
-                    <TextInput
-                      size="sm"
-                      aria-label={`Nested Root ${index + 1}`}
-                      value={mapping.nested_root}
-                      onChange={(event) => setRootMapping(index, "nested_root", event.currentTarget.value)}
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <ActionIcon
-                      size="sm"
-                      variant="light"
-                      aria-label="Pick nested root directory"
-                      onClick={() => setPickerTarget({ index, key: "nested_root" })}
-                    >
-                      <IconFolder size={16} />
-                    </ActionIcon>
-                  </Table.Td>
-                  <Table.Td>
-                    <TextInput
-                      size="sm"
-                      aria-label={`Shadow Root ${index + 1}`}
-                      value={mapping.shadow_root}
-                      onChange={(event) => setRootMapping(index, "shadow_root", event.currentTarget.value)}
-                    />
-                  </Table.Td>
-                  <Table.Td>
-                    <ActionIcon
-                      size="sm"
-                      variant="light"
-                      aria-label="Pick shadow root directory"
-                      onClick={() => setPickerTarget({ index, key: "shadow_root" })}
-                    >
-                      <IconFolder size={16} />
-                    </ActionIcon>
-                  </Table.Td>
-                  <Table.Td>
-                    <ActionIcon
-                      size="sm"
-                      color="red"
-                      variant="subtle"
-                      aria-label="Remove mapping"
-                      onClick={() => removeRootMapping(index)}
-                    >
-                      <IconTrash size={16} />
-                    </ActionIcon>
-                  </Table.Td>
-                </Table.Tr>
-              ))
-            )}
-          </Table.Tbody>
-        </Table>
-        <TagsInput
-          mt="md"
-          label="Exclude Paths"
-          description="Case-insensitive glob-style patterns, relative to each nested root (e.g. .deletedByTMM/, specials/, .librariarr/**)"
-          placeholder="Add pattern and press Enter"
-          data={EXCLUDE_PATH_SUGGESTIONS}
-          value={draft.paths.exclude_paths ?? []}
-          splitChars={[","]}
-          clearable
-          acceptValueOnBlur
-          onChange={(values) =>
-            onChange({
-              ...draft,
-              paths: {
-                ...draft.paths,
-                exclude_paths: normalizeExcludePaths(values)
-              }
-            })
-          }
-        />
       </Card>
 
       {diffText && (
