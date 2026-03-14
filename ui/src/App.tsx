@@ -2,13 +2,14 @@ import { AppShell, Group, Loader, Stack, Tabs, Text, ThemeIcon, Title } from "@m
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { IconBooks } from "@tabler/icons-react";
 import {
+  getJobsSummary,
   getRuntimeStatus,
   getConfig,
   getDiff,
   saveConfig,
   validateConfig
 } from "./api/client";
-import type { RuntimeStatusResponse } from "./api/client";
+import type { JobsSummary, RuntimeStatusResponse } from "./api/client";
 import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
@@ -28,6 +29,7 @@ export default function App() {
   const [sonarrStatus, setSonarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
   const [lastDryRunSummary, setLastDryRunSummary] = useState("");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
+  const [jobsSummary, setJobsSummary] = useState<JobsSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("dashboard");
 
@@ -75,13 +77,18 @@ export default function App() {
 
     const loadRuntimeStatus = async () => {
       try {
-        const result = await getRuntimeStatus();
+        const [runtimeResult, jobsResult] = await Promise.all([
+          getRuntimeStatus(),
+          getJobsSummary()
+        ]);
         if (active) {
-          setRuntimeStatus(result);
+          setRuntimeStatus(runtimeResult);
+          setJobsSummary(jobsResult);
         }
       } catch {
         if (active) {
           setRuntimeStatus(null);
+          setJobsSummary(null);
         }
       }
     };
@@ -197,6 +204,7 @@ export default function App() {
               hasUnsavedChanges={hasUnsavedChanges}
               lastDryRunSummary={lastDryRunSummary}
               runtimeStatus={runtimeStatus}
+              jobsSummary={jobsSummary}
             />
           </Tabs.Panel>
 

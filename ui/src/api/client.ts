@@ -196,19 +196,21 @@ export const getSonarrRootFolders = async () => {
 };
 
 export const runRadarrDiagnostics = async () => {
-  const { data } = await api.post<{
+  const queued = await enqueueJob("/diagnostics/radarr");
+  const job = await waitForJob(queued.job_id);
+  return parseJobResult<{
     status: string;
     issues: Array<{ severity: string; message: string }>;
-  }>("/diagnostics/radarr");
-  return data;
+  }>(job);
 };
 
 export const runSonarrDiagnostics = async () => {
-  const { data } = await api.post<{
+  const queued = await enqueueJob("/diagnostics/sonarr");
+  const job = await waitForJob(queued.job_id);
+  return parseJobResult<{
     status: string;
     issues: Array<{ severity: string; message: string }>;
-  }>("/diagnostics/sonarr");
-  return data;
+  }>(job);
 };
 
 export const testRadarrConnection = async (url: string, apiKey: string) => {
@@ -228,7 +230,9 @@ export const testSonarrConnection = async (url: string, apiKey: string) => {
 };
 
 export const runDryRun = async () => {
-  const { data } = await api.post<{
+  const queued = await enqueueJob("/dry-run");
+  const job = await waitForJob(queued.job_id);
+  return parseJobResult<{
     ok: boolean;
     summary?: {
       movie_folders_detected: number;
@@ -236,18 +240,105 @@ export const runDryRun = async () => {
       root_mappings: number;
     };
     issues: Array<{ severity: string; message: string }>;
-  }>("/dry-run");
-  return data;
+  }>(job);
 };
 
 export const runReconcileNow = async () => {
-  const { data } = await api.post<{
+  const queued = await enqueueJob("/maintenance/reconcile");
+  const job = await waitForJob(queued.job_id);
+  return parseJobResult<{
     ok: boolean;
     message: string;
     duration_ms?: number;
     ingest_pending?: boolean;
-  }>("/maintenance/reconcile");
+  }>(job);
+};
+
+export type JobRecord = {
+  job_id: string;
+  kind: string;
+  status: "queued" | "running" | "succeeded" | "failed";
+  queued_at: number;
+  started_at: number | null;
+  finished_at: number | null;
+  updated_at: number;
+  error: string | null;
+  result: unknown;
+  payload?: Record<string, unknown>;
+};
+
+export type JobsSummary = {
+  queued: number;
+  running: number;
+  active: number;
+  succeeded: number;
+  failed: number;
+  latest_finished: JobRecord | null;
+  updated_at: number;
+};
+
+type JobQueuedResponse = {
+  ok: boolean;
+  queued: boolean;
+  job_id: string;
+  message: string;
+};
+
+const enqueueJob = async (path: string) => {
+  const { data } = await api.post<JobQueuedResponse>(path);
   return data;
+};
+
+export const getJob = async (jobId: string) => {
+  const { data } = await api.get<JobRecord>(`/jobs/${jobId}`);
+  return data;
+};
+
+export const getJobsSummary = async () => {
+  const { data } = await api.get<JobsSummary>("/jobs/summary");
+  return data;
+};
+
+export const getJobs = async (params?: { limit?: number; status?: string }) => {
+  const { data } = await api.get<{ items: JobRecord[] }>("/jobs", {
+    params: {
+      limit: params?.limit,
+      status: params?.status
+    }
+  });
+  return data.items;
+};
+
+export const waitForJob = async (
+  jobId: string,
+  options?: { intervalMs?: number; timeoutMs?: number }
+) => {
+  const intervalMs = Math.max(250, options?.intervalMs ?? 1000);
+  const timeoutMs = Math.max(5000, options?.timeoutMs ?? 300000);
+  const startedAt = Date.now();
+
+  while (true) {
+    const job = await getJob(jobId);
+    if (job.status === "succeeded" || job.status === "failed") {
+      return job;
+    }
+    if (Date.now() - startedAt > timeoutMs) {
+      throw new Error(`Timed out while waiting for job ${jobId}`);
+    }
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, intervalMs);
+    });
+  }
+};
+
+const parseJobResult = <T>(job: JobRecord): T => {
+  if (job.status === "failed") {
+    throw new Error(job.error ?? "Background job failed.");
+  }
+  if (job.result == null) {
+    throw new Error("Background job did not return a result.");
+  }
+  return job.result as T;
 };
 
 export type RuntimeStatusResponse = {

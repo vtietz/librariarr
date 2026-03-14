@@ -1,7 +1,7 @@
 import { Badge, Card, Group, SimpleGrid, Stack, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { getDiscoveryWarnings } from "../api/client";
-import type { RuntimeStatusResponse } from "../api/client";
+import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
 
 type Status = "idle" | "ok" | "warning" | "disabled";
 
@@ -11,6 +11,7 @@ type Props = {
   hasUnsavedChanges: boolean;
   lastDryRunSummary: string;
   runtimeStatus: RuntimeStatusResponse | null;
+  jobsSummary: JobsSummary | null;
 };
 
 const toneByStatus: Record<Status, string> = {
@@ -25,7 +26,8 @@ export default function Dashboard({
   sonarrStatus,
   hasUnsavedChanges,
   lastDryRunSummary,
-  runtimeStatus
+  runtimeStatus,
+  jobsSummary
 }: Props) {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
@@ -71,6 +73,9 @@ export default function Dashboard({
     0;
   const queuedChanges = runtimeStatus?.dirty_paths_queued ?? 0;
   const totalQueue = queuedChanges + pendingIngest;
+  const activeJobs = jobsSummary?.active ?? 0;
+  const latestFinishedJob = jobsSummary?.latest_finished;
+  const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
 
   return (
     <Stack>
@@ -107,7 +112,7 @@ export default function Dashboard({
           </Text>
         </Card>
       </SimpleGrid>
-      <SimpleGrid cols={{ base: 1, md: 2 }}>
+      <SimpleGrid cols={{ base: 1, md: 3 }}>
         <Card withBorder>
           <Text fw={600}>Queue</Text>
           <Text size="sm" c="dimmed">
@@ -127,6 +132,18 @@ export default function Dashboard({
             folders M/S {runtimeStatus?.last_reconcile?.movie_folders_seen ?? 0}/
             {runtimeStatus?.last_reconcile?.series_folders_seen ?? 0} · created links
             {` ${runtimeStatus?.last_reconcile?.created_links ?? 0}`}
+          </Text>
+        </Card>
+        <Card withBorder>
+          <Group justify="space-between">
+            <Text fw={600}>Background Jobs</Text>
+            <Badge color={jobsBadgeColor}>{activeJobs} active</Badge>
+          </Group>
+          <Text size="sm" c="dimmed" mt="xs">
+            queued={jobsSummary?.queued ?? 0} · running={jobsSummary?.running ?? 0} · failed={jobsSummary?.failed ?? 0}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Latest: {latestFinishedJob?.kind ?? "none"} · {latestFinishedJob?.status ?? "n/a"}
           </Text>
         </Card>
       </SimpleGrid>

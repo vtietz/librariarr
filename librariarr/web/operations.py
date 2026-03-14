@@ -55,6 +55,13 @@ def _read_config_path(request: Request) -> Path:
     return Path(request.app.state.web.config_path)
 
 
+def _job_manager_or_http(request: Request):
+    manager = getattr(request.app.state.web, "job_manager", None)
+    if manager is None:
+        raise HTTPException(status_code=503, detail="Job manager is unavailable.")
+    return manager
+
+
 def _shadow_roots(config: AppConfig) -> list[Path]:
     roots = {Path(item.shadow_root) for item in config.paths.root_mappings}
     return sorted(roots)
@@ -436,34 +443,69 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
     @router.post("/api/maintenance/reconcile")
     def run_maintenance_reconcile(request: Request) -> dict[str, Any]:
-        LOG.info("Manual reconcile triggered via API")
-        config = _load_config_or_http(_read_config_path(request))
-        started = time.perf_counter()
-        runtime_status.mark_reconcile_started(trigger_source="manual")
-        try:
-            service = LibrariArrService(config)
-            ingest_pending = service.reconcile()
-            duration_ms = int((time.perf_counter() - started) * 1000)
-            runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
-            LOG.info(
-                "Manual reconcile completed in %d ms (ingest_pending=%s)",
-                duration_ms,
-                ingest_pending,
-            )
-            return {
-                "ok": True,
-                "message": "Reconcile completed.",
-                "duration_ms": duration_ms,
-                "ingest_pending": ingest_pending,
-            }
-        except Exception as exc:
-            runtime_status.mark_reconcile_finished(
-                success=False,
-                ingest_pending=False,
-                error=str(exc),
-            )
-            LOG.error("Manual reconcile failed: %s", exc)
-            return {"ok": False, "message": str(exc)}
+        LOG.info("Manual reconcile queued via API")
+        manager = _job_manager_or_http(request)
+        config_path = _read_config_path(request)
+
+        def action() -> dict[str, Any]:
+            config = _load_config_or_http(config_path)
+            started = time.perf_counter()
+            runtime_status.mark_reconcile_started(trigger_source="manual")
+            try:
+                service = LibrariArrService(config)
+                ingest_pending = service.reconcile()
+                duration_ms = int((time.perf_counter() - started) * 1000)
+                runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
+                LOG.info(
+                    "Manual reconcile completed in %d ms (ingest_pending=%s)",
+                    duration_ms,
+                    ingest_pending,
+                )
+                return {
+                    "ok": True,
+                    "message": "Reconcile completed.",
+                    "duration_ms": duration_ms,
+                    "ingest_pending": ingest_pending,
+                }
+            except Exception as exc:
+                runtime_status.mark_reconcile_finished(
+                    success=False,
+                    ingest_pending=False,
+                    error=str(exc),
+                )
+                LOG.error("Manual reconcile failed: %s", exc)
+                return {"ok": False, "message": str(exc)}
+
+        job_id = manager.submit(kind="reconcile-manual", func=action)
+        return {
+            "ok": True,
+            "queued": True,
+            "job_id": job_id,
+            "message": "Reconcile scheduled.",
+        }
+
+    @router.get("/api/jobs/summary")
+    def jobs_summary(request: Request) -> dict[str, Any]:
+        manager = _job_manager_or_http(request)
+        return manager.summary()
+
+    @router.get("/api/jobs")
+    def jobs_list(
+        request: Request,
+        limit: int = Query(default=20, ge=1, le=200),
+        status: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        manager = _job_manager_or_http(request)
+        items = manager.list(limit=limit, status=status)
+        return {"items": items}
+
+    @router.get("/api/jobs/{job_id}")
+    def jobs_get(job_id: str, request: Request) -> dict[str, Any]:
+        manager = _job_manager_or_http(request)
+        item = manager.get(job_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return item
 
     @router.get("/api/runtime/status")
     def runtime_status_endpoint(request: Request) -> dict[str, Any]:

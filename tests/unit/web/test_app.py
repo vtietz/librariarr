@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -6,6 +7,18 @@ from fastapi.testclient import TestClient
 from librariarr.web import create_app
 from librariarr.web.log_buffer import LogRingBuffer
 from librariarr.web.runtime_supervisor import RuntimeSupervisor
+
+
+def _wait_for_job(client: TestClient, job_id: str, timeout: float = 3.0) -> dict:
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        response = client.get(f"/api/jobs/{job_id}")
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["status"] in {"succeeded", "failed"}:
+            return payload
+        time.sleep(0.05)
+    raise AssertionError(f"Timed out waiting for job {job_id}")
 
 
 def _write_config(path: Path, nested_root: Path, shadow_root: Path) -> None:
@@ -200,6 +213,9 @@ def test_put_config_restarts_runtime_when_supervisor_present(tmp_path: Path) -> 
     assert payload["saved"] is True
     assert payload["runtime_restarted"] is True
     assert payload["runtime_restart_recommended"] is False
+    deadline = time.time() + 2
+    while time.time() < deadline and runtime_supervisor.reasons != ["config updated via API"]:
+        time.sleep(0.05)
     assert runtime_supervisor.reasons == ["config updated via API"]
 
 
@@ -238,7 +254,11 @@ def test_diagnostics_endpoint_returns_disabled_when_sonarr_disabled(tmp_path: Pa
     response = client.post("/api/diagnostics/sonarr")
 
     assert response.status_code == 200
-    assert response.json()["status"] == "disabled"
+    queued = response.json()
+    assert queued["ok"] is True
+    job = _wait_for_job(client, queued["job_id"])
+    assert job["status"] == "succeeded"
+    assert job["result"]["status"] == "disabled"
 
 
 def test_radarr_connection_test_endpoint_reports_success(
@@ -298,7 +318,9 @@ def test_maintenance_reconcile_endpoint_runs_service(tmp_path: Path, monkeypatch
     response = client.post("/api/maintenance/reconcile")
 
     assert response.status_code == 200
-    payload = response.json()
+    queued = response.json()
+    assert queued["ok"] is True
+    payload = _wait_for_job(client, queued["job_id"])["result"]
     assert payload["ok"] is True
     assert payload["message"] == "Reconcile completed."
 
@@ -326,6 +348,8 @@ def test_runtime_status_endpoint_reports_manual_reconcile(tmp_path: Path, monkey
 
     reconcile_response = client.post("/api/maintenance/reconcile")
     assert reconcile_response.status_code == 200
+    job = _wait_for_job(client, reconcile_response.json()["job_id"])
+    assert job["status"] == "succeeded"
 
     response = client.get("/api/runtime/status")
 

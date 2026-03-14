@@ -26,6 +26,7 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..quality import VIDEO_EXTENSIONS
 from ..sync.discovery import discover_movie_folders, discover_series_folders
+from .jobs import JobManager
 from .log_buffer import install_log_buffer
 from .operations import build_operations_router, run_radarr_diagnostics, run_sonarr_diagnostics
 from .runtime_supervisor import RuntimeSupervisor
@@ -52,6 +53,7 @@ class WebState:
     lock: threading.RLock = field(default_factory=threading.RLock)
     draft_yaml: str | None = None
     runtime_supervisor: RuntimeSupervisor | None = None
+    job_manager: JobManager | None = None
 
 
 def _checksum(text: str) -> str:
@@ -183,6 +185,13 @@ def _safe_load_disk_config(config_path: Path) -> AppConfig:
         raise HTTPException(status_code=500, detail=f"Unable to load config: {exc}") from exc
 
 
+def _job_manager_or_http(state: WebState) -> JobManager:
+    manager = state.job_manager
+    if manager is None:
+        raise HTTPException(status_code=503, detail="Job manager is unavailable.")
+    return manager
+
+
 def create_app(  # noqa: C901
     *,
     config_path: str | Path | None = None,
@@ -194,9 +203,23 @@ def create_app(  # noqa: C901
 
     app = FastAPI(title="LibrariArr Web API", version="0.1.0")
     install_log_buffer()
-    state = WebState(config_path=Path(config_path), runtime_supervisor=runtime_supervisor)
+    state = WebState(
+        config_path=Path(config_path),
+        runtime_supervisor=runtime_supervisor,
+        job_manager=JobManager(),
+    )
     app.state.web = state
     app.include_router(build_operations_router())
+
+    @app.on_event("startup")
+    def startup() -> None:
+        if state.job_manager is not None:
+            state.job_manager.start()
+
+    @app.on_event("shutdown")
+    def shutdown() -> None:
+        if state.job_manager is not None:
+            state.job_manager.stop()
 
     if ui_dist_path is None:
         ui_dist_path = os.getenv("LIBRARIARR_UI_DIST", "/app/ui/dist")
@@ -317,9 +340,14 @@ def create_app(  # noqa: C901
             LOG.info("Config saved to %s (backup written)", state.config_path)
 
         if state.runtime_supervisor is not None:
-            runtime_restarted = state.runtime_supervisor.restart_for_config_change(
-                "config updated via API"
-            )
+            LOG.info("Scheduling background runtime restart after config save")
+            threading.Thread(
+                target=state.runtime_supervisor.restart_for_config_change,
+                args=("config updated via API",),
+                daemon=True,
+                name="config-save-restart",
+            ).start()
+            runtime_restarted = True
 
         return {
             "saved": True,
@@ -463,74 +491,107 @@ def create_app(  # noqa: C901
 
     @app.post("/api/diagnostics/radarr")
     def diagnostics_radarr() -> dict[str, Any]:
-        LOG.info("Running Radarr diagnostics")
-        config = _safe_load_disk_config(state.config_path)
-        result = run_radarr_diagnostics(config)
-        issue_count = len(result.get("issues", []))
-        LOG.info(
-            "Radarr diagnostics completed: status=%s, issues=%d",
-            result.get("status"),
-            issue_count,
-        )
-        return result
+        manager = _job_manager_or_http(state)
+
+        def action() -> dict[str, Any]:
+            LOG.info("Running Radarr diagnostics")
+            config = _safe_load_disk_config(state.config_path)
+            result = run_radarr_diagnostics(config)
+            issue_count = len(result.get("issues", []))
+            LOG.info(
+                "Radarr diagnostics completed: status=%s, issues=%d",
+                result.get("status"),
+                issue_count,
+            )
+            return result
+
+        job_id = manager.submit(kind="diagnostics-radarr", func=action)
+        return {
+            "ok": True,
+            "queued": True,
+            "job_id": job_id,
+            "message": "Radarr diagnostics scheduled.",
+        }
 
     @app.post("/api/diagnostics/sonarr")
     def diagnostics_sonarr() -> dict[str, Any]:
-        LOG.info("Running Sonarr diagnostics")
-        config = _safe_load_disk_config(state.config_path)
-        result = run_sonarr_diagnostics(config)
-        issue_count = len(result.get("issues", []))
-        LOG.info(
-            "Sonarr diagnostics completed: status=%s, issues=%d",
-            result.get("status"),
-            issue_count,
-        )
-        return result
+        manager = _job_manager_or_http(state)
+
+        def action() -> dict[str, Any]:
+            LOG.info("Running Sonarr diagnostics")
+            config = _safe_load_disk_config(state.config_path)
+            result = run_sonarr_diagnostics(config)
+            issue_count = len(result.get("issues", []))
+            LOG.info(
+                "Sonarr diagnostics completed: status=%s, issues=%d",
+                result.get("status"),
+                issue_count,
+            )
+            return result
+
+        job_id = manager.submit(kind="diagnostics-sonarr", func=action)
+        return {
+            "ok": True,
+            "queued": True,
+            "job_id": job_id,
+            "message": "Sonarr diagnostics scheduled.",
+        }
 
     @app.post("/api/dry-run")
     def dry_run(request: DryRunRequest) -> dict[str, Any]:
-        if request.yaml is None:
-            config = _safe_load_disk_config(state.config_path)
-        else:
-            config, error = _validate_yaml_text(request.yaml)
-            if config is None:
-                return {
-                    "ok": False,
-                    "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
-                }
+        manager = _job_manager_or_http(state)
 
-        video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
-        movie_folder_count = 0
-        series_folder_count = 0
+        def action() -> dict[str, Any]:
+            if request.yaml is None:
+                config = _safe_load_disk_config(state.config_path)
+            else:
+                config, error = _validate_yaml_text(request.yaml)
+                if config is None:
+                    return {
+                        "ok": False,
+                        "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
+                    }
 
-        for mapping in config.paths.root_mappings:
-            nested_root = Path(mapping.nested_root)
-            if config.radarr.enabled:
-                movie_folder_count += len(
-                    discover_movie_folders(
-                        nested_root,
-                        video_exts,
-                        config.paths.exclude_paths,
+            video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
+            movie_folder_count = 0
+            series_folder_count = 0
+
+            for mapping in config.paths.root_mappings:
+                nested_root = Path(mapping.nested_root)
+                if config.radarr.enabled:
+                    movie_folder_count += len(
+                        discover_movie_folders(
+                            nested_root,
+                            video_exts,
+                            config.paths.exclude_paths,
+                        )
                     )
-                )
-            if config.sonarr.enabled:
-                series_folder_count += len(
-                    discover_series_folders(
-                        nested_root,
-                        video_exts,
-                        config.paths.exclude_paths,
+                if config.sonarr.enabled:
+                    series_folder_count += len(
+                        discover_series_folders(
+                            nested_root,
+                            video_exts,
+                            config.paths.exclude_paths,
+                        )
                     )
-                )
 
+            return {
+                "ok": True,
+                "summary": {
+                    "movie_folders_detected": movie_folder_count,
+                    "series_folders_detected": series_folder_count,
+                    "root_mappings": len(config.paths.root_mappings),
+                },
+                "issues": [],
+                "mode": "read-only",
+            }
+
+        job_id = manager.submit(kind="dry-run", func=action)
         return {
             "ok": True,
-            "summary": {
-                "movie_folders_detected": movie_folder_count,
-                "series_folders_detected": series_folder_count,
-                "root_mappings": len(config.paths.root_mappings),
-            },
-            "issues": [],
-            "mode": "read-only",
+            "queued": True,
+            "job_id": job_id,
+            "message": "Dry-run scheduled.",
         }
 
     @app.get("/{full_path:path}", include_in_schema=False)
