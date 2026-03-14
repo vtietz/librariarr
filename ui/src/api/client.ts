@@ -272,14 +272,15 @@ export type LogItem = {
   seq: string;
 };
 
-export const getAppLogs = async (params?: { tail?: number }) => {
+export const getAppLogs = async (params?: { tail?: number; timeoutMs?: number }) => {
   const { data } = await api.get<{
     tail: number;
     items: LogItem[];
   }>("/logs", {
     params: {
       tail: params?.tail
-    }
+    },
+    timeout: params?.timeoutMs ?? 8000
   });
   return data;
 };

@@ -20,16 +20,21 @@ function levelColor(level: string): string {
 export default function LogsPanel() {
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [streamState, setStreamState] = useState<"connecting" | "live" | "disconnected">(
     "connecting"
   );
 
-  const fetchLogs = useCallback(async () => {
-    setLoading(true);
+  const fetchLogs = useCallback(async (mode: "initial" | "refresh" = "refresh") => {
+    if (mode === "initial") {
+      setLoading(true);
+    } else {
+      setRefreshing(true);
+    }
     setError(null);
     try {
-      const result = await getAppLogs({ tail: 250 });
+      const result = await getAppLogs({ tail: 250, timeoutMs: 8000 });
       setLogs(result.items);
     } catch (fetchError: unknown) {
       const detail =
@@ -41,14 +46,23 @@ export default function LogsPanel() {
           ? ((fetchError as { response: { data: { detail: string } } }).response.data.detail ??
               null)
           : null;
-      setError(detail || "Failed to load logs.");
+      const timedOut =
+        typeof fetchError === "object" &&
+        fetchError !== null &&
+        "code" in fetchError &&
+        (fetchError as { code?: string }).code === "ECONNABORTED";
+      setError(detail || (timedOut ? "Loading logs timed out. Check API connectivity." : "Failed to load logs."));
     } finally {
-      setLoading(false);
+      if (mode === "initial") {
+        setLoading(false);
+      } else {
+        setRefreshing(false);
+      }
     }
   }, []);
 
   useEffect(() => {
-    void fetchLogs();
+    void fetchLogs("initial");
   }, [fetchLogs]);
 
   useEffect(() => {
@@ -100,7 +114,7 @@ export default function LogsPanel() {
                 ? "Connecting"
                 : "Disconnected"}
           </Badge>
-          <Button onClick={() => void fetchLogs()} disabled={loading}>
+          <Button onClick={() => void fetchLogs("refresh")} disabled={loading || refreshing} loading={refreshing}>
             Refresh
           </Button>
         </Group>
