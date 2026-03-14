@@ -1,11 +1,15 @@
-import { Group, NumberInput } from "@mantine/core";
-import { useState } from "react";
-import { testSonarrConnection } from "../../api/client";
+import { Group, NumberInput, Select } from "@mantine/core";
+import { useEffect, useMemo, useState } from "react";
+import {
+  getSonarrLanguageProfiles,
+  getSonarrProfiles,
+  getSonarrTags,
+  testSonarrConnection
+} from "../../api/client";
 import type { ConfigModel } from "../../types/config";
 import { toOpenToolUrl } from "../../utils/toolUrl";
 import ArrBaseSection from "./ArrBaseSection";
 import { buildSonarrToggles } from "./arrToggleBuilders";
-import { parseNullableNumber } from "./numberParsers";
 import RuleEditor from "./RuleEditor";
 import { addRule, removeRuleAt, updateRuleAt } from "./ruleListState";
 
@@ -17,6 +21,13 @@ type Props = {
 export default function SonarrSection({ value, onChange }: Props) {
   const [testing, setTesting] = useState(false);
   const [testStatus, setTestStatus] = useState<{ ok: boolean; message: string } | null>(null);
+  const [tagOptions, setTagOptions] = useState<string[]>([]);
+  const [qualityProfileOptions, setQualityProfileOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
+  const [languageProfileOptions, setLanguageProfileOptions] = useState<
+    Array<{ value: string; label: string }>
+  >([]);
 
   const setField = (field: keyof ConfigModel["sonarr"], fieldValue: unknown) => {
     onChange({ ...value, [field]: fieldValue });
@@ -34,6 +45,84 @@ export default function SonarrSection({ value, onChange }: Props) {
       }
     });
   };
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const [tags, qualityProfiles, languageProfiles] = await Promise.all([
+          getSonarrTags(),
+          getSonarrProfiles(),
+          getSonarrLanguageProfiles()
+        ]);
+        if (!alive) {
+          return;
+        }
+
+        const nextTags = tags
+          .map((tag) => String(tag.label ?? "").trim().toLowerCase())
+          .filter((tag) => tag.length > 0);
+        setTagOptions(Array.from(new Set(nextTags)).sort((left, right) => left.localeCompare(right)));
+
+        const nextQualityProfiles = qualityProfiles
+          .map((profile) => {
+            const id = typeof profile.id === "number" ? profile.id : Number.NaN;
+            if (!Number.isFinite(id)) {
+              return null;
+            }
+            const name = String(profile.name ?? "").trim();
+            return {
+              value: String(id),
+              label: name.length > 0 ? `${id} - ${name}` : String(id)
+            };
+          })
+          .filter((item): item is { value: string; label: string } => item != null)
+          .sort((left, right) => Number(left.value) - Number(right.value));
+        setQualityProfileOptions(nextQualityProfiles);
+
+        const nextLanguageProfiles = languageProfiles
+          .map((profile) => {
+            const id = typeof profile.id === "number" ? profile.id : Number.NaN;
+            if (!Number.isFinite(id)) {
+              return null;
+            }
+            const name = String(profile.name ?? "").trim();
+            return {
+              value: String(id),
+              label: name.length > 0 ? `${id} - ${name}` : String(id)
+            };
+          })
+          .filter((item): item is { value: string; label: string } => item != null)
+          .sort((left, right) => Number(left.value) - Number(right.value));
+        setLanguageProfileOptions(nextLanguageProfiles);
+      } catch {
+        if (!alive) {
+          return;
+        }
+        setTagOptions([]);
+        setQualityProfileOptions([]);
+        setLanguageProfileOptions([]);
+      }
+    })();
+
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const defaultMatchTags = useMemo(() => (tagOptions.length > 0 ? [tagOptions[0]] : []), [tagOptions]);
+  const defaultQualityProfileId = useMemo(() => {
+    if (qualityProfileOptions.length === 0) {
+      return 1;
+    }
+    return Number(qualityProfileOptions[0]?.value) || 1;
+  }, [qualityProfileOptions]);
+  const defaultLanguageProfileId = useMemo(() => {
+    if (languageProfileOptions.length === 0) {
+      return 1;
+    }
+    return Number(languageProfileOptions[0]?.value) || 1;
+  }, [languageProfileOptions]);
 
   return (
     <ArrBaseSection
@@ -68,25 +157,87 @@ export default function SonarrSection({ value, onChange }: Props) {
           min={0}
           onChange={(fieldValue) => setField("refresh_debounce_seconds", Number(fieldValue) || 0)}
         />
-        <NumberInput
-          label="Auto-add Quality Profile ID"
-          value={value.auto_add_quality_profile_id ?? undefined}
-          min={1}
-          allowDecimal={false}
-          onChange={(fieldValue) => setField("auto_add_quality_profile_id", parseNullableNumber(fieldValue))}
-        />
-        <NumberInput
-          label="Auto-add Language Profile ID"
-          value={value.auto_add_language_profile_id ?? undefined}
-          min={1}
-          allowDecimal={false}
-          onChange={(fieldValue) => setField("auto_add_language_profile_id", parseNullableNumber(fieldValue))}
-        />
+        {(() => {
+          const currentValue =
+            value.auto_add_quality_profile_id == null
+              ? null
+              : String(value.auto_add_quality_profile_id);
+          const hasCurrentOption =
+            currentValue == null
+              ? true
+              : qualityProfileOptions.some((option) => option.value === currentValue);
+          const options =
+            currentValue == null || hasCurrentOption
+              ? qualityProfileOptions
+              : [
+                  ...qualityProfileOptions,
+                  {
+                    value: currentValue,
+                    label: `${currentValue} (configured, unavailable)`
+                  }
+                ];
+
+          return (
+            <Select
+              label="Auto-add Quality Profile ID"
+              data={options}
+              value={currentValue}
+              searchable
+              clearable
+              nothingFoundMessage="No profiles"
+              onChange={(nextValue) =>
+                setField(
+                  "auto_add_quality_profile_id",
+                  nextValue == null ? null : Number(nextValue)
+                )
+              }
+            />
+          );
+        })()}
+        {(() => {
+          const currentValue =
+            value.auto_add_language_profile_id == null
+              ? null
+              : String(value.auto_add_language_profile_id);
+          const hasCurrentOption =
+            currentValue == null
+              ? true
+              : languageProfileOptions.some((option) => option.value === currentValue);
+          const options =
+            currentValue == null || hasCurrentOption
+              ? languageProfileOptions
+              : [
+                  ...languageProfileOptions,
+                  {
+                    value: currentValue,
+                    label: `${currentValue} (configured, unavailable)`
+                  }
+                ];
+
+          return (
+            <Select
+              label="Auto-add Language Profile ID"
+              data={options}
+              value={currentValue}
+              searchable
+              clearable
+              nothingFoundMessage="No profiles"
+              onChange={(nextValue) =>
+                setField(
+                  "auto_add_language_profile_id",
+                  nextValue == null ? null : Number(nextValue)
+                )
+              }
+            />
+          );
+        })()}
       </Group>
 
         <RuleEditor
           title="Sonarr Quality Profile Map"
           idLabel="Profile ID"
+          tagOptions={tagOptions}
+          idOptions={qualityProfileOptions}
           rows={value.mapping.quality_profile_map}
           keyPrefix="sonarr-quality"
           readId={(row) => row.profile_id}
@@ -94,8 +245,8 @@ export default function SonarrSection({ value, onChange }: Props) {
             setMappingField(
               "quality_profile_map",
               addRule(value.mapping.quality_profile_map, () => ({
-                match: [],
-                profile_id: 1,
+                match: defaultMatchTags,
+                profile_id: defaultQualityProfileId,
                 name: ""
               }))
             )
@@ -129,6 +280,8 @@ export default function SonarrSection({ value, onChange }: Props) {
         <RuleEditor
           title="Sonarr Language Profile Map"
           idLabel="Profile ID"
+          tagOptions={tagOptions}
+          idOptions={languageProfileOptions}
           rows={value.mapping.language_profile_map}
           keyPrefix="sonarr-language"
           readId={(row) => row.profile_id}
@@ -136,8 +289,8 @@ export default function SonarrSection({ value, onChange }: Props) {
             setMappingField(
               "language_profile_map",
               addRule(value.mapping.language_profile_map, () => ({
-                match: [],
-                profile_id: 1,
+                match: defaultMatchTags,
+                profile_id: defaultLanguageProfileId,
                 name: ""
               }))
             )

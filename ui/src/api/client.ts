@@ -112,9 +112,44 @@ export const getRadarrProfiles = async () => {
   return data.items;
 };
 
+export const getRadarrQualityDefinitions = async () => {
+  const { data } = await api.get<{ items: Array<{ id: number; name?: string }> }>(
+    "/radarr/quality-definitions"
+  );
+  return data.items;
+};
+
+export const getRadarrCustomFormats = async () => {
+  const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
+    "/radarr/custom-formats"
+  );
+  return data.items;
+};
+
+export const getRadarrTags = async () => {
+  const { data } = await api.get<{ items: Array<{ id?: number; label?: string }> }>(
+    "/radarr/tags"
+  );
+  return data.items;
+};
+
 export const getSonarrProfiles = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
     "/sonarr/quality-profiles"
+  );
+  return data.items;
+};
+
+export const getSonarrLanguageProfiles = async () => {
+  const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
+    "/sonarr/language-profiles"
+  );
+  return data.items;
+};
+
+export const getSonarrTags = async () => {
+  const { data } = await api.get<{ items: Array<{ id?: number; label?: string }> }>(
+    "/sonarr/tags"
   );
   return data.items;
 };

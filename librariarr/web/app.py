@@ -509,89 +509,63 @@ def create_app(  # noqa: C901
             "allowed_roots": [str(root) for root in allowed],
         }
 
-    @app.get("/api/radarr/quality-profiles")
-    def radarr_quality_profiles() -> dict[str, Any]:
+    def _radarr_items(fetch: callable) -> dict[str, Any]:
         config = _safe_load_disk_config(state.config_path)
         if not config.radarr.enabled:
             return {"enabled": False, "items": [], "error": None}
 
         client = RadarrClient(config.radarr.url, config.radarr.api_key)
         try:
-            return {"enabled": True, "items": client.get_quality_profiles(), "error": None}
+            return {"enabled": True, "items": fetch(client), "error": None}
         except Exception as exc:
             return {"enabled": True, "items": [], "error": str(exc)}
+
+    def _sonarr_items(fetch: callable) -> dict[str, Any]:
+        config = _safe_load_disk_config(state.config_path)
+        if not config.sonarr.enabled:
+            return {"enabled": False, "items": [], "error": None}
+
+        client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
+        try:
+            return {"enabled": True, "items": fetch(client), "error": None}
+        except Exception as exc:
+            return {"enabled": True, "items": [], "error": str(exc)}
+
+    @app.get("/api/radarr/quality-profiles")
+    def radarr_quality_profiles() -> dict[str, Any]:
+        return _radarr_items(lambda client: client.get_quality_profiles())
+
+    @app.get("/api/radarr/quality-definitions")
+    def radarr_quality_definitions() -> dict[str, Any]:
+        return _radarr_items(lambda client: client.get_quality_definitions())
+
+    @app.get("/api/radarr/custom-formats")
+    def radarr_custom_formats() -> dict[str, Any]:
+        return _radarr_items(lambda client: client.get_custom_formats())
 
     @app.get("/api/radarr/root-folders")
     def radarr_root_folders() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.radarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = RadarrClient(config.radarr.url, config.radarr.api_key)
-        try:
-            return {"enabled": True, "items": client.get_root_folders(), "error": None}
-        except Exception as exc:
-            return {"enabled": True, "items": [], "error": str(exc)}
+        return _radarr_items(lambda client: client.get_root_folders())
 
     @app.get("/api/radarr/tags")
     def radarr_tags() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.radarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = RadarrClient(config.radarr.url, config.radarr.api_key)
-        try:
-            return {"enabled": True, "items": client.get_tags(), "error": None}
-        except Exception as exc:
-            return {"enabled": True, "items": [], "error": str(exc)}
+        return _radarr_items(lambda client: client.get_tags())
 
     @app.get("/api/sonarr/quality-profiles")
     def sonarr_quality_profiles() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.sonarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
-        try:
-            return {"enabled": True, "items": client.get_quality_profiles(), "error": None}
-        except Exception as exc:
-            return {"enabled": True, "items": [], "error": str(exc)}
+        return _sonarr_items(lambda client: client.get_quality_profiles())
 
     @app.get("/api/sonarr/language-profiles")
     def sonarr_language_profiles() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.sonarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
-        try:
-            return {"enabled": True, "items": client.get_language_profiles(), "error": None}
-        except Exception as exc:
-            return {"enabled": True, "items": [], "error": str(exc)}
+        return _sonarr_items(lambda client: client.get_language_profiles())
 
     @app.get("/api/sonarr/root-folders")
     def sonarr_root_folders() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.sonarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
-        try:
-            return {"enabled": True, "items": client.get_root_folders(), "error": None}
-        except Exception as exc:
-            return {"enabled": True, "items": [], "error": str(exc)}
+        return _sonarr_items(lambda client: client.get_root_folders())
 
     @app.get("/api/sonarr/tags")
     def sonarr_tags() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.sonarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = SonarrClient(config.sonarr.url, config.sonarr.api_key)
-        try:
-            return {"enabled": True, "items": client.get_tags(), "error": None}
-        except Exception as exc:
-            return {"enabled": True, "items": [], "error": str(exc)}
+        return _sonarr_items(lambda client: client.get_tags())
 
     @app.post("/api/diagnostics/radarr")
     def diagnostics_radarr() -> dict[str, Any]:

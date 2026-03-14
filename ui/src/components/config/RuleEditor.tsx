@@ -1,5 +1,4 @@
-import { Button, Card, Group, NumberInput, Stack, TextInput, Title } from "@mantine/core";
-import { parseCommaSeparated } from "./ruleParsers";
+import { Button, Card, Group, MultiSelect, Select, Stack, TextInput, Title } from "@mantine/core";
 
 type RuleRow = {
   match: string[];
@@ -9,6 +8,8 @@ type RuleRow = {
 type Props<T extends RuleRow> = {
   title: string;
   idLabel: string;
+  tagOptions: string[];
+  idOptions: Array<{ value: string; label: string }>;
   rows: T[];
   keyPrefix: string;
   readId: (row: T) => number;
@@ -22,6 +23,8 @@ type Props<T extends RuleRow> = {
 export default function RuleEditor<T extends RuleRow>({
   title,
   idLabel,
+  tagOptions,
+  idOptions,
   rows,
   keyPrefix,
   readId,
@@ -43,18 +46,44 @@ export default function RuleEditor<T extends RuleRow>({
         {rows.map((row, index) => (
           <Card key={`${keyPrefix}-${index}`} withBorder>
             <Stack>
+              {(() => {
+                const currentId = readId(row);
+                const currentIdValue = String(currentId);
+                const hasCurrentIdOption = idOptions.some((item) => item.value === currentIdValue);
+                const mappedIdOptions = hasCurrentIdOption
+                  ? idOptions
+                  : [
+                      ...idOptions,
+                      {
+                        value: currentIdValue,
+                        label: `${currentId} (configured, unavailable)`
+                      }
+                    ];
+
+                return (
               <Group grow align="flex-end">
-                <TextInput
-                  label="Match Tokens (comma-separated)"
-                  value={row.match.join(", ")}
-                  onChange={(event) => onMatchChange(index, parseCommaSeparated(event.currentTarget.value))}
+                <MultiSelect
+                  label="Match Tags"
+                  placeholder={tagOptions.length > 0 ? "Select one or more tags" : "No tags available"}
+                  data={tagOptions}
+                  value={row.match}
+                  searchable
+                  clearable
+                  nothingFoundMessage="No tags"
+                  onChange={(values) => onMatchChange(index, values)}
                 />
-                <NumberInput
+                <Select
                   label={idLabel}
-                  value={readId(row)}
-                  min={1}
-                  allowDecimal={false}
-                  onChange={(value) => onIdChange(index, Number(value) || 1)}
+                  data={mappedIdOptions}
+                  value={currentIdValue}
+                  searchable
+                  nothingFoundMessage="No values"
+                  onChange={(value) => {
+                    const parsed = Number(value);
+                    if (!Number.isNaN(parsed) && Number.isFinite(parsed)) {
+                      onIdChange(index, parsed);
+                    }
+                  }}
                 />
                 <TextInput
                   label="Name"
@@ -62,6 +91,8 @@ export default function RuleEditor<T extends RuleRow>({
                   onChange={(event) => onNameChange(index, event.currentTarget.value)}
                 />
               </Group>
+                );
+              })()}
               <Group justify="flex-end">
                 <Button color="red" variant="subtle" onClick={() => onRemove(index)}>
                   Remove Rule
