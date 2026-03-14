@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
@@ -116,6 +117,20 @@ def _merge_mapping(base: MutableMapping[str, Any], update: Mapping[str, Any]) ->
         base[key] = value
 
 
+def _quote_string_scalars(node: Any) -> Any:
+    if isinstance(node, str):
+        return DoubleQuotedScalarString(node)
+    if isinstance(node, MutableMapping):
+        for key, value in list(node.items()):
+            node[key] = _quote_string_scalars(value)
+        return node
+    if isinstance(node, list):
+        for index, value in enumerate(node):
+            node[index] = _quote_string_scalars(value)
+        return node
+    return node
+
+
 def _to_yaml_text(payload: ConfigPayload, base_yaml_text: str) -> str:
     if payload.yaml is not None:
         return payload.yaml
@@ -132,6 +147,7 @@ def _to_yaml_text(payload: ConfigPayload, base_yaml_text: str) -> str:
         raise ValueError("Existing config document must be a YAML mapping.")
 
     _merge_mapping(document, payload.config)
+    _quote_string_scalars(document)
     out = io.StringIO()
     yaml_rt.dump(document, out)
     return out.getvalue()

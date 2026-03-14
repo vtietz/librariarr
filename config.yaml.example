@@ -138,7 +138,7 @@ runtime:
   # configured shadow roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
   # File extensions used to detect movie folders.
-  scan_video_extensions: ["mkv", "mp4", "avi", "m2ts", "mov", "wmv", "ts"]
+  scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"]
 
 analysis:
   # Include NFO text in quality detection.
