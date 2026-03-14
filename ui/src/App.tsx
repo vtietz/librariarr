@@ -60,9 +60,6 @@ export default function App() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [diffText, setDiffText] = useState("");
   const [yamlPreview, setYamlPreview] = useState("");
-  const [radarrStatus, setRadarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
-  const [sonarrStatus, setSonarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
-  const [lastDryRunSummary, setLastDryRunSummary] = useState("");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
   const [jobsSummary, setJobsSummary] = useState<JobsSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -263,22 +260,9 @@ export default function App() {
 
           <Tabs.Panel value="dashboard" pt="md">
             <Dashboard
-              draft={draft}
-              radarrStatus={radarrStatus}
-              sonarrStatus={sonarrStatus}
               hasUnsavedChanges={hasUnsavedChanges}
-              lastDryRunSummary={lastDryRunSummary}
               runtimeStatus={runtimeStatus}
               jobsSummary={jobsSummary}
-              onDryRunSummary={setLastDryRunSummary}
-              onStatuses={(radarr, sonarr) => {
-                if (radarr !== "idle") {
-                  setRadarrStatus(radarr as "ok" | "warning" | "disabled");
-                }
-                if (sonarr !== "idle") {
-                  setSonarrStatus(sonarr as "ok" | "warning" | "disabled");
-                }
-              }}
             />
           </Tabs.Panel>
 

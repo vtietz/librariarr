@@ -31,12 +31,14 @@ export default function DirectoryMapper() {
   const [mappedRoots, setMappedRoots] = useState<string[]>([]);
   const [mappedTruncated, setMappedTruncated] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
 
   const loadMappedDirectories = useCallback(async () => {
     setIsReloading(true);
+    setLoadError(null);
     try {
       const result = await getMappedDirectories({
         limit: 5000
@@ -55,6 +57,19 @@ export default function DirectoryMapper() {
       setMappedDirectories(sortedItems);
       setMappedRoots([...result.shadow_roots].sort((left, right) => left.localeCompare(right)));
       setMappedTruncated(result.truncated);
+    } catch (error: unknown) {
+      const detail =
+        typeof error === "object" &&
+        error !== null &&
+        "response" in error &&
+        typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail ===
+          "string"
+          ? ((error as { response: { data: { detail: string } } }).response.data.detail ?? null)
+          : null;
+      setLoadError(detail || "Failed to load mapped directories.");
+      setMappedDirectories([]);
+      setMappedRoots([]);
+      setMappedTruncated(false);
     } finally {
       setIsReloading(false);
     }
@@ -213,28 +228,48 @@ export default function DirectoryMapper() {
               </Table.Tr>
             </Table.Thead>
             <Table.Tbody>
-              {filteredMappedDirectories.map((mapped) => (
-                <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-                  <Table.Td>{mapped.shadow_root}</Table.Td>
-                  <Table.Td>{mapped.virtual_path}</Table.Td>
-                  <Table.Td>{mapped.real_path}</Table.Td>
-                  <Table.Td>
-                    <Group gap={6}>
-                      <Badge color={mapped.target_exists ? "green" : "red"}>
-                        {mapped.target_exists ? "target exists" : "missing target"}
-                      </Badge>
-                      {duplicatePrimaryPaths.has(mapped.real_path) && (
-                        <Badge color="yellow">⚠ duplicate candidate</Badge>
-                      )}
-                      {(excludedByDuplicate.get(mapped.real_path) ?? 0) > 0 && (
-                        <Badge color="orange">
-                          excluded alt paths: {excludedByDuplicate.get(mapped.real_path)}
-                        </Badge>
-                      )}
-                    </Group>
+              {loadError ? (
+                <Table.Tr>
+                  <Table.Td colSpan={4}>
+                    <Text size="sm" c="red">
+                      {loadError}
+                    </Text>
                   </Table.Td>
                 </Table.Tr>
-              ))}
+              ) : filteredMappedDirectories.length === 0 ? (
+                <Table.Tr>
+                  <Table.Td colSpan={4}>
+                    <Text size="sm" c="dimmed">
+                      {mappedDirectories.length === 0
+                        ? "No mapped directories found yet. Run a reconcile and then reload this page."
+                        : "No mapped directories match the current filters."}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ) : (
+                filteredMappedDirectories.map((mapped) => (
+                  <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
+                    <Table.Td>{mapped.shadow_root}</Table.Td>
+                    <Table.Td>{mapped.virtual_path}</Table.Td>
+                    <Table.Td>{mapped.real_path}</Table.Td>
+                    <Table.Td>
+                      <Group gap={6}>
+                        <Badge color={mapped.target_exists ? "green" : "red"}>
+                          {mapped.target_exists ? "target exists" : "missing target"}
+                        </Badge>
+                        {duplicatePrimaryPaths.has(mapped.real_path) && (
+                          <Badge color="yellow">⚠ duplicate candidate</Badge>
+                        )}
+                        {(excludedByDuplicate.get(mapped.real_path) ?? 0) > 0 && (
+                          <Badge color="orange">
+                            excluded alt paths: {excludedByDuplicate.get(mapped.real_path)}
+                          </Badge>
+                        )}
+                      </Group>
+                    </Table.Td>
+                  </Table.Tr>
+                ))
+              )}
             </Table.Tbody>
           </Table>
         </Stack>

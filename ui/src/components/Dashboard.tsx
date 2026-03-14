@@ -1,41 +1,18 @@
 import { Badge, Button, Card, Group, Loader, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { cancelJob, getDiscoveryWarnings, getJobs } from "../api/client";
-import DiagnosticsPanel from "./DiagnosticsPanel";
 import type { JobRecord, JobsSummary, RuntimeStatusResponse } from "../api/client";
-import type { ConfigModel } from "../types/config";
-
-type Status = "idle" | "ok" | "warning" | "disabled";
 
 type Props = {
-  draft: ConfigModel;
-  radarrStatus: Status;
-  sonarrStatus: Status;
   hasUnsavedChanges: boolean;
-  lastDryRunSummary: string;
   runtimeStatus: RuntimeStatusResponse | null;
   jobsSummary: JobsSummary | null;
-  onDryRunSummary: (summary: string) => void;
-  onStatuses: (radarrStatus: string, sonarrStatus: string) => void;
-};
-
-const toneByStatus: Record<Status, string> = {
-  idle: "gray",
-  ok: "green",
-  warning: "yellow",
-  disabled: "blue"
 };
 
 export default function Dashboard({
-  draft,
-  radarrStatus,
-  sonarrStatus,
   hasUnsavedChanges,
-  lastDryRunSummary,
   runtimeStatus,
-  jobsSummary,
-  onDryRunSummary,
-  onStatuses
+  jobsSummary
 }: Props) {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
@@ -181,18 +158,6 @@ export default function Dashboard({
       <SimpleGrid cols={{ base: 1, md: 4 }}>
         <Card withBorder>
           <Group justify="space-between">
-            <Text fw={600}>Radarr Diagnostics</Text>
-            <Badge color={toneByStatus[radarrStatus]}>{radarrStatus}</Badge>
-          </Group>
-        </Card>
-        <Card withBorder>
-          <Group justify="space-between">
-            <Text fw={600}>Sonarr Diagnostics</Text>
-            <Badge color={toneByStatus[sonarrStatus]}>{sonarrStatus}</Badge>
-          </Group>
-        </Card>
-        <Card withBorder>
-          <Group justify="space-between">
             <Text fw={600}>Config Draft</Text>
             <Badge color={hasUnsavedChanges ? "yellow" : "green"}>
               {hasUnsavedChanges ? "unsaved changes" : "in sync"}
@@ -207,6 +172,24 @@ export default function Dashboard({
           <Text c="dimmed" size="sm" mt="xs">
             {runtimeStatus?.current_task.trigger_source ?? "waiting"}
             {runtimeStatus?.current_task.phase ? ` · ${runtimeStatus.current_task.phase}` : ""}
+          </Text>
+        </Card>
+        <Card withBorder>
+          <Group justify="space-between">
+            <Text fw={600}>Background Jobs</Text>
+            <Badge color={jobsBadgeColor}>{activeJobs} active</Badge>
+          </Group>
+          <Text size="sm" c="dimmed" mt="xs">
+            queued={jobsSummary?.queued ?? 0} · running={jobsSummary?.running ?? 0} · failed={jobsSummary?.failed ?? 0}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Latest: {latestFinishedJob?.kind ?? "none"} · {latestFinishedJob?.status ?? "n/a"}
+          </Text>
+        </Card>
+        <Card withBorder>
+          <Text fw={600}>Discovery Warnings</Text>
+          <Text size="sm" c="dimmed">
+            {excludedCandidates} excluded · {duplicateCandidates} duplicates
           </Text>
         </Card>
       </SimpleGrid>
@@ -233,15 +216,9 @@ export default function Dashboard({
           </Text>
         </Card>
         <Card withBorder>
-          <Group justify="space-between">
-            <Text fw={600}>Background Jobs</Text>
-            <Badge color={jobsBadgeColor}>{activeJobs} active</Badge>
-          </Group>
-          <Text size="sm" c="dimmed" mt="xs">
-            queued={jobsSummary?.queued ?? 0} · running={jobsSummary?.running ?? 0} · failed={jobsSummary?.failed ?? 0}
-          </Text>
-          <Text size="sm" c="dimmed" mt="xs">
-            Latest: {latestFinishedJob?.kind ?? "none"} · {latestFinishedJob?.status ?? "n/a"}
+          <Text fw={600}>Discovery Snapshot</Text>
+          <Text size="sm" c="dimmed">
+            {hasDiscoveryWarnings ? "Attention needed" : "No warnings reported"}
           </Text>
         </Card>
       </SimpleGrid>
@@ -270,13 +247,6 @@ export default function Dashboard({
           </Stack>
         )}
       </Card>
-      <Card withBorder>
-        <Text fw={600}>Last Dry-Run</Text>
-        <Text c="dimmed" size="sm">
-          {lastDryRunSummary || "No dry-run executed yet."}
-        </Text>
-      </Card>
-
       <Card withBorder>
         <Group justify="space-between" mb="xs">
           <Text fw={600}>Recent Jobs</Text>
@@ -336,8 +306,6 @@ export default function Dashboard({
           </ScrollArea>
         )}
       </Card>
-
-      <DiagnosticsPanel draft={draft} onDryRunSummary={onDryRunSummary} onStatuses={onStatuses} />
     </Stack>
   );
 }

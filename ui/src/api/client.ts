@@ -213,24 +213,6 @@ export const getSonarrRootFolders = async () => {
   return data.items;
 };
 
-export const runRadarrDiagnostics = async () => {
-  const queued = await enqueueJob("/diagnostics/radarr");
-  const job = await waitForJob(queued.job_id);
-  return parseJobResult<{
-    status: string;
-    issues: Array<{ severity: string; message: string }>;
-  }>(job);
-};
-
-export const runSonarrDiagnostics = async () => {
-  const queued = await enqueueJob("/diagnostics/sonarr");
-  const job = await waitForJob(queued.job_id);
-  return parseJobResult<{
-    status: string;
-    issues: Array<{ severity: string; message: string }>;
-  }>(job);
-};
-
 export const testRadarrConnection = async (url: string, apiKey: string) => {
   const { data } = await api.post<{ ok: boolean; message: string }>("/radarr/test", {
     url,
@@ -245,31 +227,6 @@ export const testSonarrConnection = async (url: string, apiKey: string) => {
     api_key: apiKey
   });
   return data;
-};
-
-export const runDryRun = async () => {
-  const queued = await enqueueJob("/dry-run");
-  const job = await waitForJob(queued.job_id);
-  return parseJobResult<{
-    ok: boolean;
-    summary?: {
-      movie_folders_detected: number;
-      series_folders_detected: number;
-      root_mappings: number;
-    };
-    issues: Array<{ severity: string; message: string }>;
-  }>(job);
-};
-
-export const runReconcileNow = async () => {
-  const queued = await enqueueJob("/maintenance/reconcile");
-  const job = await waitForJob(queued.job_id);
-  return parseJobResult<{
-    ok: boolean;
-    message: string;
-    duration_ms?: number;
-    ingest_pending?: boolean;
-  }>(job);
 };
 
 export type JobRecord = {
@@ -296,18 +253,6 @@ export type JobsSummary = {
   canceled?: number;
   latest_finished: JobRecord | null;
   updated_at: number;
-};
-
-type JobQueuedResponse = {
-  ok: boolean;
-  queued: boolean;
-  job_id: string;
-  message: string;
-};
-
-const enqueueJob = async (path: string) => {
-  const { data } = await api.post<JobQueuedResponse>(path);
-  return data;
 };
 
 export const getJob = async (jobId: string) => {
@@ -338,41 +283,6 @@ export const cancelJob = async (jobId: string) => {
     message: string;
   }>(`/jobs/${jobId}/cancel`);
   return data;
-};
-
-export const waitForJob = async (
-  jobId: string,
-  options?: { intervalMs?: number; timeoutMs?: number }
-) => {
-  const intervalMs = Math.max(250, options?.intervalMs ?? 1000);
-  const timeoutMs = Math.max(5000, options?.timeoutMs ?? 300000);
-  const startedAt = Date.now();
-
-  while (true) {
-    const job = await getJob(jobId);
-    if (job.status === "succeeded" || job.status === "failed" || job.status === "canceled") {
-      return job;
-    }
-    if (Date.now() - startedAt > timeoutMs) {
-      throw new Error(`Timed out while waiting for job ${jobId}`);
-    }
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, intervalMs);
-    });
-  }
-};
-
-const parseJobResult = <T>(job: JobRecord): T => {
-  if (job.status === "canceled") {
-    throw new Error(job.error ?? "Background job was canceled.");
-  }
-  if (job.status === "failed") {
-    throw new Error(job.error ?? "Background job failed.");
-  }
-  if (job.result == null) {
-    throw new Error("Background job did not return a result.");
-  }
-  return job.result as T;
 };
 
 export type RuntimeStatusResponse = {
