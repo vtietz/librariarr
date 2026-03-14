@@ -7,6 +7,19 @@ from pathlib import Path
 
 SEASON_DIR_RE = re.compile(r"^(?:season|staffel)\s*\d{1,2}$|^s\d{1,2}$", re.IGNORECASE)
 EPISODE_TOKEN_RE = re.compile(r"\bs\d{1,2}e\d{1,3}\b", re.IGNORECASE)
+COMMON_NON_MOVIE_DIR_NAMES = frozenset(
+    {
+        "specials",
+        "special",
+        "extras",
+        "extra",
+        "bonus",
+        "bonusfeatures",
+        "featurettes",
+        "samples",
+        "sample",
+    }
+)
 
 
 def _contains_video_file(folder: Path, video_exts: set[str]) -> bool:
@@ -85,6 +98,10 @@ def _normalize_exclude_patterns(exclude_patterns: list[str] | None) -> list[str]
     return normalized
 
 
+def _is_common_non_movie_dir(path: Path) -> bool:
+    return path.name.strip().lower() in COMMON_NON_MOVIE_DIR_NAMES
+
+
 def _is_excluded_path(
     path: Path,
     root: Path,
@@ -106,26 +123,30 @@ def _is_excluded_path(
     parts = [part for part in Path(relative).parts if part not in {".", ""}]
     suffix_candidates = ["/".join(parts[index:]) for index in range(len(parts))]
     basename = path.name
+    relative_ci = relative.lower()
+    basename_ci = basename.lower()
+    suffix_candidates_ci = [candidate.lower() for candidate in suffix_candidates]
 
     for pattern in patterns:
         anchored = pattern.startswith("/")
         dir_only = pattern.endswith("/")
         core = pattern.strip("/")
+        core_ci = core.lower()
         if not core:
             continue
         if dir_only and not is_dir:
             continue
 
         if anchored:
-            if fnmatch(relative, core):
+            if fnmatch(relative_ci, core_ci):
                 return True
             continue
 
-        if fnmatch(basename, core):
+        if fnmatch(basename_ci, core_ci):
             return True
-        if fnmatch(relative, core):
+        if fnmatch(relative_ci, core_ci):
             return True
-        if any(fnmatch(candidate, core) for candidate in suffix_candidates):
+        if any(fnmatch(candidate, core_ci) for candidate in suffix_candidates_ci):
             return True
 
     return False
@@ -144,7 +165,9 @@ def discover_movie_folders(
 
     for current, dirs, files in os.walk(root):
         cur_path = Path(current)
-        if _is_excluded_path(cur_path, root, excludes, is_dir=True):
+        if _is_excluded_path(cur_path, root, excludes, is_dir=True) or _is_common_non_movie_dir(
+            cur_path
+        ):
             dirs[:] = []
             continue
 
@@ -152,6 +175,7 @@ def discover_movie_folders(
             dirname
             for dirname in dirs
             if not _is_excluded_path(cur_path / dirname, root, excludes, is_dir=True)
+            and not _is_common_non_movie_dir(cur_path / dirname)
         ]
 
         if any(
