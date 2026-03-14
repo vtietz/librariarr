@@ -41,7 +41,8 @@ export default function DirectoryMapper() {
     setLoadError(null);
     try {
       const result = await getMappedDirectories({
-        limit: 5000
+        limit: 5000,
+        timeoutMs: 20000
       });
       const sortedItems = [...result.items].sort((left, right) => {
         const rootCompare = left.shadow_root.localeCompare(right.shadow_root);
@@ -66,7 +67,17 @@ export default function DirectoryMapper() {
           "string"
           ? ((error as { response: { data: { detail: string } } }).response.data.detail ?? null)
           : null;
-      setLoadError(detail || "Failed to load mapped directories.");
+      const timedOut =
+        typeof error === "object" &&
+        error !== null &&
+        "code" in error &&
+        (error as { code?: string }).code === "ECONNABORTED";
+      setLoadError(
+        detail ||
+          (timedOut
+            ? "Mapped directories snapshot timed out. Click Reload; if this persists, reduce dataset or check filesystem latency."
+            : "Failed to load mapped directories.")
+      );
       setMappedDirectories([]);
       setMappedRoots([]);
       setMappedTruncated(false);

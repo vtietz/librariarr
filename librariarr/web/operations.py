@@ -70,7 +70,7 @@ def _shadow_roots(config: AppConfig) -> list[Path]:
 def _safe_directory_entries(root: Path) -> list[Path]:
     try:
         return sorted(root.iterdir(), key=lambda item: item.name.lower())
-    except FileNotFoundError:
+    except OSError:
         return []
 
 

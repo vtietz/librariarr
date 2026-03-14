@@ -79,6 +79,7 @@ export default function LogsPanel() {
         const parsed = JSON.parse(event.data) as LogItem & { connected?: boolean };
         if (parsed.connected) {
           setStreamState("live");
+          setError(null);
           return;
         }
         setLogs((current) => [parsed, ...current].slice(0, 1000));
