@@ -155,6 +155,11 @@ def test_put_config_saves_to_disk(tmp_path: Path) -> None:
     payload = response.json()
     assert payload["saved"] is True
     assert "debounce_seconds: 21" in config_path.read_text(encoding="utf-8")
+    backup_path = tmp_path / "config.yaml.bak"
+    assert backup_path.exists()
+    backup_yaml = backup_path.read_text(encoding="utf-8")
+    assert "debounce_seconds: 21" not in backup_yaml
+    assert "sync_enabled: false" in backup_yaml
 
 
 def test_put_config_restarts_runtime_when_supervisor_present(tmp_path: Path) -> None:

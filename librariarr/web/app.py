@@ -61,6 +61,16 @@ def _load_disk_yaml(config_path: Path) -> str:
     return config_path.read_text(encoding="utf-8")
 
 
+def _config_backup_path(config_path: Path) -> Path:
+    return config_path.with_name(f"{config_path.name}.bak")
+
+
+def _write_config_with_backup(config_path: Path, previous_yaml: str, next_yaml: str) -> None:
+    backup_path = _config_backup_path(config_path)
+    backup_path.write_text(previous_yaml, encoding="utf-8")
+    config_path.write_text(next_yaml, encoding="utf-8")
+
+
 def _redact_secrets(value: Any) -> Any:
     if isinstance(value, dict):
         out: dict[str, Any] = {}
@@ -427,7 +437,11 @@ def create_app(  # noqa: C901
                     "checksum": _checksum(candidate_yaml),
                 }
 
-            state.config_path.write_text(candidate_yaml, encoding="utf-8")
+            _write_config_with_backup(
+                config_path=state.config_path,
+                previous_yaml=disk_yaml,
+                next_yaml=candidate_yaml,
+            )
             state.draft_yaml = None
 
         if state.runtime_supervisor is not None:

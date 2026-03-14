@@ -279,6 +279,9 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _save_yaml(path: Path, payload: dict[str, Any]) -> None:
+    backup_path = path.with_name(f"{path.name}.bak")
+    if path.exists():
+        backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
 
 
