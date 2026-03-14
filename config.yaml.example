@@ -41,16 +41,12 @@ radarr:
     quality_map:
       - match: ["2160p", "x265"]
         target_id: 19
-        name: "2160p HEVC"
       - match: ["1080p", "x265"]
         target_id: 7
-        name: "1080p HEVC"
       - match: ["1080p"]
         target_id: 9
-        name: "1080p"
       - match: ["720p"]
         target_id: 5
-        name: "720p"
 
     # Optional: map local analysis tokens (filename/NFO/ffprobe) to Radarr custom format IDs.
     # This is used when auto profile mapping is enabled and helps when Radarr parse
@@ -58,10 +54,8 @@ radarr:
     custom_format_map:
       - match: ["german"]
         format_id: 42
-        name: "German Audio"
       - match: ["2160p", "x265"]
         format_id: 99
-        name: "4K HEVC"
 
 sonarr:
   # Disabled by default. Enable for series path syncing.
@@ -90,20 +84,16 @@ sonarr:
     quality_profile_map:
       - match: ["2160p", "x265"]
         profile_id: 12
-        name: "UHD HEVC"
       - match: ["1080p"]
         profile_id: 8
-        name: "HD"
 
     # Optional: token-based language profile selection for Sonarr auto-add.
     # Only used when sonarr.auto_add_language_profile_id is not set.
     language_profile_map:
       - match: ["german", "lang-de"]
         profile_id: 4
-        name: "German"
       - match: ["lang-de", "lang-en"]
         profile_id: 6
-        name: "German + English"
 
 ingest:
   # Move real folders from shadow roots back into nested roots.

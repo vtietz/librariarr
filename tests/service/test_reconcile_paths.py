@@ -38,7 +38,7 @@ def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
             mapping=RadarrMappingConfig(
-                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
@@ -120,7 +120,7 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
             mapping=RadarrMappingConfig(
-                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),

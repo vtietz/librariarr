@@ -29,7 +29,7 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
             api_key="test",
             sync_enabled=False,
             mapping=RadarrMappingConfig(
-                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
@@ -130,7 +130,7 @@ def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None
             api_key="test",
             sync_enabled=False,
             mapping=RadarrMappingConfig(
-                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),

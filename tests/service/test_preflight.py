@@ -93,8 +93,8 @@ def test_sync_preflight_logs_quality_catalog_and_validation(tmp_path: Path, capl
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
     config.radarr.mapping.quality_map = [
-        QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p"),
-        QualityRule(match=["2160p"], target_id=13, name="4K"),
+        QualityRule(match=["1080p"], target_id=4),
+        QualityRule(match=["2160p"], target_id=13),
     ]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(
@@ -119,7 +119,7 @@ def test_sync_preflight_warns_when_quality_target_id_missing(tmp_path: Path, cap
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.radarr.mapping.quality_map = [QualityRule(match=["2160p"], target_id=99, name="Missing")]
+    config.radarr.mapping.quality_map = [QualityRule(match=["2160p"], target_id=99)]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(quality_definitions=[{"id": 4, "name": "HDTV-1080p"}])
 
@@ -136,9 +136,7 @@ def test_sync_preflight_parses_nested_quality_definition_shape(tmp_path: Path, c
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.radarr.mapping.quality_map = [
-        QualityRule(match=["1080p"], target_id=4, name="HDTV-1080p")
-    ]
+    config.radarr.mapping.quality_map = [QualityRule(match=["1080p"], target_id=4)]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(
         quality_definitions=[
@@ -163,8 +161,8 @@ def test_sync_preflight_logs_custom_format_catalog_and_validation(tmp_path: Path
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
     config.radarr.mapping.custom_format_map = [
-        CustomFormatRule(match=["german"], format_id=42, name="German Audio"),
-        CustomFormatRule(match=["x265"], format_id=99, name="HEVC"),
+        CustomFormatRule(match=["german"], format_id=42),
+        CustomFormatRule(match=["x265"], format_id=99),
     ]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(
@@ -193,9 +191,7 @@ def test_sync_preflight_warns_when_custom_format_id_missing(tmp_path: Path, capl
     nested_root.mkdir(parents=True)
 
     config = make_config(nested_root, shadow_root, sync_enabled=True)
-    config.radarr.mapping.custom_format_map = [
-        CustomFormatRule(match=["german"], format_id=999, name="Missing")
-    ]
+    config.radarr.mapping.custom_format_map = [CustomFormatRule(match=["german"], format_id=999)]
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(custom_formats=[{"id": 42, "name": "German Audio"}])
 

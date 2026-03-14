@@ -12,21 +12,18 @@ import yaml
 class QualityRule:
     match: list[str]
     target_id: int
-    name: str = ""
 
 
 @dataclass
 class CustomFormatRule:
     match: list[str]
     format_id: int
-    name: str = ""
 
 
 @dataclass
 class ProfileRule:
     match: list[str]
     profile_id: int
-    name: str = ""
 
 
 @dataclass
@@ -240,7 +237,6 @@ def load_config(path: str | Path) -> AppConfig:
         QualityRule(
             match=item.get("match", []),
             target_id=int(item["target_id"] if "target_id" in item else item["id"]),
-            name=item.get("name", ""),
         )
         for item in quality_map_raw
     ]
@@ -250,7 +246,6 @@ def load_config(path: str | Path) -> AppConfig:
         CustomFormatRule(
             match=item.get("match", []),
             format_id=int(item["format_id"] if "format_id" in item else item["format"]),
-            name=item.get("name", ""),
         )
         for item in custom_format_map_raw
     ]
@@ -259,7 +254,6 @@ def load_config(path: str | Path) -> AppConfig:
         ProfileRule(
             match=item.get("match", []),
             profile_id=int(item["profile_id"] if "profile_id" in item else item["id"]),
-            name=item.get("name", ""),
         )
         for item in sonarr_mapping_raw.get("quality_profile_map", [])
     ]
@@ -267,7 +261,6 @@ def load_config(path: str | Path) -> AppConfig:
         ProfileRule(
             match=item.get("match", []),
             profile_id=int(item["profile_id"] if "profile_id" in item else item["id"]),
-            name=item.get("name", ""),
         )
         for item in sonarr_mapping_raw.get("language_profile_map", [])
     ]

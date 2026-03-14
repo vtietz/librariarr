@@ -16,8 +16,8 @@ def test_map_quality_id_matches_and_rule(tmp_path: Path) -> None:
     (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     rules = [
-        QualityRule(match=["2160p"], target_id=13, name="4K Bluray"),
-        QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p"),
+        QualityRule(match=["2160p"], target_id=13),
+        QualityRule(match=["1080p", "x265"], target_id=7),
     ]
 
     assert map_quality_id(movie_dir, rules, default_id=4) == 7
@@ -28,7 +28,7 @@ def test_map_quality_id_uses_default_when_no_rule_matches(tmp_path: Path) -> Non
     movie_dir.mkdir()
     (movie_dir / "Sintel.2010.DVDRip.avi").write_text("x", encoding="utf-8")
 
-    rules = [QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+    rules = [QualityRule(match=["1080p", "x265"], target_id=7)]
 
     assert map_quality_id(movie_dir, rules, default_id=4) == 4
 
@@ -39,7 +39,7 @@ def test_map_quality_id_uses_nfo_fallback_when_enabled(tmp_path: Path) -> None:
     (movie_dir / "Tears.Of.Steel.2012.mkv").write_text("x", encoding="utf-8")
     (movie_dir / "movie.nfo").write_text("Video: 1080p HEVC", encoding="utf-8")
 
-    rules = [QualityRule(match=["1080p", "hevc"], target_id=7, name="Bluray-1080p")]
+    rules = [QualityRule(match=["1080p", "hevc"], target_id=7)]
 
     assert map_quality_id(movie_dir, rules, default_id=4, use_nfo=True) == 7
 
@@ -49,7 +49,7 @@ def test_map_quality_id_uses_media_probe_fallback_when_enabled(tmp_path: Path) -
     movie_dir.mkdir()
     (movie_dir / "Sintel.2010.mkv").write_text("x", encoding="utf-8")
 
-    rules = [QualityRule(match=["2160p", "x265"], target_id=13, name="4K Bluray")]
+    rules = [QualityRule(match=["2160p", "x265"], target_id=13)]
     probe_json = '{"streams":[{"height":2160,"codec_name":"hevc"}]}'
 
     with patch("subprocess.check_output", return_value=probe_json):
@@ -159,7 +159,7 @@ def test_map_quality_id_uses_larger_non_sample_video_for_probe(tmp_path: Path) -
     main = movie_dir / "Demo.2024.main.mkv"
     main.write_text("x" * 2000, encoding="utf-8")
 
-    rules = [QualityRule(match=["2160p", "x265"], target_id=13, name="4K Bluray")]
+    rules = [QualityRule(match=["2160p", "x265"], target_id=13)]
 
     def _fake_probe(cmd: list[str], stderr=None, text=True, timeout=5):  # type: ignore[override]
         file_name = Path(cmd[-1]).name.lower()
@@ -178,7 +178,7 @@ def test_map_quality_id_treats_x265_h265_hevc_as_equivalent(tmp_path: Path) -> N
     movie_dir.mkdir()
     (movie_dir / "Codec.Demo.2024.1080p.h265.mkv").write_text("x", encoding="utf-8")
 
-    rules = [QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+    rules = [QualityRule(match=["1080p", "x265"], target_id=7)]
 
     assert map_quality_id(movie_dir, rules, default_id=4) == 7
 
@@ -188,7 +188,7 @@ def test_map_quality_id_treats_x264_h264_avc_as_equivalent(tmp_path: Path) -> No
     movie_dir.mkdir()
     (movie_dir / "Codec.Demo.AVC.2024.1080p.mkv").write_text("x", encoding="utf-8")
 
-    rules = [QualityRule(match=["1080p", "h264"], target_id=9, name="HDTV-1080p")]
+    rules = [QualityRule(match=["1080p", "h264"], target_id=9)]
 
     assert map_quality_id(movie_dir, rules, default_id=4) == 9
 
@@ -200,8 +200,8 @@ def test_map_custom_format_ids_uses_nfo_and_probe_tokens(tmp_path: Path) -> None
     (movie_dir / "movie.nfo").write_text("language: german", encoding="utf-8")
 
     rules = [
-        CustomFormatRule(match=["german"], format_id=42, name="German"),
-        CustomFormatRule(match=["2160p", "hevc"], format_id=99, name="4K HEVC"),
+        CustomFormatRule(match=["german"], format_id=42),
+        CustomFormatRule(match=["2160p", "hevc"], format_id=99),
     ]
     probe_json = '{"streams":[{"codec_type":"video","height":2160,"codec_name":"hevc"}]}'
 
@@ -222,8 +222,8 @@ def test_map_profile_id_matches_first_rule(tmp_path: Path) -> None:
     (movie_dir / "Series.Demo.S01E01.1080p.German.mkv").write_text("x", encoding="utf-8")
 
     rules = [
-        ProfileRule(match=["2160p"], profile_id=12, name="UHD"),
-        ProfileRule(match=["1080p", "german"], profile_id=8, name="HD DE"),
+        ProfileRule(match=["2160p"], profile_id=12),
+        ProfileRule(match=["1080p", "german"], profile_id=8),
     ]
 
     assert map_profile_id(movie_dir, rules, default_id=None) == 8
@@ -234,7 +234,7 @@ def test_map_profile_id_returns_default_when_no_rule_matches(tmp_path: Path) -> 
     movie_dir.mkdir()
     (movie_dir / "Series.Demo.S01E01.WEBRip.mkv").write_text("x", encoding="utf-8")
 
-    rules = [ProfileRule(match=["1080p"], profile_id=8, name="HD")]
+    rules = [ProfileRule(match=["1080p"], profile_id=8)]
 
     assert map_profile_id(movie_dir, rules, default_id=3) == 3
 

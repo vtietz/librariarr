@@ -157,7 +157,7 @@ def make_config(
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
             mapping=RadarrMappingConfig(
-                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="Bluray-1080p")]
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
         cleanup=CleanupConfig(

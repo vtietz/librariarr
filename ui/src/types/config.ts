@@ -24,8 +24,8 @@ export type ConfigModel = {
     auto_add_search_on_add: boolean;
     auto_add_monitored: boolean;
     mapping: {
-      quality_map: Array<{ match: string[]; target_id: number; name: string }>;
-      custom_format_map: Array<{ match: string[]; format_id: number; name: string }>;
+      quality_map: Array<{ match: string[]; target_id: number }>;
+      custom_format_map: Array<{ match: string[]; format_id: number }>;
     };
   };
   sonarr: {
@@ -41,8 +41,8 @@ export type ConfigModel = {
     auto_add_monitored: boolean;
     auto_add_season_folder: boolean;
     mapping: {
-      quality_profile_map: Array<{ match: string[]; profile_id: number; name: string }>;
-      language_profile_map: Array<{ match: string[]; profile_id: number; name: string }>;
+      quality_profile_map: Array<{ match: string[]; profile_id: number }>;
+      language_profile_map: Array<{ match: string[]; profile_id: number }>;
     };
   };
   cleanup: {

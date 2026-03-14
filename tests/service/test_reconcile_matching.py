@@ -69,9 +69,7 @@ def test_reconcile_auto_add_uses_custom_format_map_when_parse_is_empty(tmp_path:
     )
     config.radarr.mapping.quality_map = []
     config.analysis.use_nfo = True
-    config.radarr.mapping.custom_format_map = [
-        CustomFormatRule(match=["german"], format_id=42, name="German Audio")
-    ]
+    config.radarr.mapping.custom_format_map = [CustomFormatRule(match=["german"], format_id=42)]
     service = LibrariArrService(config)
 
     fake = FakeRadarr(

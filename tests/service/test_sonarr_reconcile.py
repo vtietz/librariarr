@@ -457,12 +457,8 @@ def test_reconcile_auto_add_uses_sonarr_mapping_profiles(tmp_path: Path) -> None
         sonarr_sync_enabled=True,
         sonarr_auto_add_unmatched=True,
     )
-    config.sonarr.mapping.quality_profile_map = [
-        ProfileRule(match=["1080p", "x265"], profile_id=8, name="HD HEVC")
-    ]
-    config.sonarr.mapping.language_profile_map = [
-        ProfileRule(match=["german"], profile_id=4, name="German")
-    ]
+    config.sonarr.mapping.quality_profile_map = [ProfileRule(match=["1080p", "x265"], profile_id=8)]
+    config.sonarr.mapping.language_profile_map = [ProfileRule(match=["german"], profile_id=4)]
 
     service = LibrariArrService(config)
 

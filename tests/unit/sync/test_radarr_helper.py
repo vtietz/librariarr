@@ -79,7 +79,7 @@ def test_resolve_auto_add_profile_prefers_custom_format_signal(tmp_path: Path) -
 
     config = _make_config(
         tmp_path,
-        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7, name="1080p")],
+        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)],
     )
     fake = FakeRadarr(
         quality_profiles=[

@@ -58,10 +58,8 @@ def _make_config(tmp_path: Path, quality_id: int, format_id: int) -> AppConfig:
             sync_enabled=True,
             auto_add_unmatched=True,
             mapping=RadarrMappingConfig(
-                quality_map=[QualityRule(match=["1080p"], target_id=quality_id, name="1080p")],
-                custom_format_map=[
-                    CustomFormatRule(match=["german"], format_id=format_id, name="German Audio")
-                ],
+                quality_map=[QualityRule(match=["1080p"], target_id=quality_id)],
+                custom_format_map=[CustomFormatRule(match=["german"], format_id=format_id)],
             ),
         ),
         cleanup=CleanupConfig(),

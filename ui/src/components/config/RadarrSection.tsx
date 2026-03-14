@@ -263,8 +263,7 @@ export default function RadarrSection({ value, onChange }: Props) {
               "quality_map",
               addRule(value.mapping.quality_map, () => ({
                 match: defaultMatchTags,
-                target_id: defaultQualityTargetId,
-                name: ""
+                target_id: defaultQualityTargetId
               }))
             )
           }
@@ -286,12 +285,6 @@ export default function RadarrSection({ value, onChange }: Props) {
               }))
             )
           }
-          onNameChange={(index, name) =>
-            setMappingField(
-              "quality_map",
-              updateRuleAt(value.mapping.quality_map, index, (row) => ({ ...row, name }))
-            )
-          }
         />
 
         <RuleEditor
@@ -307,8 +300,7 @@ export default function RadarrSection({ value, onChange }: Props) {
               "custom_format_map",
               addRule(value.mapping.custom_format_map, () => ({
                 match: defaultMatchTags,
-                format_id: defaultCustomFormatId,
-                name: ""
+                format_id: defaultCustomFormatId
               }))
             )
           }
@@ -328,12 +320,6 @@ export default function RadarrSection({ value, onChange }: Props) {
                 ...row,
                 format_id: formatId
               }))
-            )
-          }
-          onNameChange={(index, name) =>
-            setMappingField(
-              "custom_format_map",
-              updateRuleAt(value.mapping.custom_format_map, index, (row) => ({ ...row, name }))
             )
           }
         />

@@ -8,7 +8,6 @@ import {
   Stack,
   Table,
   Text,
-  TextInput,
   Title
 } from "@mantine/core";
 import { IconTrash } from "@tabler/icons-react";
@@ -16,7 +15,6 @@ import { useMemo } from "react";
 
 type RuleRow = {
   match: string[];
-  name: string;
 };
 
 type Props<T extends RuleRow> = {
@@ -31,7 +29,6 @@ type Props<T extends RuleRow> = {
   onRemove: (index: number) => void;
   onMatchChange: (index: number, match: string[]) => void;
   onIdChange: (index: number, id: number) => void;
-  onNameChange: (index: number, name: string) => void;
 };
 
 export default function RuleEditor<T extends RuleRow>({
@@ -45,8 +42,7 @@ export default function RuleEditor<T extends RuleRow>({
   onAdd,
   onRemove,
   onMatchChange,
-  onIdChange,
-  onNameChange
+  onIdChange
 }: Props<T>) {
   const mergedTagOptions = useMemo(() => {
     const normalizedRows = rows
@@ -72,14 +68,13 @@ export default function RuleEditor<T extends RuleRow>({
             <Table.Tr>
               <Table.Th py={6} fz="sm">Match Tags</Table.Th>
               <Table.Th py={6} fz="sm">{idLabel}</Table.Th>
-              <Table.Th py={6} fz="sm">Name</Table.Th>
               <Table.Th py={6} w={44} />
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
             {rows.length === 0 ? (
               <Table.Tr>
-                <Table.Td colSpan={4}>
+                <Table.Td colSpan={3}>
                   <Text c="dimmed" size="sm">
                     No rules yet. Use Add Rule to create one.
                   </Text>
@@ -129,14 +124,6 @@ export default function RuleEditor<T extends RuleRow>({
                             onIdChange(index, parsed);
                           }
                         }}
-                      />
-                    </Table.Td>
-                    <Table.Td>
-                      <TextInput
-                        size="sm"
-                        aria-label="Name"
-                        value={row.name}
-                        onChange={(event) => onNameChange(index, event.currentTarget.value)}
                       />
                     </Table.Td>
                     <Table.Td>

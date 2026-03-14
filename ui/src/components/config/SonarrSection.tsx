@@ -266,8 +266,7 @@ export default function SonarrSection({ value, onChange }: Props) {
               "quality_profile_map",
               addRule(value.mapping.quality_profile_map, () => ({
                 match: defaultMatchTags,
-                profile_id: defaultQualityProfileId,
-                name: ""
+                profile_id: defaultQualityProfileId
               }))
             )
           }
@@ -289,12 +288,6 @@ export default function SonarrSection({ value, onChange }: Props) {
               }))
             )
           }
-          onNameChange={(index, name) =>
-            setMappingField(
-              "quality_profile_map",
-              updateRuleAt(value.mapping.quality_profile_map, index, (row) => ({ ...row, name }))
-            )
-          }
         />
 
         <RuleEditor
@@ -310,8 +303,7 @@ export default function SonarrSection({ value, onChange }: Props) {
               "language_profile_map",
               addRule(value.mapping.language_profile_map, () => ({
                 match: defaultMatchTags,
-                profile_id: defaultLanguageProfileId,
-                name: ""
+                profile_id: defaultLanguageProfileId
               }))
             )
           }
@@ -331,12 +323,6 @@ export default function SonarrSection({ value, onChange }: Props) {
                 ...row,
                 profile_id: profileId
               }))
-            )
-          }
-          onNameChange={(index, name) =>
-            setMappingField(
-              "language_profile_map",
-              updateRuleAt(value.mapping.language_profile_map, index, (row) => ({ ...row, name }))
             )
           }
         />

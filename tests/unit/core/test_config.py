@@ -364,7 +364,6 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     assert len(config.radarr.mapping.custom_format_map) == 1
     assert config.radarr.mapping.custom_format_map[0].match == ["german", "x265"]
     assert config.radarr.mapping.custom_format_map[0].format_id == 42
-    assert config.radarr.mapping.custom_format_map[0].name == "German HEVC"
 
 
 def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:

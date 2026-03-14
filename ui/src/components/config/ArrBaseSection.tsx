@@ -78,15 +78,6 @@ export default function ArrBaseSection({
         />
 
         <Group>
-          <Button variant="light" onClick={() => void onTest()} loading={testing}>
-            {testLabel}
-          </Button>
-          {testStatus ? <Text size="sm" c={testStatus.ok ? "green" : "red"}>{testStatus.message}</Text> : null}
-        </Group>
-
-        {children}
-
-        <Group>
           <Button
             component="a"
             variant="default"
@@ -97,7 +88,13 @@ export default function ArrBaseSection({
           >
             {openLabel}
           </Button>
+          <Button variant="light" onClick={() => void onTest()} loading={testing}>
+            {testLabel}
+          </Button>
+          {testStatus ? <Text size="sm" c={testStatus.ok ? "green" : "red"}>{testStatus.message}</Text> : null}
         </Group>
+
+        {children}
       </Stack>
     </Card>
   );
