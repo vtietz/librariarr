@@ -141,10 +141,14 @@ export const getSonarrProfiles = async () => {
 };
 
 export const getSonarrLanguageProfiles = async () => {
-  const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
+  const { data } = await api.get<{
+    enabled: boolean;
+    items: Array<{ id: number; name: string }>;
+    error: string | null;
+  }>(
     "/sonarr/language-profiles"
   );
-  return data.items;
+  return data;
 };
 
 export const getSonarrTags = async () => {

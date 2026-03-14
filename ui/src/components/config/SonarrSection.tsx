@@ -29,6 +29,7 @@ export default function SonarrSection({ value, onChange }: Props) {
   const [languageProfileOptions, setLanguageProfileOptions] = useState<
     Array<{ value: string; label: string }>
   >([]);
+  const [supportsLanguageProfiles, setSupportsLanguageProfiles] = useState(true);
   const [metadataWarning, setMetadataWarning] = useState<string | null>(null);
   const [showQualityMaps, setShowQualityMaps] = useState(true);
 
@@ -64,8 +65,16 @@ export default function SonarrSection({ value, onChange }: Props) {
       const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
       const qualityProfiles =
         qualityProfilesResult.status === "fulfilled" ? qualityProfilesResult.value : [];
-      const languageProfiles =
-        languageProfilesResult.status === "fulfilled" ? languageProfilesResult.value : [];
+      const languageProfilesData =
+        languageProfilesResult.status === "fulfilled"
+          ? languageProfilesResult.value
+          : { enabled: true, items: [] as Array<{ id: number; name: string }>, error: "request failed" };
+      const languageProfiles = languageProfilesData.items;
+      const languageProfilesAvailable =
+        languageProfilesResult.status === "fulfilled" &&
+        languageProfilesData.enabled &&
+        languageProfilesData.error == null;
+      setSupportsLanguageProfiles(languageProfilesAvailable);
 
       const failedSources: string[] = [];
       if (tagsResult.status === "rejected") {
@@ -76,6 +85,8 @@ export default function SonarrSection({ value, onChange }: Props) {
       }
       if (languageProfilesResult.status === "rejected") {
         failedSources.push("language profiles");
+      } else if (!languageProfilesAvailable) {
+        failedSources.push("language profiles (not available)");
       }
       setMetadataWarning(
         failedSources.length > 0
@@ -222,48 +233,50 @@ export default function SonarrSection({ value, onChange }: Props) {
             />
           );
         })()}
-        {(() => {
-          const currentValue =
-            value.auto_add_language_profile_id == null
-              ? null
-              : String(value.auto_add_language_profile_id);
-          const hasCurrentOption =
-            currentValue == null
-              ? true
-              : languageProfileOptions.some((option) => option.value === currentValue);
-          const options =
-            currentValue == null || hasCurrentOption
-              ? languageProfileOptions
-              : [
-                  ...languageProfileOptions,
-                  {
-                    value: currentValue,
-                    label: `${currentValue} (configured, unavailable)`
-                  }
-                ];
+        {supportsLanguageProfiles
+          ? (() => {
+              const currentValue =
+                value.auto_add_language_profile_id == null
+                  ? null
+                  : String(value.auto_add_language_profile_id);
+              const hasCurrentOption =
+                currentValue == null
+                  ? true
+                  : languageProfileOptions.some((option) => option.value === currentValue);
+              const options =
+                currentValue == null || hasCurrentOption
+                  ? languageProfileOptions
+                  : [
+                      ...languageProfileOptions,
+                      {
+                        value: currentValue,
+                        label: `${currentValue} (configured, unavailable)`
+                      }
+                    ];
 
-          return (
-            <Select
-              label={
-                <HelpLabel
-                  label="Auto-add Language Profile ID"
-                  help="Optional fixed language profile for auto-added series. Leave empty to use language profile map rules."
+              return (
+                <Select
+                  label={
+                    <HelpLabel
+                      label="Auto-add Language Profile ID"
+                      help="Optional fixed language profile for auto-added series. Leave empty to use language profile map rules."
+                    />
+                  }
+                  data={options}
+                  value={currentValue}
+                  searchable
+                  clearable
+                  nothingFoundMessage="No profiles"
+                  onChange={(nextValue) =>
+                    setField(
+                      "auto_add_language_profile_id",
+                      nextValue == null ? null : Number(nextValue)
+                    )
+                  }
                 />
-              }
-              data={options}
-              value={currentValue}
-              searchable
-              clearable
-              nothingFoundMessage="No profiles"
-              onChange={(nextValue) =>
-                setField(
-                  "auto_add_language_profile_id",
-                  nextValue == null ? null : Number(nextValue)
-                )
-              }
-            />
-          );
-        })()}
+              );
+            })()
+          : null}
       </Group>
 
       {metadataWarning ? (
@@ -320,42 +333,44 @@ export default function SonarrSection({ value, onChange }: Props) {
           }
         />
 
-        <RuleEditor
-          title="Sonarr Language Profile Map"
-          idLabel="Profile ID"
-          tagOptions={tagOptions}
-          idOptions={languageProfileOptions}
-          rows={value.mapping.language_profile_map}
-          keyPrefix="sonarr-language"
-          readId={(row) => row.profile_id}
-          onAdd={() =>
-            setMappingField(
-              "language_profile_map",
-              addRule(value.mapping.language_profile_map, () => ({
-                match: defaultMatchTags,
-                profile_id: defaultLanguageProfileId
-              }))
-            )
-          }
-          onRemove={(index) =>
-            setMappingField("language_profile_map", removeRuleAt(value.mapping.language_profile_map, index))
-          }
-          onMatchChange={(index, match) =>
-            setMappingField(
-              "language_profile_map",
-              updateRuleAt(value.mapping.language_profile_map, index, (row) => ({ ...row, match }))
-            )
-          }
-          onIdChange={(index, profileId) =>
-            setMappingField(
-              "language_profile_map",
-              updateRuleAt(value.mapping.language_profile_map, index, (row) => ({
-                ...row,
-                profile_id: profileId
-              }))
-            )
-          }
-        />
+        {supportsLanguageProfiles ? (
+          <RuleEditor
+            title="Sonarr Language Profile Map"
+            idLabel="Profile ID"
+            tagOptions={tagOptions}
+            idOptions={languageProfileOptions}
+            rows={value.mapping.language_profile_map}
+            keyPrefix="sonarr-language"
+            readId={(row) => row.profile_id}
+            onAdd={() =>
+              setMappingField(
+                "language_profile_map",
+                addRule(value.mapping.language_profile_map, () => ({
+                  match: defaultMatchTags,
+                  profile_id: defaultLanguageProfileId
+                }))
+              )
+            }
+            onRemove={(index) =>
+              setMappingField("language_profile_map", removeRuleAt(value.mapping.language_profile_map, index))
+            }
+            onMatchChange={(index, match) =>
+              setMappingField(
+                "language_profile_map",
+                updateRuleAt(value.mapping.language_profile_map, index, (row) => ({ ...row, match }))
+              )
+            }
+            onIdChange={(index, profileId) =>
+              setMappingField(
+                "language_profile_map",
+                updateRuleAt(value.mapping.language_profile_map, index, (row) => ({
+                  ...row,
+                  profile_id: profileId
+                }))
+              )
+            }
+          />
+        ) : null}
       </Collapse>
     </ArrBaseSection>
   );
