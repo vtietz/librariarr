@@ -153,12 +153,16 @@ call "%~f0" dev-bootstrap
 goto :eof
 
 :devbootstrap
+call "%~f0" setup
+if errorlevel 1 exit /b 1
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.bootstrap"
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% restart %DEV_SERVICE%
 goto :eof
 
 :devseed
+call "%~f0" setup
+if errorlevel 1 exit /b 1
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.seed && python -m librariarr.dev.media_permissions"
 goto :eof
 

@@ -161,6 +161,7 @@ case "$cmd" in
     fi
     ;;
   dev-bootstrap)
+    "$0" setup
     compose_dev run --rm --user "0:0" "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
     compose_dev run --rm "$DEV_SERVICE" \
