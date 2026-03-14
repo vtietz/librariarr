@@ -24,7 +24,6 @@ export default function App() {
   const [issues, setIssues] = useState<Issue[]>([]);
   const [diffText, setDiffText] = useState("");
   const [yamlPreview, setYamlPreview] = useState("");
-  const [showYamlPreview, setShowYamlPreview] = useState(false);
   const [radarrStatus, setRadarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
   const [sonarrStatus, setSonarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
   const [lastDryRunSummary, setLastDryRunSummary] = useState("");
@@ -196,8 +195,6 @@ export default function App() {
               hasUnsavedChanges={hasUnsavedChanges}
               issues={issues}
               yamlPreview={yamlPreview}
-              showYamlPreview={showYamlPreview}
-              onToggleYamlPreview={() => setShowYamlPreview((current) => !current)}
               onValidate={handleValidate}
               onSave={handleSave}
               onLoadDiff={handleDiff}
