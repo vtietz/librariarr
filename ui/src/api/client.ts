@@ -95,7 +95,7 @@ export const getMappedDirectories = async (params?: {
       shadow_root: params?.shadowRoot,
       limit: params?.limit
     },
-    timeout: params?.timeoutMs ?? 20000
+    timeout: params?.timeoutMs ?? 90000
   });
   return data;
 };
@@ -348,7 +348,7 @@ export const getAppLogs = async (params?: { tail?: number; timeoutMs?: number })
     params: {
       tail: params?.tail
     },
-    timeout: params?.timeoutMs ?? 15000
+    timeout: params?.timeoutMs ?? 60000
   });
   return data;
 };

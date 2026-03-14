@@ -42,7 +42,7 @@ export default function DirectoryMapper() {
     try {
       const result = await getMappedDirectories({
         limit: 5000,
-        timeoutMs: 20000
+        timeoutMs: 90000
       });
       const sortedItems = [...result.items].sort((left, right) => {
         const rootCompare = left.shadow_root.localeCompare(right.shadow_root);
