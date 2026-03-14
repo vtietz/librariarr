@@ -17,6 +17,8 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
+from ..sync.discovery import discover_movie_folders
+from ..sync.naming import parse_movie_ref
 from .log_buffer import get_log_buffer
 
 
@@ -70,6 +72,69 @@ def _mapped_directories_fingerprint(roots: list[Path]) -> str:
                 )
             )
     return hasher.hexdigest()
+
+
+def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> dict[str, Any]:
+    video_exts = set(config.runtime.scan_video_extensions or [".mkv", ".mp4", ".avi", ".mov"])
+    exclude_paths = list(config.paths.exclude_paths)
+
+    all_movie_paths: set[Path] = set()
+    included_movie_paths: set[Path] = set()
+
+    for mapping in config.paths.root_mappings:
+        nested_root = Path(mapping.nested_root)
+        all_movie_paths.update(discover_movie_folders(nested_root, video_exts, []))
+        included_movie_paths.update(discover_movie_folders(nested_root, video_exts, exclude_paths))
+
+    excluded_movie_paths = sorted(all_movie_paths - included_movie_paths, key=lambda path: str(path))
+
+    grouped: dict[tuple[str, int | None], list[Path]] = {}
+    for movie_path in all_movie_paths:
+        movie_ref = parse_movie_ref(movie_path.name)
+        grouped.setdefault((movie_ref.title, movie_ref.year), []).append(movie_path)
+
+    duplicate_movie_candidates: list[dict[str, Any]] = []
+    for (title, year), paths in grouped.items():
+        if len(paths) < 2:
+            continue
+
+        ordered = sorted(paths, key=lambda path: str(path))
+        preferred = [path for path in ordered if path in included_movie_paths]
+        primary_path = preferred[0] if preferred else ordered[0]
+        duplicate_paths = [path for path in ordered if path != primary_path]
+
+        duplicate_movie_candidates.append(
+            {
+                "movie_ref": f"{title} ({year})" if year is not None else title,
+                "primary_path": str(primary_path),
+                "duplicate_paths": [str(path) for path in duplicate_paths],
+                "contains_excluded": any(path in excluded_movie_paths for path in ordered),
+            }
+        )
+
+    duplicate_movie_candidates.sort(
+        key=lambda item: (
+            -len(item["duplicate_paths"]),
+            str(item["movie_ref"]),
+        )
+    )
+
+    return {
+        "summary": {
+            "exclude_patterns_count": len(exclude_paths),
+            "excluded_movie_candidates": len(excluded_movie_paths),
+            "duplicate_movie_candidates": len(duplicate_movie_candidates),
+        },
+        "exclude_paths": exclude_paths,
+        "excluded_movie_candidates": [
+            {
+                "path": str(path),
+                "reason": "matches paths.exclude_paths",
+            }
+            for path in excluded_movie_paths[:limit]
+        ],
+        "duplicate_movie_candidates": duplicate_movie_candidates[:limit],
+    }
 
 
 def build_operations_router() -> APIRouter:  # noqa: C901
@@ -244,6 +309,14 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             "shadow_roots": [str(root) for root in all_roots],
             "truncated": truncated,
         }
+
+    @router.get("/api/fs/discovery-warnings")
+    def discovery_warnings(
+        request: Request,
+        limit: int = Query(default=200, ge=1, le=2000),
+    ) -> dict[str, Any]:
+        config = _load_config_or_http(_read_config_path(request))
+        return _build_discovery_warnings_payload(config=config, limit=limit)
 
     @router.get("/api/fs/mapped-directories/stream")
     async def mapped_directories_stream(

@@ -122,6 +122,31 @@ def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
     assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/age_06"
 
 
+def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/age_12\n"
+            "      shadow_root: /data/radarr_library/age_12\n"
+            "  exclude_paths:\n"
+            "    - .deletedByTMM/\n"
+            "    - '.librariarr/**'\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.paths.exclude_paths == [".deletedByTMM/", ".librariarr/**"]
+
+
 def test_load_config_rejects_missing_root_mappings(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

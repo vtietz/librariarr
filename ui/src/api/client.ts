@@ -77,6 +77,34 @@ export const getMappedDirectoriesStreamUrl = (params?: { intervalMs?: number }) 
     : "/api/fs/mapped-directories/stream";
 };
 
+export type DiscoveryWarningsResponse = {
+  summary: {
+    exclude_patterns_count: number;
+    excluded_movie_candidates: number;
+    duplicate_movie_candidates: number;
+  };
+  exclude_paths: string[];
+  excluded_movie_candidates: Array<{
+    path: string;
+    reason: string;
+  }>;
+  duplicate_movie_candidates: Array<{
+    movie_ref: string;
+    primary_path: string;
+    duplicate_paths: string[];
+    contains_excluded: boolean;
+  }>;
+};
+
+export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
+  const { data } = await api.get<DiscoveryWarningsResponse>("/fs/discovery-warnings", {
+    params: {
+      limit: params?.limit
+    }
+  });
+  return data;
+};
+
 export const getRadarrProfiles = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
     "/radarr/quality-profiles"

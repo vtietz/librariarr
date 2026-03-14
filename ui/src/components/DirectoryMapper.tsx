@@ -11,7 +11,11 @@ import {
   Title
 } from "@mantine/core";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { getMappedDirectories, getMappedDirectoriesStreamUrl } from "../api/client";
+import {
+  getDiscoveryWarnings,
+  getMappedDirectories,
+  getMappedDirectoriesStreamUrl
+} from "../api/client";
 
 type MappedDirectory = {
   shadow_root: string;
@@ -27,6 +31,9 @@ export default function DirectoryMapper() {
   const [mappedRoots, setMappedRoots] = useState<string[]>([]);
   const [mappedTruncated, setMappedTruncated] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
+  const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
+    ReturnType<typeof getDiscoveryWarnings>
+  > | null>(null);
 
   const loadMappedDirectories = useCallback(async () => {
     setIsReloading(true);
@@ -58,6 +65,33 @@ export default function DirectoryMapper() {
       await loadMappedDirectories();
     })();
   }, [loadMappedDirectories]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadWarnings = async () => {
+      try {
+        const payload = await getDiscoveryWarnings({ limit: 200 });
+        if (active) {
+          setDiscoveryWarnings(payload);
+        }
+      } catch {
+        if (active) {
+          setDiscoveryWarnings(null);
+        }
+      }
+    };
+
+    void loadWarnings();
+    const interval = window.setInterval(() => {
+      void loadWarnings();
+    }, 5000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     const source = new EventSource(getMappedDirectoriesStreamUrl({ intervalMs: 1000 }));
@@ -102,6 +136,25 @@ export default function DirectoryMapper() {
     [mappedRoots]
   );
 
+  const duplicatePrimaryPaths = useMemo(() => {
+    const paths = new Set<string>();
+    for (const item of discoveryWarnings?.duplicate_movie_candidates ?? []) {
+      paths.add(item.primary_path);
+    }
+    return paths;
+  }, [discoveryWarnings]);
+
+  const excludedByDuplicate = useMemo(() => {
+    const byPrimary = new Map<string, number>();
+    for (const item of discoveryWarnings?.duplicate_movie_candidates ?? []) {
+      if (!item.contains_excluded) {
+        continue;
+      }
+      byPrimary.set(item.primary_path, item.duplicate_paths.length);
+    }
+    return byPrimary;
+  }, [discoveryWarnings]);
+
   return (
     <Stack>
       <Title order={3}>Directory Mapper</Title>
@@ -120,6 +173,20 @@ export default function DirectoryMapper() {
               </Button>
             </Group>
           </Group>
+
+          {(discoveryWarnings?.summary.duplicate_movie_candidates ?? 0) > 0 && (
+            <Text size="sm" c="yellow.8">
+              ⚠ {discoveryWarnings?.summary.duplicate_movie_candidates ?? 0} potential duplicate
+              movie keys detected in source folders
+            </Text>
+          )}
+
+          {(discoveryWarnings?.summary.excluded_movie_candidates ?? 0) > 0 && (
+            <Text size="sm" c="yellow.8">
+              ⚠ {discoveryWarnings?.summary.excluded_movie_candidates ?? 0} movie folders ignored
+              by paths.exclude_paths
+            </Text>
+          )}
 
           <Group grow>
             <TextInput
@@ -152,9 +219,19 @@ export default function DirectoryMapper() {
                   <Table.Td>{mapped.virtual_path}</Table.Td>
                   <Table.Td>{mapped.real_path}</Table.Td>
                   <Table.Td>
-                    <Badge color={mapped.target_exists ? "green" : "red"}>
-                      {mapped.target_exists ? "target exists" : "missing target"}
-                    </Badge>
+                    <Group gap={6}>
+                      <Badge color={mapped.target_exists ? "green" : "red"}>
+                        {mapped.target_exists ? "target exists" : "missing target"}
+                      </Badge>
+                      {duplicatePrimaryPaths.has(mapped.real_path) && (
+                        <Badge color="yellow">⚠ duplicate candidate</Badge>
+                      )}
+                      {(excludedByDuplicate.get(mapped.real_path) ?? 0) > 0 && (
+                        <Badge color="orange">
+                          excluded alt paths: {excludedByDuplicate.get(mapped.real_path)}
+                        </Badge>
+                      )}
+                    </Group>
                   </Table.Td>
                 </Table.Tr>
               ))}

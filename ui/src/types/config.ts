@@ -11,6 +11,7 @@ export type RootMapping = {
 export type ConfigModel = {
   paths: {
     root_mappings: RootMapping[];
+    exclude_paths: string[];
   };
   radarr: {
     enabled: boolean;

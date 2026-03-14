@@ -7,6 +7,12 @@ paths:
       shadow_root: "/data/radarr_library/age_12"
     - nested_root: "/data/movies/age_16"
       shadow_root: "/data/radarr_library/age_16"
+  # Optional gitignore-style patterns (relative to each nested_root) to skip
+  # during movie/series discovery. Useful for trash/temp folders like TMM deletes.
+  exclude_paths:
+    - ".deletedByTMM/"
+    - ".trash/"
+    - ".librariarr/**"
 
 radarr:
   # Enabled by default. Disable for Sonarr-only mode.

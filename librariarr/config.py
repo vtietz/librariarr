@@ -108,6 +108,7 @@ class SonarrConfig:
 @dataclass
 class PathsConfig:
     root_mappings: list[RootMapping] = field(default_factory=list)
+    exclude_paths: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -208,6 +209,12 @@ def load_config(path: str | Path) -> AppConfig:
         )
         for item in root_mappings_raw
     ]
+    exclude_paths_raw = paths.get("exclude_paths", [])
+    if exclude_paths_raw is None:
+        exclude_paths_raw = []
+    if not isinstance(exclude_paths_raw, list):
+        raise ValueError("paths.exclude_paths must be a list of glob-style path patterns")
+    exclude_paths = [str(item).strip() for item in exclude_paths_raw if str(item).strip()]
 
     # Deployment-only overrides: allow URL and API key from env.
     radarr_default_url = str(_require(radarr, "url")).rstrip("/") if has_radarr else ""
@@ -350,7 +357,7 @@ def load_config(path: str | Path) -> AppConfig:
     )
 
     return AppConfig(
-        paths=PathsConfig(root_mappings=root_mappings),
+        paths=PathsConfig(root_mappings=root_mappings, exclude_paths=exclude_paths),
         radarr=RadarrConfig(
             enabled=radarr_enabled,
             url=radarr_url,

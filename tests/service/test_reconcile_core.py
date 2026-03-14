@@ -59,9 +59,10 @@ def test_reconcile_incremental_scans_only_affected_folder(tmp_path: Path) -> Non
     scanned_roots: list[Path] = []
 
     with patch("librariarr.service.reconcile.discover_movie_folders") as mocked_discovery:
-        mocked_discovery.side_effect = lambda root, video_exts: scanned_roots.append(
-            root
-        ) or discover_movie_folders_impl(root, video_exts)
+        mocked_discovery.side_effect = lambda root, video_exts, exclude_paths=None: (
+            scanned_roots.append(root)
+            or discover_movie_folders_impl(root, video_exts, exclude_paths)
+        )
         service.reconcile({changed_file})
 
     assert scanned_roots == [movie_a]
@@ -89,9 +90,10 @@ def test_reconcile_shadow_only_event_skips_movie_rescan_when_ingest_enabled(tmp_
     scanned_roots: list[Path] = []
 
     with patch("librariarr.service.reconcile.discover_movie_folders") as mocked_discovery:
-        mocked_discovery.side_effect = lambda root, video_exts: scanned_roots.append(
-            root
-        ) or discover_movie_folders_impl(root, video_exts)
+        mocked_discovery.side_effect = lambda root, video_exts, exclude_paths=None: (
+            scanned_roots.append(root)
+            or discover_movie_folders_impl(root, video_exts, exclude_paths)
+        )
         service.reconcile({shadow_event_path})
 
     assert scanned_roots == []

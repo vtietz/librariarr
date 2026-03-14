@@ -53,6 +53,7 @@ class ServiceBootstrapMixin:
         self.shadow_to_nested_roots = self._build_shadow_to_nested_roots(self.root_mappings)
         self._validate_ingest_root_mappings(config.ingest.enabled)
         self.video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
+        self.scan_exclude_paths = list(config.paths.exclude_paths)
         self.link_manager = ShadowLinkManager(self.nested_roots, logger=LOG)
         self.ingestor = ShadowIngestor(
             config=config.ingest,

@@ -11,7 +11,7 @@ class ServiceScopeMixin:
         self,
         affected_paths: set[Path] | None,
         known_folders: dict[Path, Path] | None,
-        discover: Callable[[Path, set[str]], set[Path]],
+        discover: Callable[[Path, set[str], list[str] | None], set[Path]],
     ) -> tuple[dict[Path, Path], dict[Path, Path], set[Path], bool]:
         if affected_paths is None or not affected_paths or known_folders is None:
             found_folders = self._all_folders(discover)
@@ -41,7 +41,7 @@ class ServiceScopeMixin:
                 known_discovered_folders.pop(folder, None)
                 affected_targets.add(folder)
 
-            for folder in discover(scan_root, self.video_exts):
+            for folder in discover(scan_root, self.video_exts, self.scan_exclude_paths):
                 known_discovered_folders[folder] = shadow_root
                 affected_targets.add(folder)
 
@@ -122,7 +122,7 @@ class ServiceScopeMixin:
 
     def _all_folders(
         self,
-        discover: Callable[[Path, set[str]], set[Path]],
+        discover: Callable[[Path, set[str], list[str] | None], set[Path]],
     ) -> dict[Path, Path]:
         all_folders: dict[Path, Path] = {}
         sorted_mappings = sorted(
@@ -130,7 +130,7 @@ class ServiceScopeMixin:
             key=lambda pair: (-len(pair[0].parts), str(pair[0])),
         )
         for nested_root, shadow_root in sorted_mappings:
-            for folder in discover(nested_root, self.video_exts):
+            for folder in discover(nested_root, self.video_exts, self.scan_exclude_paths):
                 all_folders.setdefault(folder, shadow_root)
         return all_folders
 

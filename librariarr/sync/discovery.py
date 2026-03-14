@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+from fnmatch import fnmatch
 from pathlib import Path
 
 SEASON_DIR_RE = re.compile(r"^(?:season|staffel)\s*\d{1,2}$|^s\d{1,2}$", re.IGNORECASE)
@@ -32,6 +33,35 @@ def _contains_video_recursively(folder: Path, video_exts: set[str]) -> bool:
     return False
 
 
+def _contains_video_recursively_filtered(
+    folder: Path,
+    root: Path,
+    video_exts: set[str],
+    exclude_patterns: list[str],
+) -> bool:
+    if not folder.exists():
+        return False
+    for current, dirs, files in os.walk(folder):
+        cur_path = Path(current)
+        if _is_excluded_path(cur_path, root, exclude_patterns, is_dir=True):
+            dirs[:] = []
+            continue
+        dirs[:] = [
+            dirname
+            for dirname in dirs
+            if not _is_excluded_path(cur_path / dirname, root, exclude_patterns, is_dir=True)
+        ]
+        if any(
+            Path(filename).suffix.lower() in video_exts
+            and not _is_excluded_path(cur_path / filename, root, exclude_patterns, is_dir=False)
+            for filename in files
+        ):
+            return True
+        if current != str(folder):
+            continue
+    return False
+
+
 def _looks_like_episode_file(filename: str) -> bool:
     stem = Path(filename).stem
     return EPISODE_TOKEN_RE.search(stem) is not None
@@ -41,14 +71,94 @@ def _is_season_folder_name(name: str) -> bool:
     return SEASON_DIR_RE.match(name.strip()) is not None
 
 
-def discover_movie_folders(root: Path, video_exts: set[str]) -> set[Path]:
+def _normalize_exclude_patterns(exclude_patterns: list[str] | None) -> list[str]:
+    if not exclude_patterns:
+        return []
+    normalized: list[str] = []
+    for raw_pattern in exclude_patterns:
+        pattern = str(raw_pattern).strip().replace("\\", "/")
+        if not pattern or pattern.startswith("#"):
+            continue
+        if pattern.startswith("./"):
+            pattern = pattern[2:]
+        normalized.append(pattern)
+    return normalized
+
+
+def _is_excluded_path(
+    path: Path,
+    root: Path,
+    patterns: list[str],
+    *,
+    is_dir: bool,
+) -> bool:
+    if not patterns:
+        return False
+
+    try:
+        relative = path.relative_to(root).as_posix()
+    except ValueError:
+        relative = path.as_posix()
+
+    if relative == ".":
+        return False
+
+    parts = [part for part in Path(relative).parts if part not in {".", ""}]
+    suffix_candidates = ["/".join(parts[index:]) for index in range(len(parts))]
+    basename = path.name
+
+    for pattern in patterns:
+        anchored = pattern.startswith("/")
+        dir_only = pattern.endswith("/")
+        core = pattern.strip("/")
+        if not core:
+            continue
+        if dir_only and not is_dir:
+            continue
+
+        if anchored:
+            if fnmatch(relative, core):
+                return True
+            continue
+
+        if fnmatch(basename, core):
+            return True
+        if fnmatch(relative, core):
+            return True
+        if any(fnmatch(candidate, core) for candidate in suffix_candidates):
+            return True
+
+    return False
+
+
+def discover_movie_folders(
+    root: Path,
+    video_exts: set[str],
+    exclude_patterns: list[str] | None = None,
+) -> set[Path]:
     found: set[Path] = set()
     if not root.exists():
         return found
 
+    excludes = _normalize_exclude_patterns(exclude_patterns)
+
     for current, dirs, files in os.walk(root):
         cur_path = Path(current)
-        if any(Path(filename).suffix.lower() in video_exts for filename in files):
+        if _is_excluded_path(cur_path, root, excludes, is_dir=True):
+            dirs[:] = []
+            continue
+
+        dirs[:] = [
+            dirname
+            for dirname in dirs
+            if not _is_excluded_path(cur_path / dirname, root, excludes, is_dir=True)
+        ]
+
+        if any(
+            Path(filename).suffix.lower() in video_exts
+            and not _is_excluded_path(cur_path / filename, root, excludes, is_dir=False)
+            for filename in files
+        ):
             if _is_season_folder_name(cur_path.name):
                 continue
             found.add(cur_path)
@@ -56,17 +166,35 @@ def discover_movie_folders(root: Path, video_exts: set[str]) -> set[Path]:
     return found
 
 
-def discover_series_folders(root: Path, video_exts: set[str]) -> set[Path]:
+def discover_series_folders(
+    root: Path,
+    video_exts: set[str],
+    exclude_patterns: list[str] | None = None,
+) -> set[Path]:
     found: set[Path] = set()
     if not root.exists():
         return found
 
+    excludes = _normalize_exclude_patterns(exclude_patterns)
+
     for current, dirs, files in os.walk(root):
         cur_path = Path(current)
 
+        if _is_excluded_path(cur_path, root, excludes, is_dir=True):
+            dirs[:] = []
+            continue
+
+        dirs[:] = [
+            dirname
+            for dirname in dirs
+            if not _is_excluded_path(cur_path / dirname, root, excludes, is_dir=True)
+        ]
+
         # Flat-series fallback: treat folder as a series root when it contains episode files.
         if any(
-            Path(filename).suffix.lower() in video_exts and _looks_like_episode_file(filename)
+            Path(filename).suffix.lower() in video_exts
+            and _looks_like_episode_file(filename)
+            and not _is_excluded_path(cur_path / filename, root, excludes, is_dir=False)
             for filename in files
         ):
             found.add(cur_path)
@@ -79,7 +207,12 @@ def discover_series_folders(root: Path, video_exts: set[str]) -> set[Path]:
 
         has_video_in_season = False
         for season_dir in season_dirs:
-            if _contains_video_recursively(cur_path / season_dir, video_exts):
+            if _contains_video_recursively_filtered(
+                cur_path / season_dir,
+                root,
+                video_exts,
+                excludes,
+            ):
                 has_video_in_season = True
                 break
 

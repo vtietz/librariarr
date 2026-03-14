@@ -1,4 +1,6 @@
 import { Badge, Card, Group, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import { useEffect, useState } from "react";
+import { getDiscoveryWarnings } from "../api/client";
 import type { RuntimeStatusResponse } from "../api/client";
 
 type Status = "idle" | "ok" | "warning" | "disabled";
@@ -25,6 +27,41 @@ export default function Dashboard({
   lastDryRunSummary,
   runtimeStatus
 }: Props) {
+  const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
+    ReturnType<typeof getDiscoveryWarnings>
+  > | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadWarnings = async () => {
+      try {
+        const payload = await getDiscoveryWarnings({ limit: 10 });
+        if (active) {
+          setDiscoveryWarnings(payload);
+        }
+      } catch {
+        if (active) {
+          setDiscoveryWarnings(null);
+        }
+      }
+    };
+
+    void loadWarnings();
+    const interval = window.setInterval(() => {
+      void loadWarnings();
+    }, 5000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  const excludedCandidates = discoveryWarnings?.summary.excluded_movie_candidates ?? 0;
+  const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
+  const hasDiscoveryWarnings = excludedCandidates > 0 || duplicateCandidates > 0;
+
   const taskState = runtimeStatus?.current_task.state ?? "idle";
   const taskBadgeColor =
     taskState === "running" ? "blue" : taskState === "error" ? "red" : "gray";
@@ -93,6 +130,31 @@ export default function Dashboard({
           </Text>
         </Card>
       </SimpleGrid>
+      <Card withBorder>
+        <Group justify="space-between">
+          <Text fw={600}>Discovery Warnings</Text>
+          <Badge color={hasDiscoveryWarnings ? "yellow" : "green"}>
+            {hasDiscoveryWarnings ? "attention" : "clear"}
+          </Badge>
+        </Group>
+        <Text size="sm" c="dimmed" mt="xs">
+          {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates
+        </Text>
+        {hasDiscoveryWarnings && (
+          <Stack gap={4} mt="xs">
+            {discoveryWarnings?.excluded_movie_candidates.slice(0, 3).map((item) => (
+              <Text key={`excluded-${item.path}`} size="xs" c="dimmed">
+                ⚠ excluded: {item.path}
+              </Text>
+            ))}
+            {discoveryWarnings?.duplicate_movie_candidates.slice(0, 3).map((item) => (
+              <Text key={`duplicate-${item.primary_path}`} size="xs" c="dimmed">
+                ⚠ duplicate key {item.movie_ref}: {item.primary_path}
+              </Text>
+            ))}
+          </Stack>
+        )}
+      </Card>
       <Card withBorder>
         <Text fw={600}>Last Dry-Run</Text>
         <Text c="dimmed" size="sm">

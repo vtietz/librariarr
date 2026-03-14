@@ -75,3 +75,39 @@ def test_discover_series_folders_detects_flat_episode_layout(tmp_path: Path) -> 
     found = discover_series_folders(root, {".mkv", ".mp4"})
 
     assert series_dir in found
+
+
+def test_discover_movie_folders_honors_exclude_paths(tmp_path: Path) -> None:
+    root = tmp_path / "movies"
+    valid_dir = root / "FSK12" / "Pierre Richard Collection" / "Der Regenschirmmörder (1980)"
+    deleted_dir = (
+        root
+        / "FSK12"
+        / ".deletedByTMM"
+        / "Pierre Richard Collection"
+        / "[2] Der Regenschirmmörder (1980) FSK12"
+    )
+    valid_dir.mkdir(parents=True)
+    deleted_dir.mkdir(parents=True)
+    (valid_dir / "movie.mkv").write_text("x", encoding="utf-8")
+    (deleted_dir / "movie.mkv").write_text("x", encoding="utf-8")
+
+    found = discover_movie_folders(root, {".mkv", ".mp4"}, [".deletedByTMM/"])
+
+    assert valid_dir in found
+    assert deleted_dir not in found
+
+
+def test_discover_series_folders_honors_exclude_paths(tmp_path: Path) -> None:
+    root = tmp_path / "series"
+    valid_series = root / "Show A"
+    deleted_series = root / ".deletedByTMM" / "Show B"
+    (valid_series / "Season 01").mkdir(parents=True)
+    (deleted_series / "Season 01").mkdir(parents=True)
+    (valid_series / "Season 01" / "Show.A.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+    (deleted_series / "Season 01" / "Show.B.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    found = discover_series_folders(root, {".mkv", ".mp4"}, [".deletedByTMM/"])
+
+    assert valid_series in found
+    assert deleted_series not in found

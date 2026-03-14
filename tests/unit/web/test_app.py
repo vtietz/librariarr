@@ -32,6 +32,32 @@ def _write_config(path: Path, nested_root: Path, shadow_root: Path) -> None:
     )
 
 
+def _write_config_with_excludes(path: Path, nested_root: Path, shadow_root: Path) -> None:
+    path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            f"    - nested_root: {nested_root}\n"
+            f"      shadow_root: {shadow_root}\n"
+            "  exclude_paths:\n"
+            "    - .deletedByTMM/\n"
+            "radarr:\n"
+            "  enabled: true\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  sync_enabled: false\n"
+            "sonarr:\n"
+            "  enabled: false\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: test-key\n"
+            "  sync_enabled: false\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_get_config_redacts_secrets_by_default(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
@@ -330,6 +356,48 @@ def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
     assert len(payload["items"]) == 1
     assert payload["items"][0]["virtual_path"] == str(shadow_link)
     assert payload["items"][0]["real_path"] == str(movie_dir)
+
+
+def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    included_movie = nested_root / "FSK12" / "Pierre Richard Collection" / "Der Regenschirmmörder (1980)"
+    excluded_movie = (
+        nested_root
+        / "FSK12"
+        / ".deletedByTMM"
+        / "Pierre Richard Collection"
+        / "Der Regenschirmmörder (1980)"
+    )
+    included_movie.mkdir(parents=True)
+    excluded_movie.mkdir(parents=True)
+    (included_movie / "movie.mkv").write_text("x", encoding="utf-8")
+    (excluded_movie / "movie.mkv").write_text("x", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_excludes(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["excluded_movie_candidates"] >= 1
+    assert payload["summary"]["duplicate_movie_candidates"] >= 1
+    assert any(
+        item["path"] == str(excluded_movie)
+        for item in payload["excluded_movie_candidates"]
+    )
+    assert any(
+        item["movie_ref"] == "der regenschirmmörder (1980)"
+        and item["contains_excluded"] is True
+        for item in payload["duplicate_movie_candidates"]
+    )
 
 
 def test_mapped_directories_stream_endpoint_emits_sse(tmp_path: Path) -> None:

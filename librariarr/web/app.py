@@ -622,9 +622,21 @@ def create_app(  # noqa: C901
         for mapping in config.paths.root_mappings:
             nested_root = Path(mapping.nested_root)
             if config.radarr.enabled:
-                movie_folder_count += len(discover_movie_folders(nested_root, video_exts))
+                movie_folder_count += len(
+                    discover_movie_folders(
+                        nested_root,
+                        video_exts,
+                        config.paths.exclude_paths,
+                    )
+                )
             if config.sonarr.enabled:
-                series_folder_count += len(discover_series_folders(nested_root, video_exts))
+                series_folder_count += len(
+                    discover_series_folders(
+                        nested_root,
+                        video_exts,
+                        config.paths.exclude_paths,
+                    )
+                )
 
         return {
             "ok": True,

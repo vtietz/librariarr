@@ -13,6 +13,9 @@ paths:
   root_mappings:
     - nested_root: "/data/movies/age_06"
       shadow_root: "/data/radarr_library/age_06"
+  exclude_paths:
+    - ".deletedByTMM/"
+    - ".librariarr/**"
 
 radarr:
   enabled: true
@@ -108,6 +111,12 @@ Why Radarr parse is title-based:
 `paths.root_mappings`:
 - Each nested source root maps to one shadow root.
 - Avoids ambiguity and works best with ingest.
+
+`paths.exclude_paths`:
+- Optional list of glob-style ignore patterns applied during movie/series discovery.
+- Patterns are evaluated relative to each `nested_root` (gitignore-style intent).
+- Useful for skipping transient/trash trees such as `.deletedByTMM/`.
+- Supports `*` and `**` globs, and comments/blank entries are ignored.
 
 ## Radarr
 
