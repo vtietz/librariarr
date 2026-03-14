@@ -272,6 +272,40 @@ def test_maintenance_reconcile_endpoint_runs_service(tmp_path: Path, monkeypatch
     assert payload["message"] == "Reconcile completed."
 
 
+def test_runtime_status_endpoint_reports_manual_reconcile(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    class StubService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def reconcile(self):
+            return False
+
+    monkeypatch.setattr("librariarr.web.operations.LibrariArrService", StubService)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    reconcile_response = client.post("/api/maintenance/reconcile")
+    assert reconcile_response.status_code == 200
+
+    response = client.get("/api/runtime/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["runtime_supervisor_present"] is False
+    assert payload["runtime_supervisor_running"] is False
+    assert payload["last_reconcile"] is not None
+    assert payload["last_reconcile"]["trigger_source"] == "manual"
+
+
 def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"

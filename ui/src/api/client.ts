@@ -156,6 +156,53 @@ export const runReconcileNow = async () => {
   return data;
 };
 
+export type RuntimeStatusResponse = {
+  runtime_running: boolean;
+  watched_nested_roots: number;
+  watched_shadow_roots: number;
+  watched_roots_total: number;
+  debounce_seconds: number;
+  dirty_paths_queued: number;
+  next_event_reconcile_due_at: number | null;
+  next_event_reconcile_in_seconds: number | null;
+  current_task: {
+    state: "idle" | "running" | "error";
+    phase: string | null;
+    trigger_source: string | null;
+    started_at: number | null;
+    updated_at: number | null;
+    error: string | null;
+    pending_ingest_dirs?: number;
+  };
+  last_reconcile: {
+    state: "ok" | "error";
+    trigger_source: string | null;
+    phase: string | null;
+    started_at: number | null;
+    finished_at: number | null;
+    duration_seconds: number | null;
+    ingest_pending: boolean;
+    error: string | null;
+    movie_folders_seen?: number;
+    series_folders_seen?: number;
+    created_links?: number;
+    matched_movies?: number;
+    unmatched_movies?: number;
+    matched_series?: number;
+    unmatched_series?: number;
+    ingested_dirs?: number;
+    pending_ingest_dirs?: number;
+  } | null;
+  updated_at: number | null;
+  runtime_supervisor_present: boolean;
+  runtime_supervisor_running: boolean;
+};
+
+export const getRuntimeStatus = async () => {
+  const { data } = await api.get<RuntimeStatusResponse>("/runtime/status");
+  return data;
+};
+
 export type LogItem = {
   line: string;
   level: string;

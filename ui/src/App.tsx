@@ -2,11 +2,13 @@ import { AppShell, Group, Loader, Stack, Tabs, Text, ThemeIcon, Title } from "@m
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { IconBooks } from "@tabler/icons-react";
 import {
+  getRuntimeStatus,
   getConfig,
   getDiff,
   saveConfig,
   validateConfig
 } from "./api/client";
+import type { RuntimeStatusResponse } from "./api/client";
 import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
 import DiagnosticsPanel from "./components/DiagnosticsPanel";
@@ -26,6 +28,7 @@ export default function App() {
   const [radarrStatus, setRadarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
   const [sonarrStatus, setSonarrStatus] = useState<"idle" | "ok" | "warning" | "disabled">("idle");
   const [lastDryRunSummary, setLastDryRunSummary] = useState("");
+  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("dashboard");
 
@@ -67,6 +70,33 @@ export default function App() {
   useEffect(() => {
     void reloadFromDisk();
   }, [reloadFromDisk]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadRuntimeStatus = async () => {
+      try {
+        const result = await getRuntimeStatus();
+        if (active) {
+          setRuntimeStatus(result);
+        }
+      } catch {
+        if (active) {
+          setRuntimeStatus(null);
+        }
+      }
+    };
+
+    void loadRuntimeStatus();
+    const interval = window.setInterval(() => {
+      void loadRuntimeStatus();
+    }, 2000);
+
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   const hasUnsavedChanges = useMemo(() => {
     if (!response || !draft) {
@@ -156,6 +186,7 @@ export default function App() {
               sonarrStatus={sonarrStatus}
               hasUnsavedChanges={hasUnsavedChanges}
               lastDryRunSummary={lastDryRunSummary}
+              runtimeStatus={runtimeStatus}
             />
           </Tabs.Panel>
 

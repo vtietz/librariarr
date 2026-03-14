@@ -10,6 +10,8 @@ from pathlib import Path
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
+from .status import RuntimeStatusTracker
+
 
 @dataclass
 class ReconcileSchedule:
@@ -57,6 +59,7 @@ class RuntimeSyncLoop:
         on_reconcile_error: Callable[[Exception], None],
         logger: logging.Logger,
         poll_reconcile_trigger: Callable[[], bool] | None = None,
+        status_tracker: RuntimeStatusTracker | None = None,
     ) -> None:
         self.nested_roots = nested_roots
         self.shadow_roots = shadow_roots
@@ -65,8 +68,11 @@ class RuntimeSyncLoop:
         self.on_reconcile_error = on_reconcile_error
         self.poll_reconcile_trigger = poll_reconcile_trigger
         self.log = logger
+        self.status_tracker = status_tracker
         self._dirty_paths: set[Path] = set()
         self._dirty_paths_lock = threading.Lock()
+        if self.status_tracker is not None:
+            self.status_tracker.set_debounce_seconds(self.schedule.debounce_seconds)
 
     def run(self, stop_event: threading.Event | None = None) -> None:
         observer = Observer()
@@ -87,6 +93,14 @@ class RuntimeSyncLoop:
                 self.log.info("Watching shadow root: %s", root)
                 watched_roots.add(root)
 
+        if self.status_tracker is not None:
+            self.status_tracker.mark_runtime_running(
+                running=True,
+                watched_nested_roots=len(self.nested_roots),
+                watched_shadow_roots=len(self.shadow_roots),
+                watched_roots_total=len(watched_roots),
+            )
+
         observer.start()
         try:
             if self._run_reconcile_with_handling("Initial reconcile failed"):
@@ -105,6 +119,8 @@ class RuntimeSyncLoop:
         finally:
             observer.stop()
             observer.join()
+            if self.status_tracker is not None:
+                self.status_tracker.mark_runtime_running(running=False)
 
     def _poll_reconcile_trigger_safe(self) -> bool:
         if self.poll_reconcile_trigger is None:
@@ -119,6 +135,12 @@ class RuntimeSyncLoop:
         should_maintenance, should_event_sync = self.schedule.due()
         if not (should_maintenance or should_event_sync or poll_triggered):
             return
+
+        trigger_source = "maintenance"
+        if should_event_sync and not should_maintenance:
+            trigger_source = "filesystem"
+        elif poll_triggered and not should_maintenance and not should_event_sync:
+            trigger_source = "poll"
 
         reconcile_paths: set[Path] | None = None
         if should_maintenance:
@@ -135,6 +157,10 @@ class RuntimeSyncLoop:
                 )
         if poll_triggered and not should_maintenance and not should_event_sync:
             self.log.info("Running poll-triggered reconcile")
+
+        if self.status_tracker is not None:
+            self.status_tracker.mark_reconcile_started(trigger_source=trigger_source)
+            self.status_tracker.update_reconcile_phase("running")
 
         ingest_pending = self._run_reconcile_with_handling(
             "Reconcile failed; will retry on next cycle",
@@ -166,16 +192,27 @@ class RuntimeSyncLoop:
                 self.schedule.debounce_seconds,
             )
         self.schedule.mark_event()
+        if self.status_tracker is not None:
+            with self._dirty_paths_lock:
+                dirty_count = len(self._dirty_paths)
+            self.status_tracker.update_dirty_paths_queue(
+                queued=dirty_count,
+                last_event_at=self.schedule.last_event,
+            )
 
     def _consume_dirty_paths(self) -> set[Path]:
         with self._dirty_paths_lock:
             dirty_paths = set(self._dirty_paths)
             self._dirty_paths.clear()
+        if self.status_tracker is not None:
+            self.status_tracker.update_dirty_paths_queue(queued=0, last_event_at=None)
         return dirty_paths
 
     def _clear_dirty_paths(self) -> None:
         with self._dirty_paths_lock:
             self._dirty_paths.clear()
+        if self.status_tracker is not None:
+            self.status_tracker.update_dirty_paths_queue(queued=0, last_event_at=None)
 
     def _should_trigger_for_event(self, event: FileSystemEvent) -> bool:
         if event.event_type in self._NOISY_EVENT_TYPES:
@@ -233,8 +270,20 @@ class RuntimeSyncLoop:
         # Preserve existing semantics: sync time updates when a reconcile attempt starts.
         self.schedule.mark_sync()
         try:
-            return self.reconcile(affected_paths)
+            ingest_pending = self.reconcile(affected_paths)
+            if self.status_tracker is not None:
+                self.status_tracker.mark_reconcile_finished(
+                    success=True,
+                    ingest_pending=ingest_pending,
+                )
+            return ingest_pending
         except Exception as exc:
             self.on_reconcile_error(exc)
             self.log.exception(error_log_message)
+            if self.status_tracker is not None:
+                self.status_tracker.mark_reconcile_finished(
+                    success=False,
+                    ingest_pending=False,
+                    error=str(exc),
+                )
             return False

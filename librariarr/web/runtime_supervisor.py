@@ -51,6 +51,11 @@ class RuntimeSupervisor:
             self._last_config_mtime_ns = self._read_config_mtime_ns()
             return restarted
 
+    def is_running(self) -> bool:
+        with self._lock:
+            runtime_thread = self._runtime_thread
+            return runtime_thread is not None and runtime_thread.is_alive()
+
     def _watch_config_loop(self) -> None:
         while not self._watch_stop.wait(self.poll_interval_seconds):
             with self._lock:

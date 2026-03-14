@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
+from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
 from .log_buffer import get_log_buffer
 
@@ -73,6 +74,7 @@ def _mapped_directories_fingerprint(roots: list[Path]) -> str:
 
 def build_operations_router() -> APIRouter:  # noqa: C901
     router = APIRouter()
+    runtime_status = get_runtime_status_tracker()
 
     @router.get("/api/logs")
     def app_logs(
@@ -158,10 +160,12 @@ def build_operations_router() -> APIRouter:  # noqa: C901
     def run_maintenance_reconcile(request: Request) -> dict[str, Any]:
         config = _load_config_or_http(_read_config_path(request))
         started = time.perf_counter()
+        runtime_status.mark_reconcile_started(trigger_source="manual")
         try:
             service = LibrariArrService(config)
             ingest_pending = service.reconcile()
             duration_ms = int((time.perf_counter() - started) * 1000)
+            runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
             return {
                 "ok": True,
                 "message": "Reconcile completed.",
@@ -169,7 +173,22 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 "ingest_pending": ingest_pending,
             }
         except Exception as exc:
+            runtime_status.mark_reconcile_finished(
+                success=False,
+                ingest_pending=False,
+                error=str(exc),
+            )
             return {"ok": False, "message": str(exc)}
+
+    @router.get("/api/runtime/status")
+    def runtime_status_endpoint(request: Request) -> dict[str, Any]:
+        payload = runtime_status.snapshot()
+        supervisor = getattr(request.app.state.web, "runtime_supervisor", None)
+        payload["runtime_supervisor_present"] = supervisor is not None
+        payload["runtime_supervisor_running"] = (
+            bool(supervisor.is_running()) if supervisor is not None else False
+        )
+        return payload
 
     @router.get("/api/fs/mapped-directories")
     def mapped_directories(

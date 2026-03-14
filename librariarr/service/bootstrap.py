@@ -7,7 +7,7 @@ from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
 from ..quality import VIDEO_EXTENSIONS
-from ..runtime import ReconcileSchedule, RuntimeSyncLoop
+from ..runtime import ReconcileSchedule, RuntimeSyncLoop, get_runtime_status_tracker
 from ..sync import (
     RadarrSyncHelper,
     ShadowCleanupManager,
@@ -99,6 +99,7 @@ class ServiceBootstrapMixin:
         self._sonarr_missing_shadow_roots: set[str] = set()
         self._known_movie_folders: dict[Path, Path] | None = None
         self._known_series_folders: dict[Path, Path] | None = None
+        self.runtime_status_tracker = get_runtime_status_tracker()
 
     def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
         return [
@@ -192,5 +193,6 @@ class ServiceBootstrapMixin:
             on_reconcile_error=self._log_arr_sync_config_hints,
             logger=LOG,
             poll_reconcile_trigger=self._poll_arr_root_reconcile_trigger,
+            status_tracker=self.runtime_status_tracker,
         )
         runtime_loop.run(stop_event=stop_event)

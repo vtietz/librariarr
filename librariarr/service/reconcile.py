@@ -129,6 +129,27 @@ class ServiceReconcileMixin:
             )
 
             duration_seconds = round(time.time() - started, 2)
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {
+                        "movie_folders_seen": len(movie_folders),
+                        "series_folders_seen": len(series_folders),
+                        "existing_links": sum(len(links) for links in target_to_links.values()),
+                        "created_links": created_links,
+                        "matched_movies": matched_movies,
+                        "unmatched_movies": unmatched_movies,
+                        "matched_series": matched_series,
+                        "unmatched_series": unmatched_series,
+                        "removed_orphans": orphaned_links_removed,
+                        "ingested_dirs": ingested_count,
+                        "pending_ingest_dirs": self.ingestor.last_pending_quiescent_count,
+                        "ingest_pending": ingest_pending,
+                        "duration_seconds": duration_seconds,
+                        "affected_paths_count": (
+                            len(affected_paths) if affected_paths is not None else None
+                        ),
+                    }
+                )
             LOG.info(
                 "Reconcile complete: movie_folders=%s existing_links=%s "
                 "created_links=%s matched_movies=%s unmatched_movies=%s "
