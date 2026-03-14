@@ -147,7 +147,7 @@ def test_reconcile_syncs_radarr_when_enabled(tmp_path: Path) -> None:
 
     assert fake.get_movies_calls == 1
     assert fake.updated_paths and fake.updated_paths[0][0] == 1
-    assert fake.updated_qualities == [(1, 7)]
+    assert fake.updated_qualities == []
     assert fake.refreshed == [1]
 
 
@@ -415,6 +415,7 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
     assert fake.lookup_terms == ["fixture title - variant 2017"]
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
     assert fake.updated_paths == []
+    assert fake.updated_qualities == [(10, 7)]
     assert fake.refreshed == [10]
 
 
@@ -570,5 +571,6 @@ def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path:
     service.reconcile()
 
     assert len(fake.added_movies) == 1
+    assert fake.updated_qualities == [(21, 7)]
     assert canonical_link.is_symlink()
     assert not (shadow_root / "Cap und Capper (1981)").exists()

@@ -257,6 +257,7 @@ class ServiceMatchingMixin:
         link: Path,
         movie: dict,
         force_refresh: bool = False,
+        apply_quality_mapping: bool = False,
     ) -> None:
         movie_id = movie.get("id")
         movie_title = movie.get("title")
@@ -274,7 +275,7 @@ class ServiceMatchingMixin:
 
         quality_updated = False
         quality_map = self.config.effective_radarr_quality_map()
-        if quality_map:
+        if apply_quality_mapping and quality_map:
             quality_id = map_quality_id(
                 folder,
                 quality_map,

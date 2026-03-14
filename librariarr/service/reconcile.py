@@ -245,11 +245,13 @@ class ServiceReconcileMixin:
 
             if movie is not None:
                 movie_id = self._add_movie_id_if_present(matched_movie_ids, movie)
+                auto_added = movie_id is not None and movie_id in auto_added_movie_ids
                 self._sync_radarr_for_folder(
                     folder,
                     link_path,
                     movie,
-                    force_refresh=movie_id is not None and movie_id in auto_added_movie_ids,
+                    force_refresh=auto_added,
+                    apply_quality_mapping=auto_added,
                 )
                 matched_movies += 1
                 continue
