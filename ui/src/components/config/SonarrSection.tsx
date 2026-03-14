@@ -1,4 +1,4 @@
-import { Group, NumberInput, Select } from "@mantine/core";
+import { Group, NumberInput, Select, Text } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import {
   getSonarrLanguageProfiles,
@@ -28,6 +28,7 @@ export default function SonarrSection({ value, onChange }: Props) {
   const [languageProfileOptions, setLanguageProfileOptions] = useState<
     Array<{ value: string; label: string }>
   >([]);
+  const [metadataWarning, setMetadataWarning] = useState<string | null>(null);
 
   const setField = (field: keyof ConfigModel["sonarr"], fieldValue: unknown) => {
     onChange({ ...value, [field]: fieldValue });
@@ -49,60 +50,73 @@ export default function SonarrSection({ value, onChange }: Props) {
   useEffect(() => {
     let alive = true;
     void (async () => {
-      try {
-        const [tags, qualityProfiles, languageProfiles] = await Promise.all([
-          getSonarrTags(),
-          getSonarrProfiles(),
-          getSonarrLanguageProfiles()
-        ]);
-        if (!alive) {
-          return;
-        }
+      const [tagsResult, qualityProfilesResult, languageProfilesResult] = await Promise.allSettled([
+        getSonarrTags(),
+        getSonarrProfiles(),
+        getSonarrLanguageProfiles()
+      ]);
+      if (!alive) {
+        return;
+      }
 
-        const nextTags = tags
+      const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
+      const qualityProfiles =
+        qualityProfilesResult.status === "fulfilled" ? qualityProfilesResult.value : [];
+      const languageProfiles =
+        languageProfilesResult.status === "fulfilled" ? languageProfilesResult.value : [];
+
+      const failedSources: string[] = [];
+      if (tagsResult.status === "rejected") {
+        failedSources.push("tags");
+      }
+      if (qualityProfilesResult.status === "rejected") {
+        failedSources.push("quality profiles");
+      }
+      if (languageProfilesResult.status === "rejected") {
+        failedSources.push("language profiles");
+      }
+      setMetadataWarning(
+        failedSources.length > 0
+          ? `Some Sonarr options could not be loaded: ${failedSources.join(", ")}. Suggestions may be incomplete.`
+          : null
+      );
+
+      const nextTags = tags
           .map((tag) => String(tag.label ?? "").trim().toLowerCase())
           .filter((tag) => tag.length > 0);
-        setTagOptions(Array.from(new Set(nextTags)).sort((left, right) => left.localeCompare(right)));
+      setTagOptions(Array.from(new Set(nextTags)).sort((left, right) => left.localeCompare(right)));
 
-        const nextQualityProfiles = qualityProfiles
-          .map((profile) => {
-            const id = typeof profile.id === "number" ? profile.id : Number.NaN;
-            if (!Number.isFinite(id)) {
-              return null;
-            }
-            const name = String(profile.name ?? "").trim();
-            return {
-              value: String(id),
-              label: name.length > 0 ? `${id} - ${name}` : String(id)
-            };
-          })
-          .filter((item): item is { value: string; label: string } => item != null)
-          .sort((left, right) => Number(left.value) - Number(right.value));
-        setQualityProfileOptions(nextQualityProfiles);
+      const nextQualityProfiles = qualityProfiles
+        .map((profile) => {
+          const id = typeof profile.id === "number" ? profile.id : Number.NaN;
+          if (!Number.isFinite(id)) {
+            return null;
+          }
+          const name = String(profile.name ?? "").trim();
+          return {
+            value: String(id),
+            label: name.length > 0 ? `${id} - ${name}` : String(id)
+          };
+        })
+        .filter((item): item is { value: string; label: string } => item != null)
+        .sort((left, right) => Number(left.value) - Number(right.value));
+      setQualityProfileOptions(nextQualityProfiles);
 
-        const nextLanguageProfiles = languageProfiles
-          .map((profile) => {
-            const id = typeof profile.id === "number" ? profile.id : Number.NaN;
-            if (!Number.isFinite(id)) {
-              return null;
-            }
-            const name = String(profile.name ?? "").trim();
-            return {
-              value: String(id),
-              label: name.length > 0 ? `${id} - ${name}` : String(id)
-            };
-          })
-          .filter((item): item is { value: string; label: string } => item != null)
-          .sort((left, right) => Number(left.value) - Number(right.value));
-        setLanguageProfileOptions(nextLanguageProfiles);
-      } catch {
-        if (!alive) {
-          return;
-        }
-        setTagOptions([]);
-        setQualityProfileOptions([]);
-        setLanguageProfileOptions([]);
-      }
+      const nextLanguageProfiles = languageProfiles
+        .map((profile) => {
+          const id = typeof profile.id === "number" ? profile.id : Number.NaN;
+          if (!Number.isFinite(id)) {
+            return null;
+          }
+          const name = String(profile.name ?? "").trim();
+          return {
+            value: String(id),
+            label: name.length > 0 ? `${id} - ${name}` : String(id)
+          };
+        })
+        .filter((item): item is { value: string; label: string } => item != null)
+        .sort((left, right) => Number(left.value) - Number(right.value));
+      setLanguageProfileOptions(nextLanguageProfiles);
     })();
 
     return () => {
@@ -232,6 +246,12 @@ export default function SonarrSection({ value, onChange }: Props) {
           );
         })()}
       </Group>
+
+      {metadataWarning ? (
+        <Text size="xs" c="yellow">
+          {metadataWarning}
+        </Text>
+      ) : null}
 
         <RuleEditor
           title="Sonarr Quality Profile Map"

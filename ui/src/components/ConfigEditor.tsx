@@ -10,6 +10,7 @@ import {
   Select,
   Stack,
   Switch,
+  TagsInput,
   Text,
   TextInput,
   Title
@@ -19,8 +20,29 @@ import { getFsRoots } from "../api/client";
 import type { ConfigModel, Issue } from "../types/config";
 import RadarrSection from "./config/RadarrSection";
 import SonarrSection from "./config/SonarrSection";
-import { parseCommaSeparated } from "./config/ruleParsers";
 import DirectoryPickerModal from "./DirectoryPickerModal";
+
+const VIDEO_EXTENSION_SUGGESTIONS = [
+  ".mkv",
+  ".mp4",
+  ".avi",
+  ".mov",
+  ".wmv",
+  ".flv",
+  ".webm",
+  ".m4v",
+  ".mpg",
+  ".mpeg"
+];
+
+function normalizeVideoExtensions(values: string[]): string[] {
+  const normalized = values
+    .map((value) => String(value).trim().toLowerCase())
+    .filter((value) => value.length > 0)
+    .map((value) => (value.startsWith(".") ? value : `.${value}`))
+    .filter((value) => value.length > 1);
+  return Array.from(new Set(normalized));
+}
 
 type Props = {
   draft: ConfigModel;
@@ -178,15 +200,16 @@ export default function ConfigEditor({
               }
             />
           </Group>
-          <TextInput
-            label="Scan Video Extensions (comma-separated)"
-            value={(draft.runtime.scan_video_extensions ?? []).join(", ")}
-            onChange={(event) =>
-              setSectionField(
-                "runtime",
-                "scan_video_extensions",
-                parseCommaSeparated(event.currentTarget.value)
-              )
+          <TagsInput
+            label="Scan Video Extensions"
+            placeholder="Add extension and press Enter"
+            data={VIDEO_EXTENSION_SUGGESTIONS}
+            value={draft.runtime.scan_video_extensions ?? []}
+            splitChars={[",", " "]}
+            clearable
+            acceptValueOnBlur
+            onChange={(values) =>
+              setSectionField("runtime", "scan_video_extensions", normalizeVideoExtensions(values))
             }
           />
         </Stack>

@@ -1,4 +1,4 @@
-import { Group, NumberInput, Select } from "@mantine/core";
+import { Group, NumberInput, Select, Text } from "@mantine/core";
 import { useEffect, useMemo, useState } from "react";
 import {
   getRadarrCustomFormats,
@@ -32,6 +32,7 @@ export default function RadarrSection({ value, onChange }: Props) {
   const [customFormatOptions, setCustomFormatOptions] = useState<Array<{ value: string; label: string }>>(
     []
   );
+  const [metadataWarning, setMetadataWarning] = useState<string | null>(null);
 
   const setField = (field: keyof ConfigModel["radarr"], fieldValue: unknown) => {
     onChange({ ...value, [field]: fieldValue });
@@ -53,78 +54,95 @@ export default function RadarrSection({ value, onChange }: Props) {
   useEffect(() => {
     let alive = true;
     void (async () => {
-      try {
-        const [tags, qualityDefinitions, customFormats, qualityProfiles] = await Promise.all([
+      const [tagsResult, qualityDefinitionsResult, customFormatsResult, qualityProfilesResult] =
+        await Promise.allSettled([
           getRadarrTags(),
           getRadarrQualityDefinitions(),
           getRadarrCustomFormats(),
           getRadarrProfiles()
         ]);
-        if (!alive) {
-          return;
-        }
+      if (!alive) {
+        return;
+      }
 
-        const nextTags = tags
+      const tags = tagsResult.status === "fulfilled" ? tagsResult.value : [];
+      const qualityDefinitions =
+        qualityDefinitionsResult.status === "fulfilled" ? qualityDefinitionsResult.value : [];
+      const customFormats = customFormatsResult.status === "fulfilled" ? customFormatsResult.value : [];
+      const qualityProfiles =
+        qualityProfilesResult.status === "fulfilled" ? qualityProfilesResult.value : [];
+
+      const failedSources: string[] = [];
+      if (tagsResult.status === "rejected") {
+        failedSources.push("tags");
+      }
+      if (qualityDefinitionsResult.status === "rejected") {
+        failedSources.push("quality definitions");
+      }
+      if (customFormatsResult.status === "rejected") {
+        failedSources.push("custom formats");
+      }
+      if (qualityProfilesResult.status === "rejected") {
+        failedSources.push("quality profiles");
+      }
+      setMetadataWarning(
+        failedSources.length > 0
+          ? `Some Radarr options could not be loaded: ${failedSources.join(", ")}. Suggestions may be incomplete.`
+          : null
+      );
+
+      const nextTags = tags
           .map((tag) => String(tag.label ?? "").trim().toLowerCase())
           .filter((tag) => tag.length > 0);
-        setTagOptions(Array.from(new Set(nextTags)).sort((left, right) => left.localeCompare(right)));
+      setTagOptions(Array.from(new Set(nextTags)).sort((left, right) => left.localeCompare(right)));
 
-        const nextQualityProfiles = qualityProfiles
-          .map((profile) => {
-            const id = typeof profile.id === "number" ? profile.id : Number.NaN;
-            if (!Number.isFinite(id)) {
-              return null;
-            }
-            const name = String(profile.name ?? "").trim();
-            return {
-              value: String(id),
-              label: name.length > 0 ? `${id} - ${name}` : String(id)
-            };
-          })
-          .filter((item): item is { value: string; label: string } => item != null)
-          .sort((left, right) => Number(left.value) - Number(right.value));
-        setQualityProfileOptions(nextQualityProfiles);
+      const nextQualityProfiles = qualityProfiles
+        .map((profile) => {
+          const id = typeof profile.id === "number" ? profile.id : Number.NaN;
+          if (!Number.isFinite(id)) {
+            return null;
+          }
+          const name = String(profile.name ?? "").trim();
+          return {
+            value: String(id),
+            label: name.length > 0 ? `${id} - ${name}` : String(id)
+          };
+        })
+        .filter((item): item is { value: string; label: string } => item != null)
+        .sort((left, right) => Number(left.value) - Number(right.value));
+      setQualityProfileOptions(nextQualityProfiles);
 
-        const nextQualityTargets = qualityDefinitions
-          .map((definition) => {
-            const id = typeof definition.id === "number" ? definition.id : Number.NaN;
-            if (!Number.isFinite(id)) {
-              return null;
-            }
-            const name = String(definition.name ?? "").trim();
-            return {
-              value: String(id),
-              label: name.length > 0 ? `${id} - ${name}` : String(id)
-            };
-          })
-          .filter((item): item is { value: string; label: string } => item != null)
-          .sort((left, right) => Number(left.value) - Number(right.value));
-        setQualityTargetOptions(nextQualityTargets);
+      const nextQualityTargets = qualityDefinitions
+        .map((definition) => {
+          const id = typeof definition.id === "number" ? definition.id : Number.NaN;
+          if (!Number.isFinite(id)) {
+            return null;
+          }
+          const name = String(definition.name ?? "").trim();
+          return {
+            value: String(id),
+            label: name.length > 0 ? `${id} - ${name}` : String(id)
+          };
+        })
+        .filter((item): item is { value: string; label: string } => item != null)
+        .sort((left, right) => Number(left.value) - Number(right.value));
+      setQualityTargetOptions(nextQualityTargets);
 
-        const nextCustomFormatOptions = customFormats
-          .map((format) => {
-            const id = typeof format.id === "number" ? format.id : Number.NaN;
-            if (!Number.isFinite(id)) {
-              return null;
-            }
-            const name = String(format.name ?? "").trim();
-            return {
-              value: String(id),
-              label: name.length > 0 ? `${id} - ${name}` : String(id)
-            };
-          })
-          .filter((item): item is { value: string; label: string } => item != null)
-          .sort((left, right) => Number(left.value) - Number(right.value));
-        setCustomFormatOptions(nextCustomFormatOptions);
-      } catch {
-        if (!alive) {
-          return;
-        }
-        setTagOptions([]);
-        setQualityProfileOptions([]);
-        setQualityTargetOptions([]);
-        setCustomFormatOptions([]);
-      }
+      const nextCustomFormatOptions = customFormats
+        .map((format) => {
+          const id = typeof format.id === "number" ? format.id : Number.NaN;
+          if (!Number.isFinite(id)) {
+            return null;
+          }
+          const name = String(format.name ?? "").trim();
+          return {
+            value: String(id),
+            label: name.length > 0 ? `${id} - ${name}` : String(id)
+          };
+        })
+        .filter((item): item is { value: string; label: string } => item != null)
+        .sort((left, right) => Number(left.value) - Number(right.value));
+      setCustomFormatOptions(nextCustomFormatOptions);
     })();
 
     return () => {
@@ -217,6 +235,12 @@ export default function RadarrSection({ value, onChange }: Props) {
           );
         })()}
       </Group>
+
+      {metadataWarning ? (
+        <Text size="xs" c="yellow">
+          {metadataWarning}
+        </Text>
+      ) : null}
 
         <RuleEditor
           title="Radarr Quality Map"
