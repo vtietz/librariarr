@@ -436,7 +436,7 @@ export const getAppLogs = async (params?: { tail?: number; timeoutMs?: number })
     params: {
       tail: params?.tail
     },
-    timeout: params?.timeoutMs ?? 8000
+    timeout: params?.timeoutMs ?? 15000
   });
   return data;
 };

@@ -34,7 +34,7 @@ export default function LogsPanel() {
     }
     setError(null);
     try {
-      const result = await getAppLogs({ tail: 250, timeoutMs: 8000 });
+      const result = await getAppLogs({ tail: 250 });
       setLogs(result.items);
     } catch (fetchError: unknown) {
       const detail =
@@ -51,7 +51,12 @@ export default function LogsPanel() {
         fetchError !== null &&
         "code" in fetchError &&
         (fetchError as { code?: string }).code === "ECONNABORTED";
-      setError(detail || (timedOut ? "Loading logs timed out. Check API connectivity." : "Failed to load logs."));
+      setError(
+        detail ||
+          (timedOut
+            ? "Log snapshot request timed out. Live stream may still connect; use Refresh to retry."
+            : "Failed to load logs.")
+      );
     } finally {
       if (mode === "initial") {
         setLoading(false);
