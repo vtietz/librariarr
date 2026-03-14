@@ -86,7 +86,10 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
         all_movie_paths.update(discover_movie_folders(nested_root, video_exts, []))
         included_movie_paths.update(discover_movie_folders(nested_root, video_exts, exclude_paths))
 
-    excluded_movie_paths = sorted(all_movie_paths - included_movie_paths, key=lambda path: str(path))
+    excluded_movie_paths = sorted(
+        all_movie_paths - included_movie_paths,
+        key=lambda path: str(path),
+    )
 
     grouped: dict[tuple[str, int | None], list[Path]] = {}
     for movie_path in all_movie_paths:

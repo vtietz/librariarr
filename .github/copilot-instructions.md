@@ -8,6 +8,7 @@ Use the wrapper scripts for all development operations in this repository.
 - Windows: use `run.bat <command>`
 - Prefer wrapper commands for setup, build, run, logs, one-shot sync, dev mode, and tests.
 - After bigger code changes, automatically run `test` and `quality` wrappers before finishing.
+- When running `quality`, avoid redirecting output to custom files; prefer terminal output directly (or bounded output like `... | tail -n 200`) to avoid file-write approval prompts.
 - Always provide a commit message proposal in final responses after code changes.
 - Never create README files unless the user explicitly requests README changes.
 

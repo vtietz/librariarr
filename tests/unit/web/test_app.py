@@ -364,7 +364,9 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
     nested_root.mkdir()
     shadow_root.mkdir()
 
-    included_movie = nested_root / "FSK12" / "Pierre Richard Collection" / "Der Regenschirmmörder (1980)"
+    included_movie = (
+        nested_root / "FSK12" / "Pierre Richard Collection" / ("Der Regenschirmmörder (1980)")
+    )
     excluded_movie = (
         nested_root
         / "FSK12"
@@ -389,13 +391,9 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
     payload = response.json()
     assert payload["summary"]["excluded_movie_candidates"] >= 1
     assert payload["summary"]["duplicate_movie_candidates"] >= 1
+    assert any(item["path"] == str(excluded_movie) for item in payload["excluded_movie_candidates"])
     assert any(
-        item["path"] == str(excluded_movie)
-        for item in payload["excluded_movie_candidates"]
-    )
-    assert any(
-        item["movie_ref"] == "der regenschirmmörder (1980)"
-        and item["contains_excluded"] is True
+        item["movie_ref"] == "der regenschirmmörder (1980)" and item["contains_excluded"] is True
         for item in payload["duplicate_movie_candidates"]
     )
 
