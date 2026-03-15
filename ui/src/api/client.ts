@@ -352,6 +352,9 @@ export type RuntimeStatusResponse = {
     updated_at: number | null;
     error: string | null;
     pending_ingest_dirs?: number;
+    movie_folders_seen?: number;
+    series_folders_seen?: number;
+    affected_paths_count?: number | null;
   };
   last_reconcile: {
     state: "ok" | "error";
@@ -371,7 +374,47 @@ export type RuntimeStatusResponse = {
     unmatched_series?: number;
     ingested_dirs?: number;
     pending_ingest_dirs?: number;
+    affected_paths_count?: number | null;
   } | null;
+  known_links_in_memory?: number;
+  mapped_cache?: {
+    ready: boolean;
+    building: boolean;
+    updated_at_ms: number | null;
+    entries_total: number;
+    version: number;
+    last_error: string | null;
+    last_build_duration_ms?: number | null;
+  };
+  discovery_cache?: {
+    ready: boolean;
+    building: boolean;
+    updated_at_ms: number | null;
+    last_error: string | null;
+    version: number;
+    last_build_duration_ms?: number | null;
+  };
+  tasks_active_total?: number;
+  pending_tasks?: Array<{
+    id: string;
+    name: string;
+    status: "idle" | "queued" | "running" | "error";
+    source: string;
+    detail: string;
+    queued_at: number | null;
+    started_at: number | null;
+    duration_seconds: number | null;
+    next_run_at?: number | null;
+    authoritative?: boolean;
+  }>;
+  health?: {
+    status: "ok" | "degraded" | "starting" | string;
+    reasons?: string[];
+    worker_busy?: boolean;
+    jobs_active?: number;
+    consecutive_refresh_failures?: number;
+    last_refresh_error?: string | null;
+  };
   updated_at: number | null;
   runtime_supervisor_present: boolean;
   runtime_supervisor_running: boolean;
