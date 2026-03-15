@@ -1,0 +1,9 @@
+html {
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+}
+
+body,
+#root {
+  min-height: 100vh;
+}
