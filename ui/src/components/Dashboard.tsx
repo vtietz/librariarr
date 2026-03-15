@@ -7,12 +7,14 @@ type Props = {
   hasUnsavedChanges: boolean;
   runtimeStatus: RuntimeStatusResponse | null;
   jobsSummary: JobsSummary | null;
+  runtimePollLatencyMs: number | null;
 };
 
 export default function Dashboard({
   hasUnsavedChanges,
   runtimeStatus,
-  jobsSummary
+  jobsSummary,
+  runtimePollLatencyMs
 }: Props) {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
@@ -97,6 +99,9 @@ export default function Dashboard({
   const activeJobs = jobsSummary?.active ?? 0;
   const latestFinishedJob = jobsSummary?.latest_finished;
   const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
+  const knownLinksInMemory =
+    runtimeStatus?.known_links_in_memory ?? runtimeStatus?.mapped_cache?.entries_total ?? 0;
+  const pendingTasks = runtimeStatus?.pending_tasks ?? [];
 
   const formatAge = (timestamp: number | null | undefined) => {
     if (typeof timestamp !== "number") {
@@ -139,6 +144,16 @@ export default function Dashboard({
   };
 
   const canCancel = (job: JobRecord) => job.status === "queued" || job.status === "running";
+
+  const badgeForTask = (status: string) => {
+    if (status === "running") {
+      return "blue";
+    }
+    if (status === "queued") {
+      return "yellow";
+    }
+    return "gray";
+  };
 
   const handleCancel = async (jobId: string) => {
     setCancelingJobId(jobId);
@@ -207,7 +222,7 @@ export default function Dashboard({
           </Text>
         </Card>
       </SimpleGrid>
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
+      <SimpleGrid cols={{ base: 1, md: 4 }}>
         <Card withBorder>
           <Text fw={600}>Queue</Text>
           <Text size="sm" c="dimmed">
@@ -215,6 +230,15 @@ export default function Dashboard({
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
             Next debounce run in {runtimeStatus?.next_event_reconcile_in_seconds ?? 0}s
+          </Text>
+        </Card>
+        <Card withBorder>
+          <Text fw={600}>Known Links (Memory)</Text>
+          <Text size="sm" c="dimmed">
+            {knownLinksInMemory} links currently indexed
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            mapped cache {runtimeStatus?.mapped_cache?.building ? "rebuilding" : "ready"}
           </Text>
         </Card>
         <Card withBorder>
@@ -240,12 +264,38 @@ export default function Dashboard({
           </Text>
         </Card>
         <Card withBorder>
-          <Text fw={600}>Discovery Snapshot</Text>
+          <Text fw={600}>Task List</Text>
           <Text size="sm" c="dimmed">
-            {hasDiscoveryWarnings ? "Attention needed" : "No warnings reported"}
+            {pendingTasks.length} pending/running tasks
           </Text>
+          <Stack gap={6} mt="xs">
+            {pendingTasks.length === 0 ? (
+              <Text size="xs" c="dimmed">No active tasks.</Text>
+            ) : (
+              pendingTasks.slice(0, 5).map((task) => (
+                <Group key={`${task.kind}-${task.label}`} justify="space-between" gap="xs" wrap="nowrap">
+                  <Text size="xs" c="dimmed" lineClamp={1}>
+                    {task.label} · {task.detail}
+                  </Text>
+                  <Badge color={badgeForTask(task.status)}>{task.status}</Badge>
+                </Group>
+              ))
+            )}
+          </Stack>
         </Card>
       </SimpleGrid>
+      <Card withBorder>
+        <Text fw={600}>Operation Latency</Text>
+        <Text size="sm" c="dimmed" mt="xs">
+          Runtime status poll: {runtimePollLatencyMs ?? "-"} ms
+        </Text>
+        <Text size="sm" c="dimmed" mt="xs">
+          Mapped cache rebuild: {runtimeStatus?.mapped_cache?.last_build_duration_ms ?? "-"} ms
+        </Text>
+        <Text size="sm" c="dimmed" mt="xs">
+          Discovery cache rebuild: {runtimeStatus?.discovery_cache?.last_build_duration_ms ?? "-"} ms
+        </Text>
+      </Card>
       <Card withBorder>
         <Group justify="space-between">
           <Text fw={600}>Discovery Warnings</Text>

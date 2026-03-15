@@ -360,6 +360,10 @@ def test_runtime_status_endpoint_reports_manual_reconcile(tmp_path: Path, monkey
     assert payload["runtime_supervisor_running"] is False
     assert payload["last_reconcile"] is not None
     assert payload["last_reconcile"]["trigger_source"] == "manual"
+    assert isinstance(payload.get("known_links_in_memory"), int)
+    assert isinstance(payload.get("pending_tasks"), list)
+    assert isinstance(payload.get("mapped_cache"), dict)
+    assert isinstance(payload.get("discovery_cache"), dict)
 
 
 def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
@@ -429,6 +433,7 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
         item["movie_ref"] == "der regenschirmmörder (1980)" and item["contains_excluded"] is True
         for item in payload["duplicate_movie_candidates"]
     )
+    assert payload["cache"]["ready"] is True
 
 
 def test_mapped_directories_stream_endpoint_emits_sse(tmp_path: Path) -> None:

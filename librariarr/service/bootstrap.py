@@ -183,9 +183,11 @@ class ServiceBootstrapMixin:
         self._run_sync_preflight_checks()
 
         def _on_reconcile_complete() -> None:
+            from ..web.discovery_cache import get_discovery_warnings_cache
             from ..web.mapped_cache import get_mapped_directories_cache
 
             get_mapped_directories_cache().request_refresh(self.config, force=True)
+            get_discovery_warnings_cache().request_refresh(self.config, force=True)
 
         runtime_loop = RuntimeSyncLoop(
             nested_roots=self.nested_roots,

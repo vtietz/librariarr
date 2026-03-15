@@ -136,6 +136,13 @@ export type DiscoveryWarningsResponse = {
     duplicate_paths: string[];
     contains_excluded: boolean;
   }>;
+  cache?: {
+    ready: boolean;
+    building: boolean;
+    updated_at_ms: number | null;
+    last_error: string | null;
+    version: number;
+  };
 };
 
 export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
@@ -373,6 +380,30 @@ export type RuntimeStatusResponse = {
     pending_ingest_dirs?: number;
   } | null;
   updated_at: number | null;
+  known_links_in_memory?: number;
+  mapped_cache?: {
+    ready: boolean;
+    building: boolean;
+    updated_at_ms: number | null;
+    entries_total: number;
+    version: number;
+    last_error: string | null;
+    last_build_duration_ms?: number | null;
+  };
+  discovery_cache?: {
+    ready: boolean;
+    building: boolean;
+    updated_at_ms: number | null;
+    last_error: string | null;
+    version: number;
+    last_build_duration_ms?: number | null;
+  };
+  pending_tasks?: Array<{
+    kind: string;
+    status: "queued" | "running" | "idle";
+    label: string;
+    detail: string;
+  }>;
   runtime_supervisor_present: boolean;
   runtime_supervisor_running: boolean;
 };

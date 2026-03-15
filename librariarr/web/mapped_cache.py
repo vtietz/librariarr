@@ -30,6 +30,7 @@ class MappedDirectoriesCache:
         self._building = False
         self._version = 0
         self._last_build_finished = 0.0
+        self._last_build_duration_ms: int | None = None
         self._build_event = threading.Event()
 
     def _scan(self, config: AppConfig) -> tuple[list[dict[str, Any]], list[str]]:
@@ -52,8 +53,10 @@ class MappedDirectoriesCache:
         return items, [str(root) for root in roots]
 
     def _rebuild_worker(self, config: AppConfig) -> None:
+        started = time.perf_counter()
         try:
             items, roots = self._scan(config)
+            duration_ms = int((time.perf_counter() - started) * 1000)
             with self._lock:
                 self._items = items
                 self._shadow_roots = roots
@@ -61,11 +64,14 @@ class MappedDirectoriesCache:
                 self._last_error = None
                 self._version += 1
                 self._last_build_finished = time.time()
+                self._last_build_duration_ms = duration_ms
         except Exception as exc:
+            duration_ms = int((time.perf_counter() - started) * 1000)
             with self._lock:
                 self._last_error = str(exc)
                 self._version += 1
                 self._last_build_finished = time.time()
+                self._last_build_duration_ms = duration_ms
         finally:
             with self._lock:
                 self._building = False
@@ -101,6 +107,7 @@ class MappedDirectoriesCache:
                 "building": self._building,
                 "ready": self._updated_at_ms is not None,
                 "version": self._version,
+                "last_build_duration_ms": self._last_build_duration_ms,
             }
 
 

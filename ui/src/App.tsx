@@ -62,6 +62,7 @@ export default function App() {
   const [yamlPreview, setYamlPreview] = useState("");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
   const [jobsSummary, setJobsSummary] = useState<JobsSummary | null>(null);
+  const [runtimePollLatencyMs, setRuntimePollLatencyMs] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>(() =>
     resolveTabFromPath(window.location.pathname)
@@ -110,6 +111,7 @@ export default function App() {
     let active = true;
 
     const loadRuntimeStatus = async () => {
+      const started = performance.now();
       try {
         const [runtimeResult, jobsResult] = await Promise.all([
           getRuntimeStatus(),
@@ -118,11 +120,13 @@ export default function App() {
         if (active) {
           setRuntimeStatus(runtimeResult);
           setJobsSummary(jobsResult);
+          setRuntimePollLatencyMs(Math.round(performance.now() - started));
         }
       } catch {
         if (active) {
           setRuntimeStatus(null);
           setJobsSummary(null);
+          setRuntimePollLatencyMs(null);
         }
       }
     };
@@ -263,6 +267,7 @@ export default function App() {
               hasUnsavedChanges={hasUnsavedChanges}
               runtimeStatus={runtimeStatus}
               jobsSummary={jobsSummary}
+              runtimePollLatencyMs={runtimePollLatencyMs}
             />
           </Tabs.Panel>
 

@@ -17,8 +17,8 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
-from ..sync.discovery import discover_movie_folders
-from ..sync.naming import parse_movie_ref
+from .dashboard_tasks import build_pending_tasks
+from .discovery_cache import get_discovery_warnings_cache
 from .log_buffer import LogRingBuffer, get_log_buffer
 from .mapped_cache import get_mapped_directories_cache
 from .mapped_cache import shadow_roots as _shadow_roots
@@ -146,73 +146,6 @@ def _job_manager_or_http(request: Request):
     if manager is None:
         raise HTTPException(status_code=503, detail="Job manager is unavailable.")
     return manager
-
-
-def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> dict[str, Any]:
-    video_exts = set(config.runtime.scan_video_extensions or [".mkv", ".mp4", ".avi", ".mov"])
-    exclude_paths = list(config.paths.exclude_paths)
-
-    all_movie_paths: set[Path] = set()
-    excluded_movie_paths: list[Path] = []
-
-    for mapping in config.paths.root_mappings:
-        nested_root = Path(mapping.nested_root)
-        all_folders = discover_movie_folders(nested_root, video_exts, [])
-        all_movie_paths.update(all_folders)
-        if exclude_paths:
-            included = discover_movie_folders(nested_root, video_exts, exclude_paths)
-            excluded_movie_paths.extend(sorted(all_folders - included, key=lambda path: str(path)))
-
-    included_movie_paths = all_movie_paths - set(excluded_movie_paths)
-    excluded_movie_paths.sort(key=lambda path: str(path))
-
-    grouped: dict[tuple[str, int | None], list[Path]] = {}
-    for movie_path in all_movie_paths:
-        movie_ref = parse_movie_ref(movie_path.name)
-        grouped.setdefault((movie_ref.title, movie_ref.year), []).append(movie_path)
-
-    duplicate_movie_candidates: list[dict[str, Any]] = []
-    for (title, year), paths in grouped.items():
-        if len(paths) < 2:
-            continue
-
-        ordered = sorted(paths, key=lambda path: str(path))
-        preferred = [path for path in ordered if path in included_movie_paths]
-        primary_path = preferred[0] if preferred else ordered[0]
-        duplicate_paths = [path for path in ordered if path != primary_path]
-
-        duplicate_movie_candidates.append(
-            {
-                "movie_ref": f"{title} ({year})" if year is not None else title,
-                "primary_path": str(primary_path),
-                "duplicate_paths": [str(path) for path in duplicate_paths],
-                "contains_excluded": any(path in excluded_movie_paths for path in ordered),
-            }
-        )
-
-    duplicate_movie_candidates.sort(
-        key=lambda item: (
-            -len(item["duplicate_paths"]),
-            str(item["movie_ref"]),
-        )
-    )
-
-    return {
-        "summary": {
-            "exclude_patterns_count": len(exclude_paths),
-            "excluded_movie_candidates": len(excluded_movie_paths),
-            "duplicate_movie_candidates": len(duplicate_movie_candidates),
-        },
-        "exclude_paths": exclude_paths,
-        "excluded_movie_candidates": [
-            {
-                "path": str(path),
-                "reason": "matches paths.exclude_paths",
-            }
-            for path in excluded_movie_paths[:limit]
-        ],
-        "duplicate_movie_candidates": duplicate_movie_candidates[:limit],
-    }
 
 
 def run_radarr_diagnostics(config: AppConfig) -> dict[str, Any]:
@@ -404,6 +337,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
     router = APIRouter()
     runtime_status = get_runtime_status_tracker()
     mapped_cache = get_mapped_directories_cache()
+    discovery_cache = get_discovery_warnings_cache()
 
     @router.get("/api/logs")
     def app_logs(
@@ -486,6 +420,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 duration_ms = int((time.perf_counter() - started) * 1000)
                 runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
                 mapped_cache.request_refresh(config, force=True)
+                discovery_cache.request_refresh(config, force=True)
                 LOG.info(
                     "Manual reconcile completed in %d ms (ingest_pending=%s)",
                     duration_ms,
@@ -549,6 +484,33 @@ def build_operations_router() -> APIRouter:  # noqa: C901
     def runtime_status_endpoint(request: Request) -> dict[str, Any]:
         payload = runtime_status.snapshot()
         supervisor = getattr(request.app.state.web, "runtime_supervisor", None)
+        jobs_summary_payload: dict[str, Any] = {}
+        manager = getattr(request.app.state.web, "job_manager", None)
+        if manager is not None:
+            jobs_summary_payload = manager.summary()
+
+        mapped_snapshot = mapped_cache.snapshot()
+        config = _load_config_or_http(_read_config_path(request))
+        discovery_cache.request_refresh(config)
+        discovery_snapshot = discovery_cache.snapshot(limit=50)
+
+        payload["known_links_in_memory"] = int(len(mapped_snapshot.get("items") or []))
+        payload["mapped_cache"] = {
+            "ready": bool(mapped_snapshot.get("ready")),
+            "building": bool(mapped_snapshot.get("building")),
+            "updated_at_ms": mapped_snapshot.get("updated_at_ms"),
+            "entries_total": int(len(mapped_snapshot.get("items") or [])),
+            "version": int(mapped_snapshot.get("version") or 0),
+            "last_error": mapped_snapshot.get("last_error"),
+            "last_build_duration_ms": mapped_snapshot.get("last_build_duration_ms"),
+        }
+        payload["discovery_cache"] = discovery_snapshot.get("cache")
+        payload["pending_tasks"] = build_pending_tasks(
+            runtime_payload=payload,
+            jobs_summary=jobs_summary_payload,
+            mapped_cache_snapshot=mapped_snapshot,
+            discovery_cache_snapshot=discovery_snapshot,
+        )
         payload["runtime_supervisor_present"] = supervisor is not None
         payload["runtime_supervisor_running"] = (
             bool(supervisor.is_running()) if supervisor is not None else False
@@ -614,6 +576,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 "last_error": snapshot["last_error"],
                 "entries_total": len(snapshot["items"]),
                 "version": snapshot["version"],
+                "last_build_duration_ms": snapshot.get("last_build_duration_ms"),
             },
         }
 
@@ -623,7 +586,12 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         limit: int = Query(default=200, ge=1, le=2000),
     ) -> dict[str, Any]:
         config = _load_config_or_http(_read_config_path(request))
-        return _build_discovery_warnings_payload(config=config, limit=limit)
+        discovery_cache.request_refresh(config)
+        snapshot = discovery_cache.snapshot(limit=limit)
+        if snapshot["cache"]["building"]:
+            discovery_cache.wait_for_build(timeout=2.0)
+            snapshot = discovery_cache.snapshot(limit=limit)
+        return snapshot
 
     @router.post("/api/fs/mapped-directories/refresh")
     def refresh_mapped_directories(request: Request) -> dict[str, Any]:
@@ -638,6 +606,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 "building": bool(snapshot["building"]),
                 "entries_total": len(snapshot["items"]),
                 "version": snapshot["version"],
+                "last_build_duration_ms": snapshot.get("last_build_duration_ms"),
             },
         }
 

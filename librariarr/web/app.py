@@ -26,6 +26,7 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..quality import VIDEO_EXTENSIONS
 from ..sync.discovery import discover_movie_folders, discover_series_folders
+from .discovery_cache import warmup_discovery_warnings_cache
 from .jobs import JobManager
 from .log_buffer import install_log_buffer
 from .mapped_cache import warmup_mapped_directories_cache
@@ -217,6 +218,7 @@ def create_app(  # noqa: C901
         if state.job_manager is not None:
             state.job_manager.start()
         warmup_mapped_directories_cache(state.config_path)
+        warmup_discovery_warnings_cache(state.config_path)
 
     @app.on_event("shutdown")
     def shutdown() -> None:

@@ -107,13 +107,6 @@ export default function DirectoryMapper() {
             ? "Snapshot request timed out. The backend may still be rebuilding/scanning or serializing a large index; wait briefly or trigger a full reconcile."
             : "Failed to load mapped directories.")
       );
-      setMappedDirectories([]);
-      setMappedRoots([]);
-      setMappedTruncated(false);
-      setCacheBuilding(false);
-      setCacheReady(false);
-      setCacheUpdatedAtMs(null);
-      setCacheEntriesTotal(0);
     } finally {
       setIsReloading(false);
     }
