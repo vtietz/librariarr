@@ -3,7 +3,7 @@ import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/con
 
 const api = axios.create({
   baseURL: "/api",
-  timeout: 10000
+  timeout: 20000
 });
 
 /** Short timeout for Arr metadata proxy calls (tags, profiles, etc.). */

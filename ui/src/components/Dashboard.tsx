@@ -26,8 +26,13 @@ export default function Dashboard({
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
 
     const loadWarnings = async () => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
       try {
         const payload = await getDiscoveryWarnings({ limit: 10 });
         if (active) {
@@ -37,13 +42,15 @@ export default function Dashboard({
         if (active) {
           setDiscoveryWarnings(null);
         }
+      } finally {
+        inFlight = false;
       }
     };
 
     void loadWarnings();
     const interval = window.setInterval(() => {
       void loadWarnings();
-    }, 5000);
+    }, 7000);
 
     return () => {
       active = false;
@@ -53,8 +60,13 @@ export default function Dashboard({
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
 
     const loadJobs = async () => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
       setLoadingJobs(true);
       try {
         const items = await getJobs({ limit: 12 });
@@ -69,13 +81,14 @@ export default function Dashboard({
         if (active) {
           setLoadingJobs(false);
         }
+        inFlight = false;
       }
     };
 
     void loadJobs();
     const interval = window.setInterval(() => {
       void loadJobs();
-    }, 2000);
+    }, 3000);
 
     return () => {
       active = false;

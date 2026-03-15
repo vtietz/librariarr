@@ -448,7 +448,9 @@ export default function DirectoryMapper() {
                       <Text size="sm" c="dimmed">
                         {cacheBuilding && !cacheReady
                           ? "Building in-memory directory index… wait a few seconds."
-                          : "No mapped directories match the current search/filter."}
+                          : mappedSearch.trim() || mappedRootFilter !== "all"
+                            ? "No mapped directories match the current search/filter."
+                            : "No mapped directories indexed yet. Run 'Reconcile whole library' and verify root mappings if this stays empty."}
                       </Text>
                     </Table.Td>
                   </Table.Tr>

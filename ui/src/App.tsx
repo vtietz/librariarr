@@ -109,8 +109,13 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
+    let inFlight = false;
 
     const loadRuntimeStatus = async () => {
+      if (inFlight) {
+        return;
+      }
+      inFlight = true;
       const started = performance.now();
       try {
         const [runtimeResult, jobsResult] = await Promise.all([
@@ -128,13 +133,15 @@ export default function App() {
           setJobsSummary(null);
           setRuntimePollLatencyMs(null);
         }
+      } finally {
+        inFlight = false;
       }
     };
 
     void loadRuntimeStatus();
     const interval = window.setInterval(() => {
       void loadRuntimeStatus();
-    }, 2000);
+    }, 3000);
 
     return () => {
       active = false;
@@ -263,12 +270,14 @@ export default function App() {
           </Tabs.List>
 
           <Tabs.Panel value="dashboard" pt="md">
-            <Dashboard
-              hasUnsavedChanges={hasUnsavedChanges}
-              runtimeStatus={runtimeStatus}
-              jobsSummary={jobsSummary}
-              runtimePollLatencyMs={runtimePollLatencyMs}
-            />
+            {activeTab === "dashboard" && (
+              <Dashboard
+                hasUnsavedChanges={hasUnsavedChanges}
+                runtimeStatus={runtimeStatus}
+                jobsSummary={jobsSummary}
+                runtimePollLatencyMs={runtimePollLatencyMs}
+              />
+            )}
           </Tabs.Panel>
 
           <Tabs.Panel value="config" pt="md">

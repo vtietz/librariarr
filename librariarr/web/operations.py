@@ -492,8 +492,6 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             active_jobs_payload = manager.list(limit=30)
 
         mapped_snapshot = mapped_cache.snapshot()
-        config = _load_config_or_http(_read_config_path(request))
-        discovery_cache.request_refresh(config)
         discovery_snapshot = discovery_cache.snapshot(limit=50)
 
         payload["known_links_in_memory"] = int(len(mapped_snapshot.get("items") or []))
