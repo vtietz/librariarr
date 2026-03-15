@@ -399,10 +399,15 @@ export type RuntimeStatusResponse = {
     last_build_duration_ms?: number | null;
   };
   pending_tasks?: Array<{
-    kind: string;
+    id: string;
+    name: string;
     status: "queued" | "running" | "idle";
-    label: string;
+    source: string;
     detail: string;
+    queued_at?: number | null;
+    started_at?: number | null;
+    duration_seconds?: number | null;
+    next_run_at?: number | null;
   }>;
   runtime_supervisor_present: boolean;
   runtime_supervisor_running: boolean;

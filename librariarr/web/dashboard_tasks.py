@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 
@@ -9,30 +10,68 @@ def build_pending_tasks(
     jobs_summary: dict[str, Any],
     mapped_cache_snapshot: dict[str, Any],
     discovery_cache_snapshot: dict[str, Any],
+    active_jobs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
+    now = time.time()
     tasks: list[dict[str, Any]] = []
 
     current_task = runtime_payload.get("current_task")
     if isinstance(current_task, dict) and current_task.get("state") == "running":
+        started_at = current_task.get("started_at")
+        duration_seconds = None
+        if isinstance(started_at, int | float):
+            duration_seconds = round(max(0.0, now - float(started_at)), 1)
         tasks.append(
             {
-                "kind": "runtime-reconcile",
+                "id": "runtime-reconcile",
+                "name": "Reconcile Cycle",
                 "status": "running",
-                "label": "Reconcile cycle",
-                "detail": (
+                "source": str(current_task.get("trigger_source") or "runtime"),
+                "detail": str(
                     current_task.get("phase") or current_task.get("trigger_source") or "running"
                 ),
+                "queued_at": current_task.get("started_at"),
+                "started_at": current_task.get("started_at"),
+                "duration_seconds": duration_seconds,
             }
         )
 
     dirty_paths_queued = int(runtime_payload.get("dirty_paths_queued") or 0)
     if dirty_paths_queued > 0:
+        next_due = runtime_payload.get("next_event_reconcile_due_at")
         tasks.append(
             {
-                "kind": "filesystem-debounce",
+                "id": "filesystem-debounce",
+                "name": "Filesystem Debounce",
                 "status": "queued",
-                "label": "Filesystem debounce queue",
+                "source": "filesystem",
                 "detail": f"{dirty_paths_queued} paths waiting for reconcile",
+                "queued_at": now,
+                "started_at": None,
+                "duration_seconds": None,
+                "next_run_at": next_due if isinstance(next_due, int | float) else None,
+            }
+        )
+
+    for job in active_jobs:
+        status = str(job.get("status") or "queued")
+        if status not in {"queued", "running"}:
+            continue
+        queued_at = job.get("queued_at")
+        started_at = job.get("started_at")
+        duration_seconds = None
+        if isinstance(started_at, int | float):
+            duration_seconds = round(max(0.0, now - float(started_at)), 1)
+        tasks.append(
+            {
+                "id": str(job.get("job_id") or "job"),
+                "name": str(job.get("kind") or "Background Job"),
+                "status": status,
+                "source": "job-manager",
+                "detail": str(job.get("error") or "active"),
+                "queued_at": queued_at if isinstance(queued_at, int | float) else None,
+                "started_at": started_at if isinstance(started_at, int | float) else None,
+                "duration_seconds": duration_seconds,
             }
         )
 
@@ -40,10 +79,14 @@ def build_pending_tasks(
     if queued_jobs > 0:
         tasks.append(
             {
-                "kind": "jobs-queued",
+                "id": "jobs-queued",
+                "name": "Job Backlog",
                 "status": "queued",
-                "label": "Background jobs queued",
+                "source": "job-manager",
                 "detail": f"{queued_jobs} queued",
+                "queued_at": now,
+                "started_at": None,
+                "duration_seconds": None,
             }
         )
 
@@ -51,20 +94,28 @@ def build_pending_tasks(
     if running_jobs > 0:
         tasks.append(
             {
-                "kind": "jobs-running",
+                "id": "jobs-running",
+                "name": "Job Workers",
                 "status": "running",
-                "label": "Background jobs running",
+                "source": "job-manager",
                 "detail": f"{running_jobs} running",
+                "queued_at": None,
+                "started_at": now,
+                "duration_seconds": None,
             }
         )
 
     if bool(mapped_cache_snapshot.get("building")):
         tasks.append(
             {
-                "kind": "mapped-index",
+                "id": "mapped-index",
+                "name": "Mapped Index Rebuild",
                 "status": "running",
-                "label": "Mapped directories index",
+                "source": "cache",
                 "detail": "Rebuilding in-memory link index",
+                "queued_at": None,
+                "started_at": now,
+                "duration_seconds": None,
             }
         )
 
@@ -72,11 +123,22 @@ def build_pending_tasks(
     if isinstance(discovery_cache_meta, dict) and bool(discovery_cache_meta.get("building")):
         tasks.append(
             {
-                "kind": "discovery-index",
+                "id": "discovery-index",
+                "name": "Discovery Snapshot Rebuild",
                 "status": "running",
-                "label": "Discovery warnings snapshot",
+                "source": "cache",
                 "detail": "Rebuilding in-memory warning snapshot",
+                "queued_at": None,
+                "started_at": now,
+                "duration_seconds": None,
             }
         )
 
+    tasks.sort(
+        key=lambda item: (
+            0 if item.get("status") == "running" else 1,
+            0 if item.get("status") == "queued" else 1,
+            str(item.get("name") or ""),
+        )
+    )
     return tasks

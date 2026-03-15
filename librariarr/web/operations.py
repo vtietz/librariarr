@@ -485,9 +485,11 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         payload = runtime_status.snapshot()
         supervisor = getattr(request.app.state.web, "runtime_supervisor", None)
         jobs_summary_payload: dict[str, Any] = {}
+        active_jobs_payload: list[dict[str, Any]] = []
         manager = getattr(request.app.state.web, "job_manager", None)
         if manager is not None:
             jobs_summary_payload = manager.summary()
+            active_jobs_payload = manager.list(limit=30)
 
         mapped_snapshot = mapped_cache.snapshot()
         config = _load_config_or_http(_read_config_path(request))
@@ -510,6 +512,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             jobs_summary=jobs_summary_payload,
             mapped_cache_snapshot=mapped_snapshot,
             discovery_cache_snapshot=discovery_snapshot,
+            active_jobs=active_jobs_payload,
         )
         payload["runtime_supervisor_present"] = supervisor is not None
         payload["runtime_supervisor_running"] = (

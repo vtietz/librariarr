@@ -145,6 +145,31 @@ export default function Dashboard({
 
   const canCancel = (job: JobRecord) => job.status === "queued" || job.status === "running";
 
+  const formatTaskDuration = (task: {
+    duration_seconds?: number | null;
+    started_at?: number | null;
+  }) => {
+    if (typeof task.duration_seconds === "number") {
+      return `${task.duration_seconds.toFixed(1)}s`;
+    }
+    if (typeof task.started_at === "number") {
+      const now = Date.now() / 1000;
+      return `${Math.max(0, now - task.started_at).toFixed(1)}s`;
+    }
+    return "-";
+  };
+
+  const formatTaskQueuedAt = (task: { queued_at?: number | null; next_run_at?: number | null }) => {
+    if (typeof task.queued_at === "number") {
+      return formatAge(task.queued_at);
+    }
+    if (typeof task.next_run_at === "number") {
+      const dueIn = Math.max(0, Math.round(task.next_run_at - Date.now() / 1000));
+      return `in ${dueIn}s`;
+    }
+    return "-";
+  };
+
   const badgeForTask = (status: string) => {
     if (status === "running") {
       return "blue";
@@ -268,20 +293,44 @@ export default function Dashboard({
           <Text size="sm" c="dimmed">
             {pendingTasks.length} pending/running tasks
           </Text>
-          <Stack gap={6} mt="xs">
-            {pendingTasks.length === 0 ? (
-              <Text size="xs" c="dimmed">No active tasks.</Text>
-            ) : (
-              pendingTasks.slice(0, 5).map((task) => (
-                <Group key={`${task.kind}-${task.label}`} justify="space-between" gap="xs" wrap="nowrap">
-                  <Text size="xs" c="dimmed" lineClamp={1}>
-                    {task.label} · {task.detail}
-                  </Text>
-                  <Badge color={badgeForTask(task.status)}>{task.status}</Badge>
-                </Group>
-              ))
-            )}
-          </Stack>
+          {pendingTasks.length === 0 ? (
+            <Text size="xs" c="dimmed" mt="xs">No active tasks.</Text>
+          ) : (
+            <ScrollArea mt="xs" type="auto" scrollbars="y">
+              <Table striped highlightOnHover withTableBorder withColumnBorders>
+                <Table.Thead>
+                  <Table.Tr>
+                    <Table.Th>Name</Table.Th>
+                    <Table.Th>Status</Table.Th>
+                    <Table.Th>Source</Table.Th>
+                    <Table.Th>Queued</Table.Th>
+                    <Table.Th>Duration</Table.Th>
+                  </Table.Tr>
+                </Table.Thead>
+                <Table.Tbody>
+                  {pendingTasks.slice(0, 8).map((task) => (
+                    <Table.Tr key={task.id}>
+                      <Table.Td>
+                        <Text size="xs" c="dimmed" lineClamp={1}>{task.name}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Badge color={badgeForTask(task.status)}>{task.status}</Badge>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="xs" c="dimmed" lineClamp={1}>{task.source}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="xs" c="dimmed">{formatTaskQueuedAt(task)}</Text>
+                      </Table.Td>
+                      <Table.Td>
+                        <Text size="xs" c="dimmed">{formatTaskDuration(task)}</Text>
+                      </Table.Td>
+                    </Table.Tr>
+                  ))}
+                </Table.Tbody>
+              </Table>
+            </ScrollArea>
+          )}
         </Card>
       </SimpleGrid>
       <Card withBorder>
