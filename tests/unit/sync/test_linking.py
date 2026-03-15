@@ -97,3 +97,25 @@ def test_link_manager_preserves_existing_local_name_over_metadata_name(tmp_path:
     assert created is False
     assert link == existing_link
     assert not (shadow_root / "Benno Makes Stories (1982)").exists()
+
+
+def test_link_manager_omits_redundant_root_name_in_qualifier(tmp_path: Path) -> None:
+    shadow_root = tmp_path / "FSK12"
+    root_a = tmp_path / "source" / "FSK12"
+    root_b = tmp_path / "archive" / "FSK12"
+    shadow_root.mkdir(parents=True)
+
+    folder_a = root_a / "Das Boot" / "Das Boot (1981)"
+    folder_b = root_b / "Das Boot" / "Das Boot (1981)"
+    folder_a.mkdir(parents=True)
+    folder_b.mkdir(parents=True)
+
+    manager = ShadowLinkManager([root_a, root_b])
+
+    link_a, _ = manager.ensure_link(folder_a, shadow_root, existing_links=set(), movie=None)
+    link_b, _ = manager.ensure_link(folder_b, shadow_root, existing_links=set(), movie=None)
+
+    assert link_a.name == "Das Boot (1981)"
+    assert link_b.name.startswith("Das Boot (1981)--")
+    assert "--FSK12-" not in link_b.name
+    assert link_b.name.endswith("--Das-Boot")

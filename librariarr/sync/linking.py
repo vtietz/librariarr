@@ -73,7 +73,8 @@ class ShadowLinkManager:
         cleaned = NON_ALNUM_RE.sub("-", value.strip())
         return cleaned.strip("-")
 
-    def _collision_qualifier(self, folder: Path) -> str:
+    def _collision_qualifier(self, folder: Path, shadow_root: Path) -> str:
+        shadow_root_name = self._normalize_name_part(shadow_root.name)
         for root in self.nested_roots:
             try:
                 relative = folder.relative_to(root)
@@ -81,7 +82,9 @@ class ShadowLinkManager:
                 continue
 
             parent_parts = [self._normalize_name_part(part) for part in relative.parts[:-1]]
-            qualifier_parts = [self._normalize_name_part(root.name)] + parent_parts
+            root_name = self._normalize_name_part(root.name)
+            include_root_name = bool(root_name) and root_name != shadow_root_name
+            qualifier_parts = ([root_name] if include_root_name else []) + parent_parts
             qualifier = "-".join(part for part in qualifier_parts if part)
             if qualifier:
                 return qualifier
@@ -89,7 +92,7 @@ class ShadowLinkManager:
 
     def _create_link(self, folder: Path, shadow_root: Path, base_name: str) -> Path:
         candidate = shadow_root / base_name
-        qualifier = self._collision_qualifier(folder)
+        qualifier = self._collision_qualifier(folder, shadow_root)
         qualified_candidate = shadow_root / f"{base_name}--{qualifier}" if qualifier else None
         counter = 2
 

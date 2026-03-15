@@ -16,6 +16,7 @@ import { useViewportSize } from "@mantine/hooks";
 import { IconArrowsShuffle, IconRefresh } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  type DiscoveryWarningsResponse,
   getDiscoveryWarnings,
   getFsRoots,
   getMappedDirectories,
@@ -26,6 +27,7 @@ import {
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
+import { useDiscoveryWarningSets } from "./useDiscoveryWarningSets";
 
 export default function DirectoryMapper() {
   const ROW_HEIGHT = 44;
@@ -46,9 +48,9 @@ export default function DirectoryMapper() {
   const [fsRoots, setFsRoots] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
   const [scrollTop, setScrollTop] = useState(0);
-  const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
-    ReturnType<typeof getDiscoveryWarnings>
-  > | null>(null);
+  const [discoveryWarnings, setDiscoveryWarnings] = useState<DiscoveryWarningsResponse | null>(
+    null
+  );
   const { height: viewportHeightPx } = useViewportSize();
   const tableViewportRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -193,24 +195,8 @@ export default function DirectoryMapper() {
     [mappedRoots]
   );
 
-  const duplicatePrimaryPaths = useMemo(() => {
-    const paths = new Set<string>();
-    for (const item of discoveryWarnings?.duplicate_movie_candidates ?? []) {
-      paths.add(item.primary_path);
-    }
-    return paths;
-  }, [discoveryWarnings]);
-
-  const excludedByDuplicate = useMemo(() => {
-    const byPrimary = new Map<string, number>();
-    for (const item of discoveryWarnings?.duplicate_movie_candidates ?? []) {
-      if (!item.contains_excluded) {
-        continue;
-      }
-      byPrimary.set(item.primary_path, item.duplicate_paths.length);
-    }
-    return byPrimary;
-  }, [discoveryWarnings]);
+  const { duplicatePrimaryPaths, excludedByDuplicate, duplicatePathSet, excludedPathSet } =
+    useDiscoveryWarningSets(discoveryWarnings);
 
   const cacheStatusText = useMemo(() => {
     if (isReconciling) {
@@ -470,6 +456,8 @@ export default function DirectoryMapper() {
                       visibleDirectories={visibleDirectories}
                       duplicatePrimaryPaths={duplicatePrimaryPaths}
                       excludedByDuplicate={excludedByDuplicate}
+                      duplicatePathSet={duplicatePathSet}
+                      excludedPathSet={excludedPathSet}
                       onCopy={copyToClipboard}
                       onOpen={openBrowsePath}
                     />
