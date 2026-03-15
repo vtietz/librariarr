@@ -21,13 +21,14 @@ import {
   getMappedDirectories,
   getMappedDirectoriesStreamUrl,
   refreshMappedDirectories,
-  runMaintenanceReconcile
+  runMaintenanceReconcile,
+  waitForJobCompletion
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
 
 export default function DirectoryMapper() {
-  const ROW_HEIGHT = 46;
+  const ROW_HEIGHT = 44;
 
   const [mappedDirectories, setMappedDirectories] = useState<MappedDirectory[]>([]);
   const [mappedSearch, setMappedSearch] = useState("");
@@ -212,6 +213,9 @@ export default function DirectoryMapper() {
   }, [discoveryWarnings]);
 
   const cacheStatusText = useMemo(() => {
+    if (isReconciling) {
+      return "Reconciling whole library...";
+    }
     if (cacheBuilding && !cacheReady) {
       return "Indexing in progress";
     }
@@ -231,7 +235,7 @@ export default function DirectoryMapper() {
     }
     const elapsedHours = Math.floor(elapsedMin / 60);
     return `Index ready · updated ${elapsedHours}h ago`;
-  }, [cacheBuilding, cacheReady, cacheUpdatedAtMs]);
+  }, [cacheBuilding, cacheReady, cacheUpdatedAtMs, isReconciling]);
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
@@ -324,8 +328,21 @@ export default function DirectoryMapper() {
 
   const queueReconcile = async () => {
     setIsReconciling(true);
+    setLoadError(null);
     try {
-      await runMaintenanceReconcile();
+      const scheduled = await runMaintenanceReconcile();
+      if (!scheduled.job_id) {
+        throw new Error("Reconcile job was not scheduled.");
+      }
+      await waitForJobCompletion(scheduled.job_id);
+      await loadMappedDirectories();
+      await loadDiscoveryWarnings();
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? `Reconcile failed: ${error.message}`
+          : "Reconcile failed unexpectedly."
+      );
     } finally {
       setIsReconciling(false);
     }
@@ -402,12 +419,12 @@ export default function DirectoryMapper() {
             />
           </Group>
 
-          <Table striped withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
+          <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th style={{ width: "44%" }}>Virtual Path</Table.Th>
-                <Table.Th style={{ width: "44%" }}>Real Path</Table.Th>
-                <Table.Th style={{ width: "12%" }}>Status</Table.Th>
+                <Table.Th style={{ width: "46%" }}>Virtual Path</Table.Th>
+                <Table.Th style={{ width: "46%" }}>Real Path</Table.Th>
+                <Table.Th style={{ width: "8%" }}>Status</Table.Th>
               </Table.Tr>
             </Table.Thead>
           </Table>
@@ -422,7 +439,7 @@ export default function DirectoryMapper() {
               handleViewportScroll(event.currentTarget.scrollTop);
             }}
           >
-            <Table striped withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
+            <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
               <Table.Tbody>
                 {loadError ? (
                   <Table.Tr>

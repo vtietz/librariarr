@@ -1,4 +1,4 @@
-import { Badge, Group, Table, Text, ThemeIcon, Tooltip, ActionIcon } from "@mantine/core";
+import { Group, Table, Text, ThemeIcon, Tooltip, ActionIcon } from "@mantine/core";
 import { IconCheck, IconCopy, IconFolderOpen, IconX } from "@tabler/icons-react";
 import { memo } from "react";
 
@@ -68,15 +68,15 @@ const MappedRows = memo(function MappedRows({
   return (
     <>
       {visibleDirectories.map((mapped) => (
-        <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-          <Table.Td style={{ width: "44%", minWidth: 0 }}>
+        <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`} style={{ height: 44 }}>
+          <Table.Td style={{ width: "46%", minWidth: 0 }}>
             <PathCell value={mapped.virtual_path} onCopy={onCopy} onOpen={onOpen} />
           </Table.Td>
-          <Table.Td style={{ width: "44%", minWidth: 0 }}>
+          <Table.Td style={{ width: "46%", minWidth: 0 }}>
             <PathCell value={mapped.real_path} onCopy={onCopy} onOpen={onOpen} />
           </Table.Td>
-          <Table.Td style={{ width: "12%", minWidth: 0 }}>
-            <Group gap={6}>
+          <Table.Td style={{ width: "8%", minWidth: 0 }}>
+            <Group gap={6} wrap="nowrap" justify="flex-end">
               <Tooltip label={mapped.target_exists ? "Target exists" : "Missing target"}>
                 <ThemeIcon
                   size="sm"
@@ -88,12 +88,20 @@ const MappedRows = memo(function MappedRows({
                 </ThemeIcon>
               </Tooltip>
               {duplicatePrimaryPaths.has(mapped.real_path) && (
-                <Badge color="yellow">⚠ duplicate candidate</Badge>
+                <Tooltip label="Duplicate candidate detected">
+                  <ThemeIcon size="sm" radius="xl" variant="light" color="yellow">
+                    D
+                  </ThemeIcon>
+                </Tooltip>
               )}
               {(excludedByDuplicate.get(mapped.real_path) ?? 0) > 0 && (
-                <Badge color="orange">
-                  excluded alt paths: {excludedByDuplicate.get(mapped.real_path)}
-                </Badge>
+                <Tooltip
+                  label={`Excluded alternative paths: ${excludedByDuplicate.get(mapped.real_path)}`}
+                >
+                  <ThemeIcon size="sm" radius="xl" variant="light" color="orange">
+                    E
+                  </ThemeIcon>
+                </Tooltip>
               )}
             </Group>
           </Table.Td>

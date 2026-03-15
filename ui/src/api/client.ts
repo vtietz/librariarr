@@ -257,6 +257,28 @@ export const runMaintenanceReconcile = async () => {
   return data;
 };
 
+export const waitForJobCompletion = async (jobId: string, options?: { timeoutMs?: number; pollIntervalMs?: number }) => {
+  const timeoutMs = options?.timeoutMs ?? 180000;
+  const pollIntervalMs = options?.pollIntervalMs ?? 1000;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const job = await getJob(jobId);
+    if (job.status === 'succeeded') {
+      return job;
+    }
+    if (job.status === 'failed' || job.status === 'canceled') {
+      const errorText = typeof job.error === 'string' && job.error.trim() ? job.error : null;
+      throw new Error(errorText ?? `Reconcile job ${job.status}.`);
+    }
+    await new Promise((resolve) => {
+      window.setTimeout(resolve, pollIntervalMs);
+    });
+  }
+
+  throw new Error('Reconcile job timed out while waiting for completion.');
+};
+
 export type JobRecord = {
   job_id: string;
   kind: string;
