@@ -156,24 +156,33 @@ export default function LogsPanel() {
               Loading logs...
             </Text>
           </Group>
-        ) : error ? (
-          <Text size="sm" c="red">
-            {error}
-          </Text>
         ) : logs.length === 0 ? (
-          <Text size="sm" c="dimmed">
-            No log entries yet.
-          </Text>
+          error ? (
+            <Text size="sm" c="red">
+              {error}
+            </Text>
+          ) : (
+            <Text size="sm" c="dimmed">
+              No log entries yet.
+            </Text>
+          )
         ) : (
-          <ScrollArea h={520} type="auto">
-            <Stack gap="xs">
-              {logs.map((entry) => (
-                <Text key={entry.seq} size="sm" c={levelColor(entry.level)}>
-                  [{entry.level}] {entry.line}
-                </Text>
-              ))}
-            </Stack>
-          </ScrollArea>
+          <>
+            {error ? (
+              <Text size="sm" c="yellow" mb="xs">
+                {error}
+              </Text>
+            ) : null}
+            <ScrollArea h={520} type="auto">
+              <Stack gap="xs">
+                {logs.map((entry) => (
+                  <Text key={entry.seq} size="sm" c={levelColor(entry.level)}>
+                    [{entry.level}] {entry.line}
+                  </Text>
+                ))}
+              </Stack>
+            </ScrollArea>
+          </>
         )}
       </Card>
     </Stack>

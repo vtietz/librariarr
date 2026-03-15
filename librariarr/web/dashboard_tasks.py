@@ -75,35 +75,37 @@ def build_pending_tasks(
             }
         )
 
-    queued_jobs = int(jobs_summary.get("queued") or 0)
-    if queued_jobs > 0:
-        tasks.append(
-            {
-                "id": "jobs-queued",
-                "name": "Job Backlog",
-                "status": "queued",
-                "source": "job-manager",
-                "detail": f"{queued_jobs} queued",
-                "queued_at": now,
-                "started_at": None,
-                "duration_seconds": None,
-            }
-        )
+    has_concrete_job_tasks = any(item.get("source") == "job-manager" for item in tasks)
+    if not has_concrete_job_tasks:
+        queued_jobs = int(jobs_summary.get("queued") or 0)
+        if queued_jobs > 0:
+            tasks.append(
+                {
+                    "id": "jobs-queued",
+                    "name": "Job Backlog",
+                    "status": "queued",
+                    "source": "job-manager",
+                    "detail": f"{queued_jobs} queued",
+                    "queued_at": now,
+                    "started_at": None,
+                    "duration_seconds": None,
+                }
+            )
 
-    running_jobs = int(jobs_summary.get("running") or 0)
-    if running_jobs > 0:
-        tasks.append(
-            {
-                "id": "jobs-running",
-                "name": "Job Workers",
-                "status": "running",
-                "source": "job-manager",
-                "detail": f"{running_jobs} running",
-                "queued_at": None,
-                "started_at": now,
-                "duration_seconds": None,
-            }
-        )
+        running_jobs = int(jobs_summary.get("running") or 0)
+        if running_jobs > 0:
+            tasks.append(
+                {
+                    "id": "jobs-running",
+                    "name": "Job Workers",
+                    "status": "running",
+                    "source": "job-manager",
+                    "detail": f"{running_jobs} running",
+                    "queued_at": None,
+                    "started_at": now,
+                    "duration_seconds": None,
+                }
+            )
 
     if bool(mapped_cache_snapshot.get("building")):
         tasks.append(

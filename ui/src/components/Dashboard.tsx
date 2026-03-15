@@ -39,9 +39,7 @@ export default function Dashboard({
           setDiscoveryWarnings(payload);
         }
       } catch {
-        if (active) {
-          setDiscoveryWarnings(null);
-        }
+        // Keep last known snapshot to avoid flashing empty state on transient failures.
       } finally {
         inFlight = false;
       }
@@ -74,9 +72,7 @@ export default function Dashboard({
           setRecentJobs(items);
         }
       } catch {
-        if (active) {
-          setRecentJobs([]);
-        }
+        // Keep last known jobs to avoid table clearing during brief API timeouts.
       } finally {
         if (active) {
           setLoadingJobs(false);

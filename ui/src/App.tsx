@@ -108,6 +108,10 @@ export default function App() {
   }, [reloadFromDisk]);
 
   useEffect(() => {
+    if (activeTab !== "dashboard") {
+      return;
+    }
+
     let active = true;
     let inFlight = false;
 
@@ -129,8 +133,6 @@ export default function App() {
         }
       } catch {
         if (active) {
-          setRuntimeStatus(null);
-          setJobsSummary(null);
           setRuntimePollLatencyMs(null);
         }
       } finally {
@@ -147,7 +149,7 @@ export default function App() {
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     const syncFromPath = () => {
