@@ -49,11 +49,11 @@ const truncateMiddle = (value: string, maxLen: number = 44): string => {
 
 function PathCell({ value, onCopy, onOpen }: PathCellProps) {
   return (
-    <Group gap="xs" wrap="nowrap">
+    <Group gap="xs" wrap="nowrap" w="100%">
       <Text
         size="sm"
         title={value}
-        style={{ whiteSpace: "nowrap", overflow: "hidden", minWidth: 0 }}
+        style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", minWidth: 0 }}
       >
         {truncateMiddle(value)}
       </Text>
