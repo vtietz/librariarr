@@ -89,6 +89,14 @@ export const getMappedDirectories = async (params?: {
     }>;
     shadow_roots: string[];
     truncated: boolean;
+    cache?: {
+      ready: boolean;
+      building: boolean;
+      updated_at_ms: number | null;
+      last_error: string | null;
+      entries_total: number;
+      version: number;
+    };
   }>("/fs/mapped-directories", {
     params: {
       search: params?.search,

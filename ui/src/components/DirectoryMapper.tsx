@@ -32,6 +32,9 @@ export default function DirectoryMapper() {
   const [mappedTruncated, setMappedTruncated] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [cacheBuilding, setCacheBuilding] = useState(false);
+  const [cacheReady, setCacheReady] = useState(false);
+  const [cacheUpdatedAtMs, setCacheUpdatedAtMs] = useState<number | null>(null);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
@@ -58,6 +61,12 @@ export default function DirectoryMapper() {
       setMappedDirectories(sortedItems);
       setMappedRoots([...result.shadow_roots].sort((left, right) => left.localeCompare(right)));
       setMappedTruncated(result.truncated);
+      setCacheBuilding(result.cache?.building ?? false);
+      setCacheReady(result.cache?.ready ?? false);
+      setCacheUpdatedAtMs(result.cache?.updated_at_ms ?? null);
+      if ((result.cache?.last_error ?? null) && sortedItems.length === 0) {
+        setLoadError(result.cache?.last_error ?? "Failed to load mapped directories.");
+      }
     } catch (error: unknown) {
       const detail =
         typeof error === "object" &&
@@ -81,6 +90,9 @@ export default function DirectoryMapper() {
       setMappedDirectories([]);
       setMappedRoots([]);
       setMappedTruncated(false);
+      setCacheBuilding(false);
+      setCacheReady(false);
+      setCacheUpdatedAtMs(null);
     } finally {
       setIsReloading(false);
     }
@@ -124,7 +136,17 @@ export default function DirectoryMapper() {
 
     source.onmessage = (event) => {
       try {
-        const payload = JSON.parse(event.data) as { changed?: boolean };
+        const payload = JSON.parse(event.data) as {
+          changed?: boolean;
+          cache_building?: boolean;
+          cache_ready?: boolean;
+        };
+        if (typeof payload.cache_building === "boolean") {
+          setCacheBuilding(payload.cache_building);
+        }
+        if (typeof payload.cache_ready === "boolean") {
+          setCacheReady(payload.cache_ready);
+        }
         if (payload.changed) {
           void loadMappedDirectories();
         }
@@ -181,6 +203,28 @@ export default function DirectoryMapper() {
     return byPrimary;
   }, [discoveryWarnings]);
 
+  const cacheStatusText = useMemo(() => {
+    if (cacheBuilding && !cacheReady) {
+      return "Indexing in progress";
+    }
+    if (!cacheReady) {
+      return "Index not ready";
+    }
+    if (typeof cacheUpdatedAtMs !== "number") {
+      return "Index ready";
+    }
+    const elapsedSec = Math.max(0, Math.floor((Date.now() - cacheUpdatedAtMs) / 1000));
+    if (elapsedSec < 60) {
+      return `Index ready · updated ${elapsedSec}s ago`;
+    }
+    const elapsedMin = Math.floor(elapsedSec / 60);
+    if (elapsedMin < 60) {
+      return `Index ready · updated ${elapsedMin}m ago`;
+    }
+    const elapsedHours = Math.floor(elapsedMin / 60);
+    return `Index ready · updated ${elapsedHours}h ago`;
+  }, [cacheBuilding, cacheReady, cacheUpdatedAtMs]);
+
   return (
     <Stack>
       <Title order={3}>Directory Mapper</Title>
@@ -199,6 +243,8 @@ export default function DirectoryMapper() {
               </Button>
             </Group>
           </Group>
+
+          <Text size="xs" c="dimmed">{cacheStatusText}</Text>
 
           {(discoveryWarnings?.summary.duplicate_movie_candidates ?? 0) > 0 && (
             <Text size="sm" c="yellow.8">
@@ -252,7 +298,9 @@ export default function DirectoryMapper() {
                   <Table.Td colSpan={4}>
                     <Text size="sm" c="dimmed">
                       {mappedDirectories.length === 0
-                        ? "No mapped directories found yet. Run a reconcile and then reload this page."
+                        ? cacheBuilding && !cacheReady
+                          ? "Building in-memory directory index… reload in a few seconds."
+                          : "No mapped directories found yet. Run a reconcile and then reload this page."
                         : "No mapped directories match the current filters."}
                     </Text>
                   </Table.Td>

@@ -28,6 +28,7 @@ from ..quality import VIDEO_EXTENSIONS
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .jobs import JobManager
 from .log_buffer import install_log_buffer
+from .mapped_cache import warmup_mapped_directories_cache
 from .operations import build_operations_router, run_radarr_diagnostics, run_sonarr_diagnostics
 from .runtime_supervisor import RuntimeSupervisor
 
@@ -215,6 +216,7 @@ def create_app(  # noqa: C901
     def startup() -> None:
         if state.job_manager is not None:
             state.job_manager.start()
+        warmup_mapped_directories_cache(state.config_path)
 
     @app.on_event("shutdown")
     def shutdown() -> None:

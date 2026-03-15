@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
-import os
 import time
 from pathlib import Path
 from typing import Any
@@ -22,6 +20,8 @@ from ..service import LibrariArrService
 from ..sync.discovery import discover_movie_folders
 from ..sync.naming import parse_movie_ref
 from .log_buffer import get_log_buffer
+from .mapped_cache import get_mapped_directories_cache
+from .mapped_cache import shadow_roots as _shadow_roots
 
 LOG = logging.getLogger(__name__)
 
@@ -60,42 +60,6 @@ def _job_manager_or_http(request: Request):
     if manager is None:
         raise HTTPException(status_code=503, detail="Job manager is unavailable.")
     return manager
-
-
-def _shadow_roots(config: AppConfig) -> list[Path]:
-    roots = {Path(item.shadow_root) for item in config.paths.root_mappings}
-    return sorted(roots)
-
-
-def _safe_directory_entries(root: Path) -> list[Path]:
-    try:
-        return sorted(root.iterdir(), key=lambda item: item.name.lower())
-    except OSError:
-        return []
-
-
-def _mapped_directories_fingerprint(roots: list[Path]) -> str:
-    hasher = hashlib.sha256()
-    for root in sorted(roots):
-        hasher.update(f"root:{root}\n".encode("utf-8", errors="replace"))
-        for child in _safe_directory_entries(root):
-            if not child.is_symlink():
-                continue
-            try:
-                link_target = os.readlink(child)
-            except OSError:
-                link_target = ""
-            try:
-                stat_info = child.lstat()
-                link_mtime = stat_info.st_mtime_ns
-            except OSError:
-                link_mtime = 0
-            hasher.update(
-                f"link:{child.name}|target:{link_target}|mtime:{link_mtime}\n".encode(
-                    "utf-8", errors="replace"
-                )
-            )
-    return hasher.hexdigest()
 
 
 def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> dict[str, Any]:
@@ -352,6 +316,7 @@ def run_sonarr_diagnostics(config: AppConfig) -> dict[str, Any]:
 def build_operations_router() -> APIRouter:  # noqa: C901
     router = APIRouter()
     runtime_status = get_runtime_status_tracker()
+    mapped_cache = get_mapped_directories_cache()
 
     @router.get("/api/logs")
     def app_logs(
@@ -534,11 +499,17 @@ def build_operations_router() -> APIRouter:  # noqa: C901
     ) -> dict[str, Any]:
         config = _load_config_or_http(_read_config_path(request))
         all_roots = _shadow_roots(config)
+        mapped_cache.request_refresh(config)
+
+        snapshot = mapped_cache.snapshot()
+        if not snapshot["ready"]:
+            mapped_cache.wait_for_build(timeout=0.2)
+            snapshot = mapped_cache.snapshot()
 
         if shadow_root is None:
-            selected_roots = all_roots
+            selected_roots = {str(root) for root in all_roots}
         else:
-            selected_roots = [root for root in all_roots if str(root) == shadow_root]
+            selected_roots = {str(root) for root in all_roots if str(root) == shadow_root}
             if not selected_roots:
                 raise HTTPException(status_code=400, detail="Unknown shadow_root filter value")
 
@@ -546,38 +517,35 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         items: list[dict[str, Any]] = []
         truncated = False
 
-        for root in selected_roots:
-            for child in _safe_directory_entries(root):
-                if not child.is_symlink():
-                    continue
-
-                virtual_path = str(child)
-                real_path = str(child.resolve(strict=False))
-                if (
-                    lowered_search
-                    and lowered_search not in virtual_path.lower()
-                    and lowered_search not in real_path.lower()
-                ):
-                    continue
-
-                items.append(
-                    {
-                        "shadow_root": str(root),
-                        "virtual_path": virtual_path,
-                        "real_path": real_path,
-                        "target_exists": Path(real_path).exists(),
-                    }
-                )
-                if len(items) >= limit:
-                    truncated = True
-                    break
-            if truncated:
+        for entry in snapshot["items"]:
+            root_str = str(entry.get("shadow_root", ""))
+            if root_str not in selected_roots:
+                continue
+            virtual_path = str(entry.get("virtual_path", ""))
+            real_path = str(entry.get("real_path", ""))
+            if (
+                lowered_search
+                and lowered_search not in virtual_path.lower()
+                and lowered_search not in real_path.lower()
+            ):
+                continue
+            items.append(entry)
+            if len(items) >= limit:
+                truncated = True
                 break
 
         return {
             "items": items,
             "shadow_roots": [str(root) for root in all_roots],
             "truncated": truncated,
+            "cache": {
+                "ready": bool(snapshot["ready"]),
+                "building": bool(snapshot["building"]),
+                "updated_at_ms": snapshot["updated_at_ms"],
+                "last_error": snapshot["last_error"],
+                "entries_total": len(snapshot["items"]),
+                "version": snapshot["version"],
+            },
         }
 
     @router.get("/api/fs/discovery-warnings")
@@ -595,24 +563,26 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         max_events: int = Query(default=0, ge=0),
     ) -> StreamingResponse:
         async def event_stream():
-            previous_fingerprint: str | None = None
+            previous_version: int | None = None
             event_count = 0
             while True:
                 if await request.is_disconnected():
                     break
 
                 config = _load_config_or_http(_read_config_path(request))
+                mapped_cache.request_refresh(config)
+                snapshot = mapped_cache.snapshot()
                 roots = _shadow_roots(config)
-                current_fingerprint = _mapped_directories_fingerprint(roots)
+                current_version = int(snapshot["version"])
+                changed = previous_version is not None and current_version != previous_version
 
-                changed = (
-                    previous_fingerprint is not None and current_fingerprint != previous_fingerprint
-                )
-
-                if previous_fingerprint is None or changed:
+                if previous_version is None or changed:
                     payload = {
                         "changed": changed,
                         "shadow_roots": [str(root) for root in roots],
+                        "cache_ready": bool(snapshot["ready"]),
+                        "cache_building": bool(snapshot["building"]),
+                        "cache_entries_total": len(snapshot["items"]),
                         "timestamp_ms": int(time.time() * 1000),
                     }
                     yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
@@ -622,7 +592,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 else:
                     yield ": keepalive\n\n"
 
-                previous_fingerprint = current_fingerprint
+                previous_version = current_version
                 await asyncio.sleep(interval_ms / 1000)
 
         return StreamingResponse(
