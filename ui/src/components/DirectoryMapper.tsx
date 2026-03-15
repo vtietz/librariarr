@@ -1,6 +1,5 @@
 import {
   ActionIcon,
-  Box,
   Button,
   Card,
   Group,
@@ -12,9 +11,8 @@ import {
   Tooltip,
   Title
 } from "@mantine/core";
-import { useViewportSize } from "@mantine/hooks";
 import { IconArrowsShuffle, IconRefresh } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getDiscoveryWarnings,
   getFsRoots,
@@ -28,12 +26,11 @@ import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
 
 export default function DirectoryMapper() {
-  const ROW_HEIGHT = 44;
-
   const [mappedDirectories, setMappedDirectories] = useState<MappedDirectory[]>([]);
   const [mappedSearch, setMappedSearch] = useState("");
   const [debouncedMappedSearch, setDebouncedMappedSearch] = useState("");
   const [mappedRootFilter, setMappedRootFilter] = useState<string>("all");
+  const [warningFilter, setWarningFilter] = useState<string>("all");
   const [mappedRoots, setMappedRoots] = useState<string[]>([]);
   const [mappedTruncated, setMappedTruncated] = useState(false);
   const [cacheEntriesTotal, setCacheEntriesTotal] = useState(0);
@@ -45,13 +42,9 @@ export default function DirectoryMapper() {
   const [cacheUpdatedAtMs, setCacheUpdatedAtMs] = useState<number | null>(null);
   const [fsRoots, setFsRoots] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
-  const { height: viewportHeightPx } = useViewportSize();
-  const tableViewportRef = useRef<HTMLDivElement | null>(null);
-  const scrollFrameRef = useRef<number | null>(null);
 
   const loadMappedDirectories = useCallback(async () => {
     setIsReloading(true);
@@ -205,6 +198,55 @@ export default function DirectoryMapper() {
     return byPrimary;
   }, [discoveryWarnings]);
 
+  const duplicatePathSet = useMemo(() => {
+    const paths = new Set<string>();
+    for (const item of discoveryWarnings?.duplicate_movie_candidates ?? []) {
+      paths.add(item.primary_path);
+      for (const duplicatePath of item.duplicate_paths) {
+        paths.add(duplicatePath);
+      }
+    }
+    return paths;
+  }, [discoveryWarnings]);
+
+  const excludedPathSet = useMemo(() => {
+    const paths = new Set<string>();
+    for (const item of discoveryWarnings?.excluded_movie_candidates ?? []) {
+      paths.add(item.path);
+    }
+    return paths;
+  }, [discoveryWarnings]);
+
+  const warningFilterOptions = useMemo(
+    () => [
+      { label: "All rows", value: "all" },
+      { label: "Warnings only", value: "any" },
+      { label: "Duplicate warnings", value: "duplicate" },
+      { label: "Excluded warnings", value: "excluded" }
+    ],
+    []
+  );
+
+  const filteredDirectories = useMemo(() => {
+    if (warningFilter === "all") {
+      return mappedDirectories;
+    }
+    return mappedDirectories.filter((mapped) => {
+      const hasDuplicateWarning = duplicatePathSet.has(mapped.real_path);
+      const hasExcludedWarning = excludedPathSet.has(mapped.real_path);
+      if (warningFilter === "any") {
+        return hasDuplicateWarning || hasExcludedWarning;
+      }
+      if (warningFilter === "duplicate") {
+        return hasDuplicateWarning;
+      }
+      if (warningFilter === "excluded") {
+        return hasExcludedWarning;
+      }
+      return true;
+    });
+  }, [duplicatePathSet, excludedPathSet, mappedDirectories, warningFilter]);
+
   const cacheStatusText = useMemo(() => {
     if (isReconciling) {
       return "Reconciling whole library...";
@@ -241,69 +283,6 @@ export default function DirectoryMapper() {
   const openBrowsePath = useCallback((value: string) => {
     setBrowsePath(value);
   }, []);
-
-  const virtualizedViewportHeight = useMemo(
-    () => Math.max(320, Math.min(760, viewportHeightPx - 360)),
-    [viewportHeightPx]
-  );
-
-  const overscanRows = useMemo(
-    () => Math.max(10, Math.ceil(virtualizedViewportHeight / ROW_HEIGHT)),
-    [virtualizedViewportHeight]
-  );
-
-  const virtualizationEnabled = mappedDirectories.length > 200;
-
-  const visibleRange = useMemo(() => {
-    if (!virtualizationEnabled) {
-      return { startIndex: 0, endIndex: mappedDirectories.length };
-    }
-    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - overscanRows);
-    const visibleRows = Math.ceil(virtualizedViewportHeight / ROW_HEIGHT) + overscanRows * 2;
-    const endIndex = Math.min(mappedDirectories.length, startIndex + visibleRows);
-    return { startIndex, endIndex };
-  }, [mappedDirectories.length, overscanRows, scrollTop, virtualizedViewportHeight, virtualizationEnabled]);
-
-  const visibleDirectories = useMemo(
-    () => mappedDirectories.slice(visibleRange.startIndex, visibleRange.endIndex),
-    [mappedDirectories, visibleRange.endIndex, visibleRange.startIndex]
-  );
-
-  const topSpacerHeight = virtualizationEnabled ? visibleRange.startIndex * ROW_HEIGHT : 0;
-  const bottomSpacerHeight = virtualizationEnabled
-    ? Math.max(0, (mappedDirectories.length - visibleRange.endIndex) * ROW_HEIGHT)
-    : 0;
-
-  useEffect(() => {
-    setScrollTop(0);
-    if (tableViewportRef.current) {
-      tableViewportRef.current.scrollTop = 0;
-    }
-  }, [mappedRootFilter, debouncedMappedSearch]);
-
-  useEffect(() => {
-    return () => {
-      if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
-      }
-    };
-  }, []);
-
-  const handleViewportScroll = useCallback(
-    (nextScrollTop: number) => {
-      if (!virtualizationEnabled) {
-        return;
-      }
-      if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
-      }
-      scrollFrameRef.current = window.requestAnimationFrame(() => {
-        setScrollTop(nextScrollTop);
-        scrollFrameRef.current = null;
-      });
-    },
-    [virtualizationEnabled]
-  );
 
   const forceRefreshCache = async () => {
     setIsReloading(true);
@@ -351,7 +330,7 @@ export default function DirectoryMapper() {
             <Text fw={600}>Mapped Directories (Virtual vs Real)</Text>
             <Group gap="sm">
               <Text size="sm" c="dimmed">
-                Showing {mappedDirectories.length} of {cacheEntriesTotal}
+                Showing {filteredDirectories.length} of {cacheEntriesTotal}
                 {mappedTruncated ? " (list truncated)" : ""}
               </Text>
               <Tooltip label="Force full rescan of shadow roots">
@@ -410,6 +389,12 @@ export default function DirectoryMapper() {
               value={mappedRootFilter}
               onChange={(value: string | null) => setMappedRootFilter(value ?? "all")}
             />
+            <Select
+              label="Warning filter"
+              data={warningFilterOptions}
+              value={warningFilter}
+              onChange={(value: string | null) => setWarningFilter(value ?? "all")}
+            />
           </Group>
 
           <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
@@ -420,64 +405,40 @@ export default function DirectoryMapper() {
                 <Table.Th style={{ width: "8%" }}>Status</Table.Th>
               </Table.Tr>
             </Table.Thead>
+            <Table.Tbody>
+              {loadError ? (
+                <Table.Tr>
+                  <Table.Td colSpan={3}>
+                    <Text size="sm" c="red">
+                      {loadError}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ) : filteredDirectories.length === 0 ? (
+                <Table.Tr>
+                  <Table.Td colSpan={3}>
+                    <Text size="sm" c="dimmed">
+                      {cacheBuilding && !cacheReady
+                        ? "Building in-memory directory index… wait a few seconds."
+                        : mappedSearch.trim() || mappedRootFilter !== "all" || warningFilter !== "all"
+                          ? "No mapped directories match the current search/filter."
+                          : "No mapped directories indexed yet. Run 'Reconcile whole library' and verify root mappings if this stays empty."}
+                    </Text>
+                  </Table.Td>
+                </Table.Tr>
+              ) : (
+                <MappedRows
+                  visibleDirectories={filteredDirectories}
+                  duplicatePrimaryPaths={duplicatePrimaryPaths}
+                  excludedByDuplicate={excludedByDuplicate}
+                  duplicatePathSet={duplicatePathSet}
+                  excludedPathSet={excludedPathSet}
+                  onCopy={copyToClipboard}
+                  onOpen={openBrowsePath}
+                />
+              )}
+            </Table.Tbody>
           </Table>
-
-          <Box
-            ref={tableViewportRef}
-            style={{
-              maxHeight: virtualizedViewportHeight,
-              overflowY: "auto"
-            }}
-            onScroll={(event) => {
-              handleViewportScroll(event.currentTarget.scrollTop);
-            }}
-          >
-            <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
-              <Table.Tbody>
-                {loadError ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={3}>
-                      <Text size="sm" c="red">
-                        {loadError}
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : mappedDirectories.length === 0 ? (
-                  <Table.Tr>
-                    <Table.Td colSpan={3}>
-                      <Text size="sm" c="dimmed">
-                        {cacheBuilding && !cacheReady
-                          ? "Building in-memory directory index… wait a few seconds."
-                          : mappedSearch.trim() || mappedRootFilter !== "all"
-                            ? "No mapped directories match the current search/filter."
-                            : "No mapped directories indexed yet. Run 'Reconcile whole library' and verify root mappings if this stays empty."}
-                      </Text>
-                    </Table.Td>
-                  </Table.Tr>
-                ) : (
-                  <>
-                    {topSpacerHeight > 0 && (
-                      <Table.Tr>
-                        <Table.Td colSpan={3} style={{ height: topSpacerHeight, padding: 0 }} />
-                      </Table.Tr>
-                    )}
-                    <MappedRows
-                      visibleDirectories={visibleDirectories}
-                      duplicatePrimaryPaths={duplicatePrimaryPaths}
-                      excludedByDuplicate={excludedByDuplicate}
-                      onCopy={copyToClipboard}
-                      onOpen={openBrowsePath}
-                    />
-                    {bottomSpacerHeight > 0 && (
-                      <Table.Tr>
-                        <Table.Td colSpan={3} style={{ height: bottomSpacerHeight, padding: 0 }} />
-                      </Table.Tr>
-                    )}
-                  </>
-                )}
-              </Table.Tbody>
-            </Table>
-          </Box>
 
           <DirectoryPickerModal
             opened={browsePath !== null}

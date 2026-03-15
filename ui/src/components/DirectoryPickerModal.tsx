@@ -131,23 +131,33 @@ export default function DirectoryPickerModal({
   }, [roots, currentPath]);
 
   const handleUp = () => {
+    if (selectedRoot && currentPath === selectedRoot) {
+      return;
+    }
     const lastSlash = currentPath.lastIndexOf("/");
     if (lastSlash <= 0) {
       return;
     }
-    setCurrentPath(currentPath.slice(0, lastSlash));
+    const parentPath = currentPath.slice(0, lastSlash);
+    if (selectedRoot && !parentPath.startsWith(selectedRoot)) {
+      setCurrentPath(selectedRoot);
+      return;
+    }
+    setCurrentPath(parentPath);
   };
 
   return (
     <Modal opened={opened} onClose={onClose} title={title} size="lg" centered>
       <Stack>
-        <Select
-          data={rootOptions}
-          label="Allowed root"
-          value={selectedRoot}
-          onChange={(value) => setCurrentPath(value ?? "")}
-          searchable
-        />
+        {mode === "select" ? (
+          <Select
+            data={rootOptions}
+            label="Allowed root"
+            value={selectedRoot}
+            onChange={(value) => setCurrentPath(value ?? "")}
+            searchable
+          />
+        ) : null}
 
         <TextInput label="Current path" value={currentPath} readOnly />
 
@@ -178,23 +188,33 @@ export default function DirectoryPickerModal({
             </Table.Tr>
           </Table.Thead>
           <Table.Tbody>
-            {entries
-              .filter((entry) => entry.is_dir)
-              .map((entry) => (
+            {entries.map((entry) => (
                 <Table.Tr key={entry.path}>
                   <Table.Td>{entry.name}</Table.Td>
-                  <Table.Td>{entry.is_symlink ? "Directory (symlink)" : "Directory"}</Table.Td>
                   <Table.Td>
-                    <Group gap="xs">
-                      <Button size="xs" variant="light" onClick={() => setCurrentPath(entry.path)}>
-                        Open
-                      </Button>
-                      {mode === "select" && onSelect ? (
-                        <Button size="xs" onClick={() => onSelect(entry.path)}>
-                          Select
+                    {entry.is_dir
+                      ? entry.is_symlink
+                        ? "Directory (symlink)"
+                        : "Directory"
+                      : "File"}
+                  </Table.Td>
+                  <Table.Td>
+                    {entry.is_dir ? (
+                      <Group gap="xs">
+                        <Button size="xs" variant="light" onClick={() => setCurrentPath(entry.path)}>
+                          Open
                         </Button>
-                      ) : null}
-                    </Group>
+                        {mode === "select" && onSelect ? (
+                          <Button size="xs" onClick={() => onSelect(entry.path)}>
+                            Select
+                          </Button>
+                        ) : null}
+                      </Group>
+                    ) : (
+                      <Text size="xs" c="dimmed">
+                        —
+                      </Text>
+                    )}
                   </Table.Td>
                 </Table.Tr>
               ))}

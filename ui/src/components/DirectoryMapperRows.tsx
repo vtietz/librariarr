@@ -1,5 +1,5 @@
 import { Group, Table, Text, ThemeIcon, Tooltip, ActionIcon } from "@mantine/core";
-import { IconCheck, IconCopy, IconFolderOpen, IconX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconCheck, IconCopy, IconFolderOpen, IconX } from "@tabler/icons-react";
 import { memo } from "react";
 
 export type MappedDirectory = {
@@ -12,7 +12,7 @@ export type MappedDirectory = {
 type PathCellProps = {
   value: string;
   onCopy: (value: string) => Promise<void>;
-  onOpen: (value: string) => void;
+  onOpen?: (value: string) => void;
 };
 
 const PathCell = memo(function PathCell({ value, onCopy, onOpen }: PathCellProps) {
@@ -41,11 +41,13 @@ const PathCell = memo(function PathCell({ value, onCopy, onOpen }: PathCellProps
           <IconCopy size={14} />
         </ActionIcon>
       </Tooltip>
-      <Tooltip label="Open path">
-        <ActionIcon size="sm" variant="light" aria-label="Open path" onClick={() => onOpen(value)}>
-          <IconFolderOpen size={14} />
-        </ActionIcon>
-      </Tooltip>
+      {onOpen ? (
+        <Tooltip label="Open path">
+          <ActionIcon size="sm" variant="light" aria-label="Open path" onClick={() => onOpen(value)}>
+            <IconFolderOpen size={14} />
+          </ActionIcon>
+        </Tooltip>
+      ) : null}
     </Group>
   );
 });
@@ -54,6 +56,8 @@ type MappedRowsProps = {
   visibleDirectories: MappedDirectory[];
   duplicatePrimaryPaths: Set<string>;
   excludedByDuplicate: Map<string, number>;
+  duplicatePathSet: Set<string>;
+  excludedPathSet: Set<string>;
   onCopy: (value: string) => Promise<void>;
   onOpen: (value: string) => void;
 };
@@ -62,20 +66,22 @@ const MappedRows = memo(function MappedRows({
   visibleDirectories,
   duplicatePrimaryPaths,
   excludedByDuplicate,
+  duplicatePathSet,
+  excludedPathSet,
   onCopy,
   onOpen
 }: MappedRowsProps) {
   return (
     <>
       {visibleDirectories.map((mapped) => (
-        <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`} style={{ height: 44 }}>
-          <Table.Td style={{ width: "46%", minWidth: 0 }}>
-            <PathCell value={mapped.virtual_path} onCopy={onCopy} onOpen={onOpen} />
+        <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
+          <Table.Td style={{ width: "46%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
+            <PathCell value={mapped.virtual_path} onCopy={onCopy} />
           </Table.Td>
-          <Table.Td style={{ width: "46%", minWidth: 0 }}>
+          <Table.Td style={{ width: "46%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <PathCell value={mapped.real_path} onCopy={onCopy} onOpen={onOpen} />
           </Table.Td>
-          <Table.Td style={{ width: "8%", minWidth: 0 }}>
+          <Table.Td style={{ width: "8%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Group gap={6} wrap="nowrap" justify="flex-end">
               <Tooltip label={mapped.target_exists ? "Target exists" : "Missing target"}>
                 <ThemeIcon
@@ -87,10 +93,23 @@ const MappedRows = memo(function MappedRows({
                   {mapped.target_exists ? <IconCheck size={14} /> : <IconX size={14} />}
                 </ThemeIcon>
               </Tooltip>
-              {duplicatePrimaryPaths.has(mapped.real_path) && (
-                <Tooltip label="Duplicate candidate detected">
+              {duplicatePathSet.has(mapped.real_path) && (
+                <Tooltip
+                  label={
+                    duplicatePrimaryPaths.has(mapped.real_path)
+                      ? "Duplicate warning (primary path)"
+                      : "Duplicate warning (alternative path)"
+                  }
+                >
                   <ThemeIcon size="sm" radius="xl" variant="light" color="yellow">
-                    D
+                    <IconAlertTriangle size={13} />
+                  </ThemeIcon>
+                </Tooltip>
+              )}
+              {excludedPathSet.has(mapped.real_path) && (
+                <Tooltip label="Excluded by paths.exclude_paths">
+                  <ThemeIcon size="sm" radius="xl" variant="light" color="orange">
+                    <IconAlertTriangle size={13} />
                   </ThemeIcon>
                 </Tooltip>
               )}
