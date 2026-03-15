@@ -349,10 +349,8 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             while True:
                 if await request.is_disconnected():
                     break
-                entries = buf.get_entries(tail=50)
-                new_entries = [e for e in entries if int(e["seq"]) > last_seq]
+                new_entries = buf.get_entries_since(last_seq)
                 if new_entries:
-                    new_entries.reverse()
                     for entry in new_entries:
                         payload = json.dumps(entry, ensure_ascii=False)
                         yield f"data: {payload}\n\n"
@@ -363,8 +361,9 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                         if max_events > 0 and event_count >= max_events:
                             return
                 else:
-                    yield ": keepalive\n\n"
-                await asyncio.sleep(0.5)
+                    has_new = await asyncio.to_thread(buf.wait_for_new, 2.0)
+                    if not has_new:
+                        yield ": keepalive\n\n"
 
         return StreamingResponse(
             event_stream(),

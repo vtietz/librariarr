@@ -4,6 +4,7 @@ import logging
 import re
 import threading
 from collections import deque
+from itertools import islice
 
 _LOG_LEVEL_RE = re.compile(
     r"\b(DEBUG|INFO|WARNING|WARN|ERROR|CRITICAL|TRACE|FATAL)\b", re.IGNORECASE
@@ -41,11 +42,15 @@ class LogRingBuffer(logging.Handler):
 
     def get_entries(self, tail: int = 250) -> list[dict[str, str]]:
         with self._lock_obj:
-            items = list(self._buffer)
-        items.reverse()
-        if tail > 0:
-            items = items[:tail]
+            if tail > 0:
+                items = list(islice(reversed(self._buffer), tail))
+            else:
+                items = list(reversed(self._buffer))
         return items
+
+    def get_entries_since(self, seq: int) -> list[dict[str, str]]:
+        with self._lock_obj:
+            return [entry for entry in self._buffer if int(entry["seq"]) > seq]
 
     @property
     def sequence(self) -> int:
