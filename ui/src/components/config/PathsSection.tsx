@@ -128,10 +128,10 @@ export default function PathsSection({
         label={
           <HelpLabel
             label="Exclude Paths"
-            help="Case-insensitive glob patterns, relative to each nested root, that should be skipped during discovery."
+            help="Case-insensitive glob patterns, relative to each nested root, that should be skipped during discovery. Supports directories (trailing /) and file patterns."
           />
         }
-        description="Case-insensitive glob-style patterns, relative to each nested root (e.g. .deletedByTMM/, specials/, .librariarr/**)"
+        description="Case-insensitive glob-style patterns, relative to each nested root (e.g. .deletedByTMM/, specials/, trailers/, *-trailer.*, .librariarr/**)"
         placeholder="Add pattern and press Enter"
         data={EXCLUDE_PATH_SUGGESTIONS}
         value={excludePaths}
