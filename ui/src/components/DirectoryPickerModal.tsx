@@ -58,7 +58,8 @@ type Props = {
   roots: string[];
   initialPath: string;
   onClose: () => void;
-  onSelect: (path: string) => void;
+  onSelect?: (path: string) => void;
+  mode?: "select" | "browse";
 };
 
 export default function DirectoryPickerModal({
@@ -67,7 +68,8 @@ export default function DirectoryPickerModal({
   roots,
   initialPath,
   onClose,
-  onSelect
+  onSelect,
+  mode = "select"
 }: Props) {
   const [currentPath, setCurrentPath] = useState<string>("");
   const [entries, setEntries] = useState<DirectoryEntry[]>([]);
@@ -153,9 +155,11 @@ export default function DirectoryPickerModal({
           <Button variant="light" onClick={handleUp} disabled={!currentPath}>
             Up
           </Button>
-          <Button onClick={() => onSelect(currentPath)} disabled={!currentPath}>
-            Select current path
-          </Button>
+          {mode === "select" && onSelect ? (
+            <Button onClick={() => onSelect(currentPath)} disabled={!currentPath}>
+              Select current path
+            </Button>
+          ) : null}
         </Group>
 
         {isLoading ? <Loader size="sm" /> : null}
@@ -185,9 +189,11 @@ export default function DirectoryPickerModal({
                       <Button size="xs" variant="light" onClick={() => setCurrentPath(entry.path)}>
                         Open
                       </Button>
-                      <Button size="xs" onClick={() => onSelect(entry.path)}>
-                        Select
-                      </Button>
+                      {mode === "select" && onSelect ? (
+                        <Button size="xs" onClick={() => onSelect(entry.path)}>
+                          Select
+                        </Button>
+                      ) : null}
                     </Group>
                   </Table.Td>
                 </Table.Tr>

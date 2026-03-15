@@ -13,9 +13,11 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getDiscoveryWarnings,
+  getFsRoots,
   getMappedDirectories,
   getMappedDirectoriesStreamUrl
 } from "../api/client";
+import DirectoryPickerModal from "./DirectoryPickerModal";
 
 type MappedDirectory = {
   shadow_root: string;
@@ -35,6 +37,8 @@ export default function DirectoryMapper() {
   const [cacheBuilding, setCacheBuilding] = useState(false);
   const [cacheReady, setCacheReady] = useState(false);
   const [cacheUpdatedAtMs, setCacheUpdatedAtMs] = useState<number | null>(null);
+  const [fsRoots, setFsRoots] = useState<string[]>([]);
+  const [browsePath, setBrowsePath] = useState<string | null>(null);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
@@ -103,6 +107,16 @@ export default function DirectoryMapper() {
       await loadMappedDirectories();
     })();
   }, [loadMappedDirectories]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setFsRoots(await getFsRoots());
+      } catch {
+        setFsRoots([]);
+      }
+    })();
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -225,6 +239,24 @@ export default function DirectoryMapper() {
     return `Index ready · updated ${elapsedHours}h ago`;
   }, [cacheBuilding, cacheReady, cacheUpdatedAtMs]);
 
+  const truncateMiddle = (value: string, maxLen: number = 76): string => {
+    if (value.length <= maxLen) {
+      return value;
+    }
+    const keep = maxLen - 3;
+    const left = Math.ceil(keep / 2);
+    const right = Math.floor(keep / 2);
+    return `${value.slice(0, left)}...${value.slice(value.length - right)}`;
+  };
+
+  const copyToClipboard = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      /* ignore clipboard failures */
+    }
+  };
+
   return (
     <Stack>
       <Title order={3}>Directory Mapper</Title>
@@ -308,9 +340,69 @@ export default function DirectoryMapper() {
               ) : (
                 filteredMappedDirectories.map((mapped) => (
                   <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-                    <Table.Td>{mapped.shadow_root}</Table.Td>
-                    <Table.Td>{mapped.virtual_path}</Table.Td>
-                    <Table.Td>{mapped.real_path}</Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" wrap="nowrap">
+                        <Text size="sm" title={mapped.shadow_root} style={{ whiteSpace: "nowrap" }}>
+                          {truncateMiddle(mapped.shadow_root)}
+                        </Text>
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          onClick={() => void copyToClipboard(mapped.shadow_root)}
+                        >
+                          Copy
+                        </Button>
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          onClick={() => setBrowsePath(mapped.shadow_root)}
+                        >
+                          Open
+                        </Button>
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" wrap="nowrap">
+                        <Text size="sm" title={mapped.virtual_path} style={{ whiteSpace: "nowrap" }}>
+                          {truncateMiddle(mapped.virtual_path)}
+                        </Text>
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          onClick={() => void copyToClipboard(mapped.virtual_path)}
+                        >
+                          Copy
+                        </Button>
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          onClick={() => setBrowsePath(mapped.virtual_path)}
+                        >
+                          Open
+                        </Button>
+                      </Group>
+                    </Table.Td>
+                    <Table.Td>
+                      <Group gap="xs" wrap="nowrap">
+                        <Text size="sm" title={mapped.real_path} style={{ whiteSpace: "nowrap" }}>
+                          {truncateMiddle(mapped.real_path)}
+                        </Text>
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          onClick={() => void copyToClipboard(mapped.real_path)}
+                        >
+                          Copy
+                        </Button>
+                        <Button
+                          size="compact-xs"
+                          variant="light"
+                          onClick={() => setBrowsePath(mapped.real_path)}
+                        >
+                          Open
+                        </Button>
+                      </Group>
+                    </Table.Td>
                     <Table.Td>
                       <Group gap={6}>
                         <Badge color={mapped.target_exists ? "green" : "red"}>
@@ -333,6 +425,15 @@ export default function DirectoryMapper() {
           </Table>
         </Stack>
       </Card>
+
+      <DirectoryPickerModal
+        opened={browsePath !== null}
+        title="Browse directory"
+        roots={fsRoots}
+        initialPath={browsePath ?? ""}
+        onClose={() => setBrowsePath(null)}
+        mode="browse"
+      />
     </Stack>
   );
 }
