@@ -1,6 +1,6 @@
 import {
   ActionIcon,
-  Badge,
+  Box,
   Button,
   Card,
   Group,
@@ -12,8 +12,9 @@ import {
   Tooltip,
   Title
 } from "@mantine/core";
-import { IconArrowsShuffle, IconCopy, IconFolderOpen, IconRefresh } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useViewportSize } from "@mantine/hooks";
+import { IconArrowsShuffle, IconRefresh } from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   getDiscoveryWarnings,
   getFsRoots,
@@ -23,65 +24,11 @@ import {
   runMaintenanceReconcile
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
-
-type MappedDirectory = {
-  shadow_root: string;
-  virtual_path: string;
-  real_path: string;
-  target_exists: boolean;
-};
-
-type PathCellProps = {
-  value: string;
-  onCopy: (value: string) => Promise<void>;
-  onOpen: (value: string) => void;
-};
-
-const truncateMiddle = (value: string, maxLen: number = 44): string => {
-  if (value.length <= maxLen) {
-    return value;
-  }
-  const keep = maxLen - 3;
-  const left = Math.ceil(keep / 2);
-  const right = Math.floor(keep / 2);
-  return `${value.slice(0, left)}...${value.slice(value.length - right)}`;
-};
-
-function PathCell({ value, onCopy, onOpen }: PathCellProps) {
-  return (
-    <Group gap="xs" wrap="nowrap" w="100%">
-      <Text
-        size="sm"
-        title={value}
-        style={{ flex: 1, whiteSpace: "nowrap", overflow: "hidden", minWidth: 0 }}
-      >
-        {truncateMiddle(value)}
-      </Text>
-      <Tooltip label="Copy path">
-        <ActionIcon
-          size="sm"
-          variant="light"
-          aria-label="Copy path"
-          onClick={() => void onCopy(value)}
-        >
-          <IconCopy size={14} />
-        </ActionIcon>
-      </Tooltip>
-      <Tooltip label="Open path">
-        <ActionIcon
-          size="sm"
-          variant="light"
-          aria-label="Open path"
-          onClick={() => onOpen(value)}
-        >
-          <IconFolderOpen size={14} />
-        </ActionIcon>
-      </Tooltip>
-    </Group>
-  );
-}
+import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
 
 export default function DirectoryMapper() {
+  const ROW_HEIGHT = 46;
+
   const [mappedDirectories, setMappedDirectories] = useState<MappedDirectory[]>([]);
   const [mappedSearch, setMappedSearch] = useState("");
   const [debouncedMappedSearch, setDebouncedMappedSearch] = useState("");
@@ -97,9 +44,13 @@ export default function DirectoryMapper() {
   const [cacheUpdatedAtMs, setCacheUpdatedAtMs] = useState<number | null>(null);
   const [fsRoots, setFsRoots] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
+  const [scrollTop, setScrollTop] = useState(0);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
+  const { height: viewportHeightPx } = useViewportSize();
+  const tableViewportRef = useRef<HTMLDivElement | null>(null);
+  const scrollFrameRef = useRef<number | null>(null);
 
   const loadMappedDirectories = useCallback(async () => {
     setIsReloading(true);
@@ -282,13 +233,80 @@ export default function DirectoryMapper() {
     return `Index ready · updated ${elapsedHours}h ago`;
   }, [cacheBuilding, cacheReady, cacheUpdatedAtMs]);
 
-  const copyToClipboard = async (value: string) => {
+  const copyToClipboard = useCallback(async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
     } catch {
       /* ignore clipboard failures */
     }
-  };
+  }, []);
+
+  const openBrowsePath = useCallback((value: string) => {
+    setBrowsePath(value);
+  }, []);
+
+  const virtualizedViewportHeight = useMemo(
+    () => Math.max(320, Math.min(760, viewportHeightPx - 360)),
+    [viewportHeightPx]
+  );
+
+  const overscanRows = useMemo(
+    () => Math.max(10, Math.ceil(virtualizedViewportHeight / ROW_HEIGHT)),
+    [virtualizedViewportHeight]
+  );
+
+  const virtualizationEnabled = mappedDirectories.length > 200;
+
+  const visibleRange = useMemo(() => {
+    if (!virtualizationEnabled) {
+      return { startIndex: 0, endIndex: mappedDirectories.length };
+    }
+    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - overscanRows);
+    const visibleRows = Math.ceil(virtualizedViewportHeight / ROW_HEIGHT) + overscanRows * 2;
+    const endIndex = Math.min(mappedDirectories.length, startIndex + visibleRows);
+    return { startIndex, endIndex };
+  }, [mappedDirectories.length, overscanRows, scrollTop, virtualizedViewportHeight, virtualizationEnabled]);
+
+  const visibleDirectories = useMemo(
+    () => mappedDirectories.slice(visibleRange.startIndex, visibleRange.endIndex),
+    [mappedDirectories, visibleRange.endIndex, visibleRange.startIndex]
+  );
+
+  const topSpacerHeight = virtualizationEnabled ? visibleRange.startIndex * ROW_HEIGHT : 0;
+  const bottomSpacerHeight = virtualizationEnabled
+    ? Math.max(0, (mappedDirectories.length - visibleRange.endIndex) * ROW_HEIGHT)
+    : 0;
+
+  useEffect(() => {
+    setScrollTop(0);
+    if (tableViewportRef.current) {
+      tableViewportRef.current.scrollTop = 0;
+    }
+  }, [mappedRootFilter, debouncedMappedSearch]);
+
+  useEffect(() => {
+    return () => {
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+    };
+  }, []);
+
+  const handleViewportScroll = useCallback(
+    (nextScrollTop: number) => {
+      if (!virtualizationEnabled) {
+        return;
+      }
+      if (scrollFrameRef.current !== null) {
+        window.cancelAnimationFrame(scrollFrameRef.current);
+      }
+      scrollFrameRef.current = window.requestAnimationFrame(() => {
+        setScrollTop(nextScrollTop);
+        scrollFrameRef.current = null;
+      });
+    },
+    [virtualizationEnabled]
+  );
 
   const forceRefreshCache = async () => {
     setIsReloading(true);
@@ -387,67 +405,67 @@ export default function DirectoryMapper() {
           <Table striped withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Virtual Path</Table.Th>
-                <Table.Th>Real Path</Table.Th>
-                <Table.Th>Status</Table.Th>
+                <Table.Th style={{ width: "44%" }}>Virtual Path</Table.Th>
+                <Table.Th style={{ width: "44%" }}>Real Path</Table.Th>
+                <Table.Th style={{ width: "12%" }}>Status</Table.Th>
               </Table.Tr>
             </Table.Thead>
-            <Table.Tbody>
-              {loadError ? (
-                <Table.Tr>
-                  <Table.Td colSpan={3}>
-                    <Text size="sm" c="red">
-                      {loadError}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ) : mappedDirectories.length === 0 ? (
-                <Table.Tr>
-                  <Table.Td colSpan={3}>
-                    <Text size="sm" c="dimmed">
-                      {cacheBuilding && !cacheReady
-                        ? "Building in-memory directory index… wait a few seconds."
-                        : "No mapped directories match the current search/filter."}
-                    </Text>
-                  </Table.Td>
-                </Table.Tr>
-              ) : (
-                mappedDirectories.map((mapped) => (
-                  <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-                    <Table.Td style={{ width: "42%", minWidth: 0 }}>
-                      <PathCell
-                        value={mapped.virtual_path}
-                        onCopy={copyToClipboard}
-                        onOpen={setBrowsePath}
-                      />
-                    </Table.Td>
-                    <Table.Td style={{ width: "42%", minWidth: 0 }}>
-                      <PathCell
-                        value={mapped.real_path}
-                        onCopy={copyToClipboard}
-                        onOpen={setBrowsePath}
-                      />
-                    </Table.Td>
-                    <Table.Td style={{ width: "16%", minWidth: 0 }}>
-                      <Group gap={6}>
-                        <Badge color={mapped.target_exists ? "green" : "red"}>
-                          {mapped.target_exists ? "target exists" : "missing target"}
-                        </Badge>
-                        {duplicatePrimaryPaths.has(mapped.real_path) && (
-                          <Badge color="yellow">⚠ duplicate candidate</Badge>
-                        )}
-                        {(excludedByDuplicate.get(mapped.real_path) ?? 0) > 0 && (
-                          <Badge color="orange">
-                            excluded alt paths: {excludedByDuplicate.get(mapped.real_path)}
-                          </Badge>
-                        )}
-                      </Group>
+          </Table>
+
+          <Box
+            ref={tableViewportRef}
+            style={{
+              maxHeight: virtualizedViewportHeight,
+              overflowY: "auto"
+            }}
+            onScroll={(event) => {
+              handleViewportScroll(event.currentTarget.scrollTop);
+            }}
+          >
+            <Table striped withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
+              <Table.Tbody>
+                {loadError ? (
+                  <Table.Tr>
+                    <Table.Td colSpan={3}>
+                      <Text size="sm" c="red">
+                        {loadError}
+                      </Text>
                     </Table.Td>
                   </Table.Tr>
-                ))
-              )}
-            </Table.Tbody>
-          </Table>
+                ) : mappedDirectories.length === 0 ? (
+                  <Table.Tr>
+                    <Table.Td colSpan={3}>
+                      <Text size="sm" c="dimmed">
+                        {cacheBuilding && !cacheReady
+                          ? "Building in-memory directory index… wait a few seconds."
+                          : "No mapped directories match the current search/filter."}
+                      </Text>
+                    </Table.Td>
+                  </Table.Tr>
+                ) : (
+                  <>
+                    {topSpacerHeight > 0 && (
+                      <Table.Tr>
+                        <Table.Td colSpan={3} style={{ height: topSpacerHeight, padding: 0 }} />
+                      </Table.Tr>
+                    )}
+                    <MappedRows
+                      visibleDirectories={visibleDirectories}
+                      duplicatePrimaryPaths={duplicatePrimaryPaths}
+                      excludedByDuplicate={excludedByDuplicate}
+                      onCopy={copyToClipboard}
+                      onOpen={openBrowsePath}
+                    />
+                    {bottomSpacerHeight > 0 && (
+                      <Table.Tr>
+                        <Table.Td colSpan={3} style={{ height: bottomSpacerHeight, padding: 0 }} />
+                      </Table.Tr>
+                    )}
+                  </>
+                )}
+              </Table.Tbody>
+            </Table>
+          </Box>
 
           <DirectoryPickerModal
             opened={browsePath !== null}
