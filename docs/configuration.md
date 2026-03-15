@@ -106,6 +106,54 @@ Why Radarr parse is title-based:
 - Parse output can also include quality-definition signal, which LibrariArr can use as a fallback for profile mapping.
 - Deeper local analysis (NFO + ffprobe + filename tokens) can still influence profile selection, but custom-format-based influence requires `radarr.mapping.custom_format_map` because token-level signals do not map to Radarr custom format IDs automatically.
 
+## Multiple Versions & Constraints
+
+Important limitation when using a single Radarr/Sonarr instance:
+
+- Radarr and Sonarr identify items by media identity (movie/series metadata), not by filesystem folder uniqueness alone.
+- In practice, this means one managed item has one canonical managed path at a time.
+- If your source tree contains multiple parallel versions of the same movie/series (for example theatrical + director's cut as separate folders), discovery can see both, but Arr-side identity still collides.
+- Result: only one path can be the effective managed path for that Arr item, and alternates are treated as duplicates/noise for syncing.
+
+Why this happens:
+
+- LibrariArr matches folders to Arr records by identity signals (title/year, ids), then syncs that Arr record path to the selected shadow link.
+- Separate folder names or deeper nesting do not create separate Arr identities by themselves.
+
+Recommended patterns:
+
+1. Keep exactly one canonical version inside Arr-managed roots.
+2. Keep alternate versions outside Arr-managed roots, or
+3. Exclude alternate-version folders from discovery using `paths.exclude_paths`.
+
+### Excluding Alternate Versions (Workaround)
+
+Yes — this is the recommended workaround when you intentionally keep multiple versions on disk.
+
+`paths.exclude_paths` uses **glob-style patterns** (gitignore-like), not full regex. This is usually enough to filter alternate-version folders.
+
+Examples:
+
+```yaml
+paths:
+  exclude_paths:
+    # common alternate-version naming patterns
+    - "**/*Director's Cut*/"
+    - "**/*Extended*/"
+    - "**/*Remastered*/"
+    - "**/*Theatrical*/"
+
+    # keep discovery away from known side-content folders
+    - "**/Specials/"
+    - "**/Extras/"
+```
+
+Notes:
+
+- Matching is case-insensitive in discovery.
+- Use `/` suffix to target directories only.
+- Use `**` to match at any depth below each `nested_root`.
+
 ## Paths
 
 `paths.root_mappings`:

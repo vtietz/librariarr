@@ -12,6 +12,16 @@ from .jobs import JobManager
 from .state_store import PersistentStateStore
 
 
+def _duplicate_group_ref(path: Path) -> tuple[str, int | None]:
+    for candidate in (path, *path.parents):
+        ref = parse_movie_ref(candidate.name)
+        if ref.year is not None and ref.title:
+            return ref.title, ref.year
+
+    fallback = parse_movie_ref(path.name)
+    return fallback.title, fallback.year
+
+
 def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> dict[str, Any]:
     video_exts = set(config.runtime.scan_video_extensions or [".mkv", ".mp4", ".avi", ".mov"])
     exclude_paths = list(config.paths.exclude_paths)
@@ -32,8 +42,7 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
 
     grouped: dict[tuple[str, int | None], list[Path]] = {}
     for movie_path in all_movie_paths:
-        movie_ref = parse_movie_ref(movie_path.name)
-        grouped.setdefault((movie_ref.title, movie_ref.year), []).append(movie_path)
+        grouped.setdefault(_duplicate_group_ref(movie_path), []).append(movie_path)
 
     duplicate_movie_candidates: list[dict[str, Any]] = []
     for (title, year), paths in grouped.items():

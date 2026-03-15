@@ -1,26 +1,9 @@
-import {
-  Badge,
-  Button,
-  Card,
-  Group,
-  RingProgress,
-  ScrollArea,
-  SimpleGrid,
-  Stack,
-  Table,
-  Text,
-  Title,
-} from "@mantine/core";
+import { Badge, Button, Card, Group, RingProgress, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { getDiscoveryWarnings, runMaintenanceReconcile } from "../api/client";
 import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
 
-type Props = {
-  hasUnsavedChanges: boolean;
-  runtimeStatus: RuntimeStatusResponse | null;
-  jobsSummary: JobsSummary | null;
-  runtimePollLatencyMs: number | null;
-};
+type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null; runtimePollLatencyMs: number | null };
 
 export default function Dashboard({
   hasUnsavedChanges,
@@ -152,14 +135,13 @@ export default function Dashboard({
     }
   };
 
-  const latencyState =
-    runtimePollLatencyMs == null
-      ? { label: "unknown", color: "gray", progress: 0 }
-      : runtimePollLatencyMs <= 300
-        ? { label: "good", color: "green", progress: Math.min(100, Math.round((runtimePollLatencyMs / 300) * 100)) }
-        : runtimePollLatencyMs <= 900
-          ? { label: "degraded", color: "yellow", progress: Math.min(100, Math.round((runtimePollLatencyMs / 900) * 100)) }
-          : { label: "high", color: "red", progress: 100 };
+  const latencyState = runtimePollLatencyMs == null
+    ? { label: "unknown", color: "gray", progress: 0 }
+    : runtimePollLatencyMs <= 300
+      ? { label: "good", color: "green", progress: Math.min(100, Math.round((runtimePollLatencyMs / 300) * 100)) }
+      : runtimePollLatencyMs <= 900
+        ? { label: "degraded", color: "yellow", progress: Math.min(100, Math.round((runtimePollLatencyMs / 900) * 100)) }
+        : { label: "high", color: "red", progress: 100 };
 
   type DashboardTaskStatus = "idle" | "queued" | "running" | "error";
   type TaskSlot = {
@@ -191,20 +173,58 @@ export default function Dashboard({
   );
   const runtimeTaskFromPending = findPendingTask((task) => task.source === "runtime-status");
 
+  const buildReconcileScopeSummary = (metrics: {
+    movie_folders_seen?: number;
+    series_folders_seen?: number;
+    affected_paths_count?: number | null;
+  } | undefined | null) => {
+    if (!metrics) {
+      return null;
+    }
+    const hasMovieCount = typeof metrics.movie_folders_seen === "number";
+    const hasSeriesCount = typeof metrics.series_folders_seen === "number";
+    if (!hasMovieCount && !hasSeriesCount) {
+      return null;
+    }
+
+    const modeText =
+      typeof metrics.affected_paths_count === "number"
+        ? `incremental (${metrics.affected_paths_count} affected paths)`
+        : "full";
+    const movieCount = hasMovieCount ? metrics.movie_folders_seen : 0;
+    const seriesCount = hasSeriesCount ? metrics.series_folders_seen : 0;
+    return `${modeText} · considered folders M/S ${movieCount}/${seriesCount}`;
+  };
+
+  const runtimeLoopStatus: DashboardTaskStatus =
+    taskState === "running" ? "running" : taskState === "error" ? "error" : "idle";
+  const runningScopeSummary = buildReconcileScopeSummary(runtimeStatus?.current_task);
+  const lastScopeSummary = buildReconcileScopeSummary(runtimeStatus?.last_reconcile);
+  const runtimeLoopDetail =
+    runtimeLoopStatus === "error"
+      ? runtimeStatus?.current_task.error ??
+        runtimeStatus?.last_reconcile?.error ??
+        (lastScopeSummary
+          ? `Last reconcile failed · ${lastScopeSummary}`
+          : "Last reconcile failed (no message provided).")
+      : runningScopeSummary ??
+        runtimeStatus?.current_task.phase ??
+        runtimeTaskFromPending?.detail ??
+        "Waiting for debounce, ingest, or manual trigger";
+  const runtimeLoopQueuedAt =
+    runtimeLoopStatus === "error"
+      ? formatAge(runtimeStatus?.current_task.updated_at ?? runtimeStatus?.last_reconcile?.finished_at)
+      : runtimeStatus?.current_task.started_at != null
+        ? formatAge(runtimeStatus.current_task.started_at)
+        : "-";
+
   const runtimeLoopSlot: TaskSlot = {
     id: "runtime-loop",
     name: "Runtime Reconcile Loop",
     source: "runtime-status",
-    status:
-      taskState === "running" ? "running" : taskState === "error" ? "error" : "idle",
-    detail:
-      runtimeStatus?.current_task.phase ??
-      runtimeTaskFromPending?.detail ??
-      "Waiting for debounce, ingest, or manual trigger",
-    queuedAt:
-      runtimeStatus?.current_task.started_at != null
-        ? formatAge(runtimeStatus.current_task.started_at)
-        : "-",
+    status: runtimeLoopStatus,
+    detail: runtimeLoopDetail,
+    queuedAt: runtimeLoopQueuedAt,
     duration: formatTaskDuration(runtimeStatus?.current_task ?? {}),
   };
 
@@ -433,7 +453,7 @@ export default function Dashboard({
                   <Text size="sm" c="dimmed">{slot.source}</Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c="dimmed" lineClamp={1}>{slot.detail}</Text>
+                  <Text size="sm" c="dimmed" lineClamp={2}>{slot.detail}</Text>
                 </Table.Td>
                 <Table.Td>
                   <Text size="sm" c="dimmed">{slot.queuedAt}</Text>

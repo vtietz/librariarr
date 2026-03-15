@@ -487,6 +487,33 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
     assert payload["cache"]["ready"] is True
 
 
+def test_discovery_warnings_duplicate_key_uses_nearest_yeared_ancestor(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    specials_a = nested_root / "FSK12" / "Doppelhaushälfte (2022)" / "Specials"
+    specials_b = nested_root / "FSK12" / "Another Show (2020)" / "Specials"
+    specials_a.mkdir(parents=True)
+    specials_b.mkdir(parents=True)
+    (specials_a / "Special.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+    (specials_b / "Special.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    duplicate_refs = {item["movie_ref"] for item in payload["duplicate_movie_candidates"]}
+    assert "specials" not in duplicate_refs
+
+
 def test_mapped_directories_stream_endpoint_emits_sse(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"

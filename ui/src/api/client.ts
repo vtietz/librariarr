@@ -3,7 +3,7 @@ import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/con
 
 const api = axios.create({
   baseURL: "/api",
-  timeout: 20000
+  timeout: 10000
 });
 
 /** Short timeout for Arr metadata proxy calls (tags, profiles, etc.). */
@@ -136,13 +136,6 @@ export type DiscoveryWarningsResponse = {
     duplicate_paths: string[];
     contains_excluded: boolean;
   }>;
-  cache?: {
-    ready: boolean;
-    building: boolean;
-    updated_at_ms: number | null;
-    last_error: string | null;
-    version: number;
-  };
 };
 
 export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
@@ -380,43 +373,6 @@ export type RuntimeStatusResponse = {
     pending_ingest_dirs?: number;
   } | null;
   updated_at: number | null;
-  known_links_in_memory?: number;
-  mapped_cache?: {
-    ready: boolean;
-    building: boolean;
-    updated_at_ms: number | null;
-    entries_total: number;
-    version: number;
-    last_error: string | null;
-    last_build_duration_ms?: number | null;
-  };
-  discovery_cache?: {
-    ready: boolean;
-    building: boolean;
-    updated_at_ms: number | null;
-    last_error: string | null;
-    version: number;
-    last_build_duration_ms?: number | null;
-  };
-  pending_tasks?: Array<{
-    id: string;
-    name: string;
-    status: "queued" | "running" | "idle";
-    source: string;
-    detail: string;
-    queued_at?: number | null;
-    started_at?: number | null;
-    duration_seconds?: number | null;
-    next_run_at?: number | null;
-  }>;
-  health?: {
-    status: "ok" | "degraded" | "starting";
-    reasons: string[];
-    worker_busy?: boolean;
-    jobs_active?: number;
-    consecutive_refresh_failures?: number;
-    last_refresh_error?: string | null;
-  };
   runtime_supervisor_present: boolean;
   runtime_supervisor_running: boolean;
 };
@@ -440,7 +396,7 @@ export const getAppLogs = async (params?: { tail?: number; timeoutMs?: number })
     params: {
       tail: params?.tail
     },
-    timeout: params?.timeoutMs ?? 15000
+    timeout: params?.timeoutMs ?? 60000
   });
   return data;
 };

@@ -69,6 +69,15 @@ class ServiceReconcileMixin:
                 )
                 self._known_series_folders = all_series_folders
 
+            LOG.info(
+                "Reconcile scope resolved: mode=%s affected_paths=%s "
+                "considered_movie_folders=%s considered_series_folders=%s",
+                reconcile_mode,
+                affected_paths_count,
+                len(movie_folders),
+                len(series_folders),
+            )
+
             target_to_links = collect_current_links(self.shadow_roots)
             should_fetch_movie_index = self.sync_enabled and (
                 not movie_incremental_mode or bool(movie_folders) or bool(movie_affected_targets)
