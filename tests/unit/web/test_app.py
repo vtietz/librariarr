@@ -364,6 +364,57 @@ def test_runtime_status_endpoint_reports_manual_reconcile(tmp_path: Path, monkey
     assert isinstance(payload.get("pending_tasks"), list)
     assert isinstance(payload.get("mapped_cache"), dict)
     assert isinstance(payload.get("discovery_cache"), dict)
+    assert isinstance(payload.get("health"), dict)
+
+
+def test_runtime_status_endpoint_reports_authoritative_cache_task(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+
+    manager = app.state.web.job_manager
+    assert manager is not None
+    manager.begin_external_task(
+        kind="cache-refresh-mapped",
+        name="Mapped Index Rebuild",
+        source="cache",
+        detail="Rebuilding mapped directory index",
+        payload={"cache_name": "mapped_directories"},
+        task_key="mapped-index",
+        history_visible=False,
+    )
+
+    client = TestClient(app)
+    response = client.get("/api/runtime/status")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert any(task["name"] == "Mapped Index Rebuild" for task in payload["pending_tasks"])
+
+
+def test_health_endpoint_returns_dashboard_health_payload(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/health")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] in {"ok", "degraded", "starting"}
 
 
 def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
@@ -480,8 +531,15 @@ def test_mapped_directories_refresh_endpoint_forces_rescan(tmp_path: Path) -> No
     assert response.status_code == 200
     payload = response.json()
     assert payload["ok"] is True
-    assert payload["cache"]["ready"] is True
-    assert payload["cache"]["entries_total"] >= 1
+    assert payload["queued"] is True
+    assert isinstance(payload["job_id"], str)
+
+    job = _wait_for_job(client, payload["job_id"])
+    assert job["status"] == "succeeded"
+
+    refreshed = client.get("/api/fs/mapped-directories")
+    assert refreshed.status_code == 200
+    assert refreshed.json()["cache"]["entries_total"] >= 1
 
 
 def test_app_logs_endpoint_returns_entries(tmp_path: Path, monkeypatch) -> None:

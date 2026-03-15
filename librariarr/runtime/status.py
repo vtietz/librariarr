@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import threading
 import time
+from collections.abc import Callable
 from copy import deepcopy
 from typing import Any
 
@@ -9,6 +10,10 @@ from typing import Any
 class RuntimeStatusTracker:
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._task_start_callback: Callable[..., str | None] | None = None
+        self._task_update_callback: Callable[..., None] | None = None
+        self._task_finish_callback: Callable[..., None] | None = None
+        self._current_task_id: str | None = None
         self._state: dict[str, Any] = {
             "runtime_running": False,
             "watched_nested_roots": 0,
@@ -24,10 +29,23 @@ class RuntimeStatusTracker:
                 "started_at": None,
                 "updated_at": None,
                 "error": None,
+                "task_id": None,
             },
             "last_reconcile": None,
             "updated_at": None,
         }
+
+    def configure_task_callbacks(
+        self,
+        *,
+        on_started: Callable[..., str | None] | None = None,
+        on_updated: Callable[..., None] | None = None,
+        on_finished: Callable[..., None] | None = None,
+    ) -> None:
+        with self._lock:
+            self._task_start_callback = on_started
+            self._task_update_callback = on_updated
+            self._task_finish_callback = on_finished
 
     def mark_runtime_running(
         self,
@@ -61,9 +79,16 @@ class RuntimeStatusTracker:
                 self._state["next_event_reconcile_due_at"] = None
             self._touch_locked()
 
-    def mark_reconcile_started(self, *, trigger_source: str, phase: str = "reconcile") -> None:
+    def mark_reconcile_started(
+        self,
+        *,
+        trigger_source: str,
+        phase: str = "reconcile",
+        task_id: str | None = None,
+    ) -> None:
         with self._lock:
             now = time.time()
+            callback = self._task_start_callback
             self._state["current_task"] = {
                 "state": "running",
                 "phase": phase,
@@ -71,8 +96,27 @@ class RuntimeStatusTracker:
                 "started_at": now,
                 "updated_at": now,
                 "error": None,
+                "task_id": task_id,
             }
+            current_payload = deepcopy(self._state["current_task"])
+            self._current_task_id = task_id
             self._touch_locked()
+
+        if callback is not None:
+            resolved_task_id = callback(
+                task_id=task_id,
+                trigger_source=trigger_source,
+                phase=phase,
+                current_task=current_payload,
+            )
+            if resolved_task_id:
+                with self._lock:
+                    self._current_task_id = resolved_task_id
+                    current_task = self._state.get("current_task")
+                    if isinstance(current_task, dict):
+                        current_task["task_id"] = resolved_task_id
+                        current_task["updated_at"] = time.time()
+                        self._touch_locked()
 
     def update_reconcile_phase(self, phase: str) -> None:
         with self._lock:
@@ -81,7 +125,12 @@ class RuntimeStatusTracker:
                 return
             current_task["phase"] = phase
             current_task["updated_at"] = time.time()
+            task_id = self._current_task_id
+            current_payload = deepcopy(current_task)
             self._touch_locked()
+
+        if self._task_update_callback is not None and task_id is not None:
+            self._task_update_callback(task_id=task_id, current_task=current_payload)
 
     def update_active_reconcile_metrics(self, metrics: dict[str, Any]) -> None:
         with self._lock:
@@ -90,7 +139,12 @@ class RuntimeStatusTracker:
                 return
             current_task.update(metrics)
             current_task["updated_at"] = time.time()
+            task_id = self._current_task_id
+            current_payload = deepcopy(current_task)
             self._touch_locked()
+
+        if self._task_update_callback is not None and task_id is not None:
+            self._task_update_callback(task_id=task_id, current_task=current_payload)
 
     def mark_reconcile_finished(
         self,
@@ -104,6 +158,7 @@ class RuntimeStatusTracker:
             current_task = self._state.get("current_task")
             if not isinstance(current_task, dict):
                 current_task = {}
+            task_id = self._current_task_id
 
             started_at = current_task.get("started_at")
             duration_seconds: float | None = None
@@ -119,6 +174,7 @@ class RuntimeStatusTracker:
                 "duration_seconds": duration_seconds,
                 "ingest_pending": bool(ingest_pending),
                 "error": error,
+                "task_id": task_id,
             }
             for key, value in current_task.items():
                 if key in summary:
@@ -133,8 +189,19 @@ class RuntimeStatusTracker:
                 "started_at": None,
                 "updated_at": now,
                 "error": error,
+                "task_id": None,
             }
+            finished_payload = deepcopy(summary)
+            self._current_task_id = None
             self._touch_locked()
+
+        if self._task_finish_callback is not None and task_id is not None:
+            self._task_finish_callback(
+                task_id=task_id,
+                success=success,
+                error=error,
+                result=finished_payload,
+            )
 
     def snapshot(self) -> dict[str, Any]:
         with self._lock:

@@ -17,7 +17,6 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
-from .dashboard_tasks import build_pending_tasks
 from .discovery_cache import get_discovery_warnings_cache
 from .log_buffer import LogRingBuffer, get_log_buffer
 from .mapped_cache import get_mapped_directories_cache
@@ -441,7 +440,13 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 LOG.error("Manual reconcile failed: %s", exc)
                 return {"ok": False, "message": str(exc)}
 
-        job_id = manager.submit(kind="reconcile-manual", func=action)
+        job_id = manager.submit(
+            kind="reconcile-manual",
+            name="Manual Reconcile",
+            source="job-manager",
+            detail="queued",
+            func=action,
+        )
         return {
             "ok": True,
             "queued": True,
@@ -482,36 +487,14 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
     @router.get("/api/runtime/status")
     def runtime_status_endpoint(request: Request) -> dict[str, Any]:
-        payload = runtime_status.snapshot()
         supervisor = getattr(request.app.state.web, "runtime_supervisor", None)
-        jobs_summary_payload: dict[str, Any] = {}
-        active_jobs_payload: list[dict[str, Any]] = []
-        manager = getattr(request.app.state.web, "job_manager", None)
-        if manager is not None:
-            jobs_summary_payload = manager.summary()
-            active_jobs_payload = manager.list(limit=30)
-
-        mapped_snapshot = mapped_cache.snapshot()
-        discovery_snapshot = discovery_cache.snapshot(limit=50)
-
-        payload["known_links_in_memory"] = int(len(mapped_snapshot.get("items") or []))
-        payload["mapped_cache"] = {
-            "ready": bool(mapped_snapshot.get("ready")),
-            "building": bool(mapped_snapshot.get("building")),
-            "updated_at_ms": mapped_snapshot.get("updated_at_ms"),
-            "entries_total": int(len(mapped_snapshot.get("items") or [])),
-            "version": int(mapped_snapshot.get("version") or 0),
-            "last_error": mapped_snapshot.get("last_error"),
-            "last_build_duration_ms": mapped_snapshot.get("last_build_duration_ms"),
-        }
-        payload["discovery_cache"] = discovery_snapshot.get("cache")
-        payload["pending_tasks"] = build_pending_tasks(
-            runtime_payload=payload,
-            jobs_summary=jobs_summary_payload,
-            mapped_cache_snapshot=mapped_snapshot,
-            discovery_cache_snapshot=discovery_snapshot,
-            active_jobs=active_jobs_payload,
-        )
+        read_model = getattr(request.app.state.web, "dashboard_read_model", None)
+        if read_model is not None:
+            payload = read_model.snapshot()
+            if payload.get("updated_at") is None:
+                payload = read_model.refresh_now()
+        else:
+            payload = runtime_status.snapshot()
         payload["runtime_supervisor_present"] = supervisor is not None
         payload["runtime_supervisor_running"] = (
             bool(supervisor.is_running()) if supervisor is not None else False
@@ -528,14 +511,11 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         config = _load_config_or_http(_read_config_path(request))
         all_roots = _shadow_roots(config)
 
-        # Lazy fallback: only rescans when cache is uninitialised or >10 s stale.
-        # In production the cache is kept fresh by reconcile-complete notifications,
-        # so this almost never triggers an actual filesystem scan.
         mapped_cache.request_refresh(config)
 
         snapshot = mapped_cache.snapshot()
-        if not snapshot["ready"] or snapshot["building"]:
-            mapped_cache.wait_for_build(timeout=5.0)
+        if not snapshot["ready"] and snapshot["building"]:
+            mapped_cache.wait_for_build(timeout=2.0)
             snapshot = mapped_cache.snapshot()
 
         if shadow_root is None:
@@ -589,19 +569,42 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         config = _load_config_or_http(_read_config_path(request))
         discovery_cache.request_refresh(config)
         snapshot = discovery_cache.snapshot(limit=limit)
-        if snapshot["cache"]["building"]:
+        if not snapshot["cache"]["ready"] and snapshot["cache"]["building"]:
             discovery_cache.wait_for_build(timeout=2.0)
             snapshot = discovery_cache.snapshot(limit=limit)
         return snapshot
 
     @router.post("/api/fs/mapped-directories/refresh")
     def refresh_mapped_directories(request: Request) -> dict[str, Any]:
-        config = _load_config_or_http(_read_config_path(request))
-        mapped_cache.request_refresh(config, force=True)
-        mapped_cache.wait_for_build(timeout=10.0)
+        manager = _job_manager_or_http(request)
+        config_path = _read_config_path(request)
+
+        def action() -> dict[str, Any]:
+            config = _load_config_or_http(config_path)
+            started = mapped_cache.request_refresh(config, force=True)
+            return {
+                "ok": True,
+                "started": bool(started),
+                "message": (
+                    "Mapped directory refresh started."
+                    if started
+                    else "Mapped directory refresh already in progress."
+                ),
+            }
+
         snapshot = mapped_cache.snapshot()
+        job_id = manager.submit(
+            kind="cache-refresh-mapped-request",
+            name="Refresh Mapped Directories",
+            source="job-manager",
+            detail="queued",
+            func=action,
+            history_visible=False,
+        )
         return {
             "ok": True,
+            "queued": True,
+            "job_id": job_id,
             "cache": {
                 "ready": bool(snapshot["ready"]),
                 "building": bool(snapshot["building"]),

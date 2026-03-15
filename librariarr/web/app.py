@@ -7,6 +7,7 @@ import logging
 import os
 import threading
 from collections.abc import Mapping, MutableMapping
+from contextlib import asynccontextmanager
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from tempfile import NamedTemporaryFile
@@ -25,13 +26,17 @@ from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..quality import VIDEO_EXTENSIONS
+from ..runtime import get_runtime_status_tracker
 from ..sync.discovery import discover_movie_folders, discover_series_folders
-from .discovery_cache import warmup_discovery_warnings_cache
+from .dashboard_read_model import DashboardReadModel
+from .discovery_cache import get_discovery_warnings_cache, warmup_discovery_warnings_cache
 from .jobs import JobManager
 from .log_buffer import install_log_buffer
-from .mapped_cache import warmup_mapped_directories_cache
+from .mapped_cache import get_mapped_directories_cache, warmup_mapped_directories_cache
 from .operations import build_operations_router, run_radarr_diagnostics, run_sonarr_diagnostics
 from .runtime_supervisor import RuntimeSupervisor
+from .runtime_task_wiring import configure_runtime_task_callbacks
+from .state_store import PersistentStateStore
 
 LOG = logging.getLogger(__name__)
 
@@ -56,6 +61,8 @@ class WebState:
     draft_yaml: str | None = None
     runtime_supervisor: RuntimeSupervisor | None = None
     job_manager: JobManager | None = None
+    state_store: PersistentStateStore | None = None
+    dashboard_read_model: DashboardReadModel | None = None
 
 
 def _checksum(text: str) -> str:
@@ -194,6 +201,13 @@ def _job_manager_or_http(state: WebState) -> JobManager:
     return manager
 
 
+def _default_state_path(config_path: Path) -> Path:
+    configured = str(os.getenv("LIBRARIARR_STATE_PATH", "")).strip()
+    if configured:
+        return Path(configured)
+    return config_path.with_name("librariarr-state.json")
+
+
 def create_app(  # noqa: C901
     *,
     config_path: str | Path | None = None,
@@ -203,27 +217,50 @@ def create_app(  # noqa: C901
     if config_path is None:
         config_path = os.getenv("LIBRARIARR_CONFIG_PATH", "/config/config.yaml")
 
-    app = FastAPI(title="LibrariArr Web API", version="0.1.0")
+    config_path = Path(config_path)
+    state_store = PersistentStateStore(_default_state_path(config_path))
+    job_manager = JobManager(state_store=state_store)
+    runtime_status_tracker = get_runtime_status_tracker()
+    mapped_cache = get_mapped_directories_cache()
+    discovery_cache = get_discovery_warnings_cache()
+    mapped_cache.attach_state(state_store=state_store, task_manager=job_manager)
+    discovery_cache.attach_state(state_store=state_store, task_manager=job_manager)
+    configure_runtime_task_callbacks(
+        runtime_status_tracker=runtime_status_tracker,
+        job_manager=job_manager,
+    )
+    dashboard_read_model = DashboardReadModel(
+        runtime_status_tracker=runtime_status_tracker,
+        job_manager=job_manager,
+        mapped_cache=mapped_cache,
+        discovery_cache=discovery_cache,
+        state_store=state_store,
+    )
+
+    @asynccontextmanager
+    async def lifespan(_app: FastAPI):
+        job_manager.start()
+        warmup_mapped_directories_cache(config_path)
+        warmup_discovery_warnings_cache(config_path)
+        dashboard_read_model.start()
+        dashboard_read_model.refresh_now()
+        try:
+            yield
+        finally:
+            dashboard_read_model.stop()
+            job_manager.stop()
+
+    app = FastAPI(title="LibrariArr Web API", version="0.1.0", lifespan=lifespan)
     install_log_buffer()
     state = WebState(
-        config_path=Path(config_path),
+        config_path=config_path,
         runtime_supervisor=runtime_supervisor,
-        job_manager=JobManager(),
+        job_manager=job_manager,
+        state_store=state_store,
+        dashboard_read_model=dashboard_read_model,
     )
     app.state.web = state
     app.include_router(build_operations_router())
-
-    @app.on_event("startup")
-    def startup() -> None:
-        if state.job_manager is not None:
-            state.job_manager.start()
-        warmup_mapped_directories_cache(state.config_path)
-        warmup_discovery_warnings_cache(state.config_path)
-
-    @app.on_event("shutdown")
-    def shutdown() -> None:
-        if state.job_manager is not None:
-            state.job_manager.stop()
 
     if ui_dist_path is None:
         ui_dist_path = os.getenv("LIBRARIARR_UI_DIST", "/app/ui/dist")
@@ -233,8 +270,18 @@ def create_app(  # noqa: C901
         app.mount("/assets", StaticFiles(directory=str(assets_dir)), name="assets")
 
     @app.get("/api/health")
-    def health() -> dict[str, str]:
-        return {"status": "ok"}
+    def health() -> dict[str, Any]:
+        snapshot = state.dashboard_read_model.snapshot() if state.dashboard_read_model else None
+        if (
+            isinstance(snapshot, dict)
+            and snapshot.get("updated_at") is None
+            and state.dashboard_read_model
+        ):
+            snapshot = state.dashboard_read_model.refresh_now()
+        health_payload = snapshot.get("health") if isinstance(snapshot, dict) else None
+        if not isinstance(health_payload, dict):
+            return {"status": "starting"}
+        return health_payload
 
     @app.get("/api/config")
     def get_config(

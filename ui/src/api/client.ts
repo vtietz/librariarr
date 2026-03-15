@@ -409,6 +409,14 @@ export type RuntimeStatusResponse = {
     duration_seconds?: number | null;
     next_run_at?: number | null;
   }>;
+  health?: {
+    status: "ok" | "degraded" | "starting";
+    reasons: string[];
+    worker_busy?: boolean;
+    jobs_active?: number;
+    consecutive_refresh_failures?: number;
+    last_refresh_error?: string | null;
+  };
   runtime_supervisor_present: boolean;
   runtime_supervisor_running: boolean;
 };

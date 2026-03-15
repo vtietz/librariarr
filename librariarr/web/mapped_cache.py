@@ -6,6 +6,8 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig, load_config
+from .jobs import JobManager
+from .state_store import PersistentStateStore
 
 
 def shadow_roots(config: AppConfig) -> list[Path]:
@@ -32,6 +34,53 @@ class MappedDirectoriesCache:
         self._last_build_finished = 0.0
         self._last_build_duration_ms: int | None = None
         self._build_event = threading.Event()
+        self._state_store: PersistentStateStore | None = None
+        self._task_manager: JobManager | None = None
+
+    def attach_state(self, *, state_store: PersistentStateStore, task_manager: JobManager) -> None:
+        with self._lock:
+            self._state_store = state_store
+            self._task_manager = task_manager
+            self._items = []
+            self._shadow_roots = []
+            self._updated_at_ms = None
+            self._last_error = None
+            self._building = False
+            self._version = 0
+            self._last_build_finished = 0.0
+            self._last_build_duration_ms = None
+            self._build_event = threading.Event()
+            payload = state_store.load_cache_snapshot("mapped_directories")
+            if not isinstance(payload, dict):
+                return
+            items = payload.get("items")
+            roots = payload.get("shadow_roots")
+            if isinstance(items, list):
+                self._items = list(items)
+            if isinstance(roots, list):
+                self._shadow_roots = [str(root) for root in roots]
+            updated_at_ms = payload.get("updated_at_ms")
+            self._updated_at_ms = updated_at_ms if isinstance(updated_at_ms, int | float) else None
+            self._last_error = (
+                str(payload.get("last_error")) if payload.get("last_error") is not None else None
+            )
+            self._version = int(payload.get("version") or self._version)
+            self._last_build_duration_ms = payload.get("last_build_duration_ms")
+
+    def _persist_snapshot_locked(self) -> None:
+        if self._state_store is None:
+            return
+        self._state_store.save_cache_snapshot(
+            "mapped_directories",
+            {
+                "items": list(self._items),
+                "shadow_roots": list(self._shadow_roots),
+                "updated_at_ms": self._updated_at_ms,
+                "last_error": self._last_error,
+                "version": self._version,
+                "last_build_duration_ms": self._last_build_duration_ms,
+            },
+        )
 
     def _scan(self, config: AppConfig) -> tuple[list[dict[str, Any]], list[str]]:
         roots = shadow_roots(config)
@@ -54,6 +103,17 @@ class MappedDirectoriesCache:
 
     def _rebuild_worker(self, config: AppConfig) -> None:
         started = time.perf_counter()
+        task_id: str | None = None
+        if self._task_manager is not None:
+            task_id = self._task_manager.begin_external_task(
+                kind="cache-refresh-mapped",
+                name="Mapped Index Rebuild",
+                source="cache",
+                detail="Rebuilding mapped directory index",
+                payload={"cache_name": "mapped_directories"},
+                task_key="mapped-index",
+                history_visible=False,
+            )
         try:
             items, roots = self._scan(config)
             duration_ms = int((time.perf_counter() - started) * 1000)
@@ -65,6 +125,18 @@ class MappedDirectoriesCache:
                 self._version += 1
                 self._last_build_finished = time.time()
                 self._last_build_duration_ms = duration_ms
+                self._persist_snapshot_locked()
+            if task_id is not None and self._task_manager is not None:
+                self._task_manager.finish_external_task(
+                    task_id,
+                    success=True,
+                    detail="Mapped directory index rebuilt",
+                    result={
+                        "entries_total": len(items),
+                        "shadow_roots": roots,
+                        "duration_ms": duration_ms,
+                    },
+                )
         except Exception as exc:
             duration_ms = int((time.perf_counter() - started) * 1000)
             with self._lock:
@@ -72,6 +144,15 @@ class MappedDirectoriesCache:
                 self._version += 1
                 self._last_build_finished = time.time()
                 self._last_build_duration_ms = duration_ms
+                self._persist_snapshot_locked()
+            if task_id is not None and self._task_manager is not None:
+                self._task_manager.finish_external_task(
+                    task_id,
+                    success=False,
+                    detail="Mapped directory index rebuild failed",
+                    error=str(exc),
+                    result={"duration_ms": duration_ms},
+                )
         finally:
             with self._lock:
                 self._building = False

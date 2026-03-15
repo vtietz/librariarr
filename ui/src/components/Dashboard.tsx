@@ -111,6 +111,10 @@ export default function Dashboard({
   const knownLinksInMemory =
     runtimeStatus?.known_links_in_memory ?? runtimeStatus?.mapped_cache?.entries_total ?? 0;
   const pendingTasks = runtimeStatus?.pending_tasks ?? [];
+  const healthStatus = runtimeStatus?.health?.status ?? "starting";
+  const healthBadgeColor =
+    healthStatus === "ok" ? "green" : healthStatus === "degraded" ? "yellow" : "gray";
+  const primaryHealthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for snapshot";
 
   const formatAge = (timestamp: number | null | undefined) => {
     if (typeof timestamp !== "number") {
@@ -218,7 +222,7 @@ export default function Dashboard({
   return (
     <Stack>
       <Title order={3}>Dashboard</Title>
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
+      <SimpleGrid cols={{ base: 1, md: 5 }}>
         <Card withBorder>
           <Group justify="space-between">
             <Text fw={600}>Config Draft</Text>
@@ -226,6 +230,15 @@ export default function Dashboard({
               {hasUnsavedChanges ? "unsaved changes" : "in sync"}
             </Badge>
           </Group>
+        </Card>
+        <Card withBorder>
+          <Group justify="space-between">
+            <Text fw={600}>System Health</Text>
+            <Badge color={healthBadgeColor}>{healthStatus}</Badge>
+          </Group>
+          <Text c="dimmed" size="sm" mt="xs">
+            {primaryHealthReason}
+          </Text>
         </Card>
         <Card withBorder>
           <Group justify="space-between">
