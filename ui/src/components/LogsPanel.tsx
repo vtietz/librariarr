@@ -17,6 +17,23 @@ function levelColor(level: string): string {
   return LEVEL_COLOR[normalized] ?? "gray";
 }
 
+function mergeLatestLogs(current: LogItem[], incoming: LogItem[], limit = 1000): LogItem[] {
+  const merged = [...incoming, ...current];
+  const seen = new Set<string>();
+  const result: LogItem[] = [];
+  for (const entry of merged) {
+    if (seen.has(entry.seq)) {
+      continue;
+    }
+    seen.add(entry.seq);
+    result.push(entry);
+    if (result.length >= limit) {
+      break;
+    }
+  }
+  return result;
+}
+
 export default function LogsPanel() {
   const [logs, setLogs] = useState<LogItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -82,7 +99,7 @@ export default function LogsPanel() {
           setError(null);
           return;
         }
-        setLogs((current) => [parsed, ...current].slice(0, 1000));
+        setLogs((current) => mergeLatestLogs(current, [parsed]));
         setStreamState("live");
         setError(null);
       } catch {

@@ -19,11 +19,15 @@ from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
 from ..sync.discovery import discover_movie_folders
 from ..sync.naming import parse_movie_ref
-from .log_buffer import get_log_buffer
+from .log_buffer import LogRingBuffer, get_log_buffer
 from .mapped_cache import get_mapped_directories_cache
 from .mapped_cache import shadow_roots as _shadow_roots
 
 LOG = logging.getLogger(__name__)
+
+LOGS_STREAM_REPLAY_TAIL = 100
+LOGS_STREAM_WAIT_SECONDS = 0.3
+LOGS_STREAM_HEARTBEAT_SECONDS = 15.0
 
 
 def _safe_log_url(url: str) -> str:
@@ -42,6 +46,88 @@ def _safe_log_url(url: str) -> str:
 class ArrConnectionRequest(BaseModel):
     url: str = Field(min_length=1)
     api_key: str = Field(min_length=1)
+
+
+def _sse_data(payload: Any) -> str:
+    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _drain_log_entries(
+    entries: list[dict[str, str]],
+    *,
+    last_seq: int,
+    event_count: int,
+    max_events: int,
+) -> tuple[list[str], int, int, bool]:
+    events: list[str] = []
+    for entry in entries:
+        events.append(_sse_data(entry))
+        event_count += 1
+        seq_val = int(entry["seq"])
+        if seq_val > last_seq:
+            last_seq = seq_val
+        if max_events > 0 and event_count >= max_events:
+            return events, last_seq, event_count, True
+    return events, last_seq, event_count, False
+
+
+async def _iter_logs_stream_events(
+    *,
+    request: Request,
+    buf: LogRingBuffer,
+    max_events: int,
+):
+    connected_sent_at = time.perf_counter()
+    last_seq = 0
+    yield _sse_data({"connected": True, "buffered": len(buf.get_entries(tail=0))})
+    LOG.debug(
+        "Logs SSE connected marker sent in %.3f ms",
+        (time.perf_counter() - connected_sent_at) * 1000,
+    )
+
+    event_count = 1
+    if max_events > 0 and event_count >= max_events:
+        return
+
+    replay_entries = buf.get_entries(tail=LOGS_STREAM_REPLAY_TAIL)
+    replay_events, last_seq, event_count, replay_limit_reached = _drain_log_entries(
+        replay_entries,
+        last_seq=last_seq,
+        event_count=event_count,
+        max_events=max_events,
+    )
+    for event in replay_events:
+        yield event
+    if replay_limit_reached:
+        return
+
+    if replay_entries:
+        LOG.debug("Logs SSE replayed %d buffered entries", len(replay_entries))
+
+    last_heartbeat = time.monotonic()
+    while True:
+        if await request.is_disconnected():
+            break
+
+        new_entries = buf.get_entries_since(last_seq)
+        if new_entries:
+            events, last_seq, event_count, limit_reached = _drain_log_entries(
+                new_entries,
+                last_seq=last_seq,
+                event_count=event_count,
+                max_events=max_events,
+            )
+            for event in events:
+                yield event
+            if limit_reached:
+                return
+            last_heartbeat = time.monotonic()
+            continue
+
+        has_new = await asyncio.to_thread(buf.wait_for_new, LOGS_STREAM_WAIT_SECONDS)
+        if not has_new and (time.monotonic() - last_heartbeat >= LOGS_STREAM_HEARTBEAT_SECONDS):
+            yield ": ping\n\n"
+            last_heartbeat = time.monotonic()
 
 
 def _load_config_or_http(config_path: Path) -> AppConfig:
@@ -334,43 +420,21 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         max_events: int = Query(default=0, ge=0),
     ) -> StreamingResponse:
         buf = get_log_buffer()
+        if buf is None:
 
-        async def event_stream():
-            if buf is None:
+            async def empty_stream():
                 return
-            last_seq = buf.sequence
-            connected_payload = json.dumps(
-                {"connected": True, "buffered": len(buf.get_entries(tail=0))},
-                ensure_ascii=False,
-            )
-            yield f"data: {connected_payload}\n\n"
-            event_count = 1
-            if max_events > 0 and event_count >= max_events:
-                return
-            while True:
-                if await request.is_disconnected():
-                    break
-                new_entries = buf.get_entries_since(last_seq)
-                if new_entries:
-                    for entry in new_entries:
-                        payload = json.dumps(entry, ensure_ascii=False)
-                        yield f"data: {payload}\n\n"
-                        event_count += 1
-                        seq_val = int(entry["seq"])
-                        if seq_val > last_seq:
-                            last_seq = seq_val
-                        if max_events > 0 and event_count >= max_events:
-                            return
-                else:
-                    has_new = await asyncio.to_thread(buf.wait_for_new, 2.0)
-                    if not has_new:
-                        yield ": keepalive\n\n"
+                yield
+
+            stream = empty_stream()
+        else:
+            stream = _iter_logs_stream_events(request=request, buf=buf, max_events=max_events)
 
         return StreamingResponse(
-            event_stream(),
+            stream,
             media_type="text/event-stream",
             headers={
-                "Cache-Control": "no-cache",
+                "Cache-Control": "no-cache, no-transform",
                 "Connection": "keep-alive",
                 "X-Accel-Buffering": "no",
             },

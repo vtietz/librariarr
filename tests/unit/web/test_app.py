@@ -538,3 +538,37 @@ def test_app_logs_stream_endpoint_emits_sse(tmp_path: Path, monkeypatch) -> None
     assert first_line.startswith("data: ")
     assert '"connected": true' in first_line
     logger.removeHandler(buf)
+
+
+def test_app_logs_stream_endpoint_replays_buffered_entries(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    buf = LogRingBuffer(maxlen=100)
+    buf.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
+    monkeypatch.setattr("librariarr.web.operations.get_log_buffer", lambda: buf)
+
+    logger = logging.getLogger("test.stream.replay")
+    logger.addHandler(buf)
+    logger.setLevel(logging.DEBUG)
+    logger.info("older replay line")
+    logger.warning("newer replay line")
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    with client.stream("GET", "/api/logs/stream", params={"max_events": 3}) as response:
+        data_lines = [line for line in response.iter_lines() if line.startswith("data: ")]
+        first_three = data_lines[:3]
+
+    assert response.status_code == 200
+    assert len(first_three) == 3
+    assert '"connected": true' in first_three[0]
+    assert "newer replay line" in first_three[1]
+    assert "older replay line" in first_three[2]
+    logger.removeHandler(buf)
