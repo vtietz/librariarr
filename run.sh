@@ -159,6 +159,15 @@ case "$cmd" in
     if [[ "${LIBRARIARR_DEV_BOOTSTRAP:-1}" != "0" ]]; then
       "$0" dev-bootstrap
     fi
+    web_port="${LIBRARIARR_WEB_PORT:-8787}"
+    radarr_port="${DEV_HOST_PORT_RADARR:-17878}"
+    sonarr_port="${DEV_HOST_PORT_SONARR:-18989}"
+    echo ""
+    echo "Dev services are up. Open:"
+    echo "- LibrariArr admin GUI: http://localhost:${web_port}"
+    echo "- Vite dev UI:           http://localhost:5173"
+    echo "- Radarr admin:          http://localhost:${radarr_port}"
+    echo "- Sonarr admin:          http://localhost:${sonarr_port}"
     ;;
   dev-bootstrap)
     "$0" setup

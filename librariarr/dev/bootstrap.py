@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import tempfile
 import time
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -280,6 +282,13 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def _save_yaml(path: Path, payload: dict[str, Any]) -> None:
     backup_path = path.with_name(f"{path.name}.bak")
+    if not os.access(path.parent, os.W_OK):
+        backup_path = Path(tempfile.gettempdir()) / f"{path.name}.bak"
+        LOG.warning(
+            "Config directory %s is not writable; writing backup to %s",
+            path.parent,
+            backup_path,
+        )
     if path.exists():
         backup_path.write_text(path.read_text(encoding="utf-8"), encoding="utf-8")
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
