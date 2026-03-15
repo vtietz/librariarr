@@ -281,3 +281,39 @@ def test_runtime_sync_loop_logs_reconcile_mode_for_event_cycle(caplog) -> None:
         message.startswith("Starting reconcile cycle (mode=incremental, trigger=filesystem)")
         for message in messages
     )
+
+
+def test_on_reconcile_complete_callback_called_after_success() -> None:
+    schedule = ReconcileSchedule(debounce_seconds=0, maintenance_interval_seconds=None)
+    completed: list[bool] = []
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop.complete"),
+        on_reconcile_complete=lambda: completed.append(True),
+    )
+    schedule.mark_event()
+    loop._run_due_reconcile_cycle(poll_triggered=False)
+    assert completed == [True]
+
+
+def test_on_reconcile_complete_not_called_on_failure() -> None:
+    schedule = ReconcileSchedule(debounce_seconds=0, maintenance_interval_seconds=None)
+    completed: list[bool] = []
+    errors: list[Exception] = []
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: (_ for _ in ()).throw(RuntimeError("boom")),
+        on_reconcile_error=lambda exc: errors.append(exc),
+        logger=logging.getLogger("tests.runtime.loop.complete_err"),
+        on_reconcile_complete=lambda: completed.append(True),
+    )
+    schedule.mark_event()
+    loop._run_due_reconcile_cycle(poll_triggered=False)
+    assert completed == []
+    assert len(errors) == 1

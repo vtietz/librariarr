@@ -420,6 +420,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 ingest_pending = service.reconcile()
                 duration_ms = int((time.perf_counter() - started) * 1000)
                 runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
+                mapped_cache.request_refresh(config, force=True)
                 LOG.info(
                     "Manual reconcile completed in %d ms (ingest_pending=%s)",
                     duration_ms,
@@ -498,11 +499,15 @@ def build_operations_router() -> APIRouter:  # noqa: C901
     ) -> dict[str, Any]:
         config = _load_config_or_http(_read_config_path(request))
         all_roots = _shadow_roots(config)
+
+        # Lazy fallback: only rescans when cache is uninitialised or >10 s stale.
+        # In production the cache is kept fresh by reconcile-complete notifications,
+        # so this almost never triggers an actual filesystem scan.
         mapped_cache.request_refresh(config)
 
         snapshot = mapped_cache.snapshot()
-        if not snapshot["ready"]:
-            mapped_cache.wait_for_build(timeout=0.2)
+        if not snapshot["ready"] or snapshot["building"]:
+            mapped_cache.wait_for_build(timeout=5.0)
             snapshot = mapped_cache.snapshot()
 
         if shadow_root is None:
@@ -555,10 +560,26 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         config = _load_config_or_http(_read_config_path(request))
         return _build_discovery_warnings_payload(config=config, limit=limit)
 
+    @router.post("/api/fs/mapped-directories/refresh")
+    def refresh_mapped_directories(request: Request) -> dict[str, Any]:
+        config = _load_config_or_http(_read_config_path(request))
+        mapped_cache.request_refresh(config, force=True)
+        mapped_cache.wait_for_build(timeout=10.0)
+        snapshot = mapped_cache.snapshot()
+        return {
+            "ok": True,
+            "cache": {
+                "ready": bool(snapshot["ready"]),
+                "building": bool(snapshot["building"]),
+                "entries_total": len(snapshot["items"]),
+                "version": snapshot["version"],
+            },
+        }
+
     @router.get("/api/fs/mapped-directories/stream")
     async def mapped_directories_stream(
         request: Request,
-        interval_ms: int = Query(default=1000, ge=200, le=10000),
+        interval_ms: int = Query(default=2000, ge=200, le=10000),
         max_events: int = Query(default=0, ge=0),
     ) -> StreamingResponse:
         async def event_stream():
@@ -568,17 +589,13 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 if await request.is_disconnected():
                     break
 
-                config = _load_config_or_http(_read_config_path(request))
-                mapped_cache.request_refresh(config)
                 snapshot = mapped_cache.snapshot()
-                roots = _shadow_roots(config)
                 current_version = int(snapshot["version"])
                 changed = previous_version is not None and current_version != previous_version
 
                 if previous_version is None or changed:
                     payload = {
                         "changed": changed,
-                        "shadow_roots": [str(root) for root in roots],
                         "cache_ready": bool(snapshot["ready"]),
                         "cache_building": bool(snapshot["building"]),
                         "cache_entries_total": len(snapshot["items"]),

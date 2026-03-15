@@ -61,6 +61,7 @@ class RuntimeSyncLoop:
         logger: logging.Logger,
         poll_reconcile_trigger: Callable[[], bool] | None = None,
         status_tracker: RuntimeStatusTracker | None = None,
+        on_reconcile_complete: Callable[[], None] | None = None,
     ) -> None:
         self.nested_roots = nested_roots
         self.shadow_roots = shadow_roots
@@ -68,6 +69,7 @@ class RuntimeSyncLoop:
         self.reconcile = reconcile
         self.on_reconcile_error = on_reconcile_error
         self.poll_reconcile_trigger = poll_reconcile_trigger
+        self.on_reconcile_complete = on_reconcile_complete
         self.log = logger
         self.status_tracker = status_tracker
         self._dirty_paths: set[Path] = set()
@@ -279,6 +281,11 @@ class RuntimeSyncLoop:
         self.schedule.mark_sync()
         try:
             ingest_pending = self.reconcile(affected_paths)
+            if self.on_reconcile_complete is not None:
+                try:
+                    self.on_reconcile_complete()
+                except Exception:
+                    self.log.debug("on_reconcile_complete callback failed", exc_info=True)
             if self.status_tracker is not None:
                 self.status_tracker.mark_reconcile_finished(
                     success=True,

@@ -455,6 +455,30 @@ def test_mapped_directories_stream_endpoint_emits_sse(tmp_path: Path) -> None:
     assert '"changed": false' in first_line
 
 
+def test_mapped_directories_refresh_endpoint_forces_rescan(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    movie_dir = nested_root / "Movie One"
+    movie_dir.mkdir()
+    (shadow_root / "Movie One").symlink_to(movie_dir, target_is_directory=True)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.post("/api/fs/mapped-directories/refresh")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is True
+    assert payload["cache"]["ready"] is True
+    assert payload["cache"]["entries_total"] >= 1
+
+
 def test_app_logs_endpoint_returns_entries(tmp_path: Path, monkeypatch) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"

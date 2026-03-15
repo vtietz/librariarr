@@ -181,6 +181,12 @@ class ServiceBootstrapMixin:
         for shadow_root in self.shadow_roots:
             shadow_root.mkdir(parents=True, exist_ok=True)
         self._run_sync_preflight_checks()
+
+        def _on_reconcile_complete() -> None:
+            from ..web.mapped_cache import get_mapped_directories_cache
+
+            get_mapped_directories_cache().request_refresh(self.config, force=True)
+
         runtime_loop = RuntimeSyncLoop(
             nested_roots=self.nested_roots,
             shadow_roots=self.shadow_roots,
@@ -193,5 +199,6 @@ class ServiceBootstrapMixin:
             logger=LOG,
             poll_reconcile_trigger=self._poll_arr_root_reconcile_trigger,
             status_tracker=self.runtime_status_tracker,
+            on_reconcile_complete=_on_reconcile_complete,
         )
         runtime_loop.run(stop_event=stop_event)

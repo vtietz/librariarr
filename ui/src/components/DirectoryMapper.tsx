@@ -19,6 +19,7 @@ import {
   getFsRoots,
   getMappedDirectories,
   getMappedDirectoriesStreamUrl,
+  refreshMappedDirectories,
   runMaintenanceReconcile
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
@@ -36,7 +37,7 @@ type PathCellProps = {
   onOpen: (value: string) => void;
 };
 
-const truncateMiddle = (value: string, maxLen: number = 54): string => {
+const truncateMiddle = (value: string, maxLen: number = 44): string => {
   if (value.length <= maxLen) {
     return value;
   }
@@ -52,7 +53,7 @@ function PathCell({ value, onCopy, onOpen }: PathCellProps) {
       <Text
         size="sm"
         title={value}
-        style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+        style={{ whiteSpace: "nowrap", overflow: "hidden", minWidth: 0 }}
       >
         {truncateMiddle(value)}
       </Text>
@@ -189,35 +190,21 @@ export default function DirectoryMapper() {
     })();
   }, []);
 
-  useEffect(() => {
-    let active = true;
-
-    const loadWarnings = async () => {
-      try {
-        const payload = await getDiscoveryWarnings({ limit: 200 });
-        if (active) {
-          setDiscoveryWarnings(payload);
-        }
-      } catch {
-        if (active) {
-          setDiscoveryWarnings(null);
-        }
-      }
-    };
-
-    void loadWarnings();
-    const interval = window.setInterval(() => {
-      void loadWarnings();
-    }, 5000);
-
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
+  const loadDiscoveryWarnings = useCallback(async () => {
+    try {
+      const payload = await getDiscoveryWarnings({ limit: 200 });
+      setDiscoveryWarnings(payload);
+    } catch {
+      setDiscoveryWarnings(null);
+    }
   }, []);
 
   useEffect(() => {
-    const source = new EventSource(getMappedDirectoriesStreamUrl({ intervalMs: 1000 }));
+    void loadDiscoveryWarnings();
+  }, [loadDiscoveryWarnings]);
+
+  useEffect(() => {
+    const source = new EventSource(getMappedDirectoriesStreamUrl({ intervalMs: 2000 }));
 
     source.onmessage = (event) => {
       try {
@@ -234,6 +221,7 @@ export default function DirectoryMapper() {
         }
         if (payload.changed) {
           void loadMappedDirectories();
+          void loadDiscoveryWarnings();
         }
       } catch {
         /* malformed SSE event — keep current list */
@@ -243,7 +231,7 @@ export default function DirectoryMapper() {
     return () => {
       source.close();
     };
-  }, [loadMappedDirectories]);
+  }, [loadMappedDirectories, loadDiscoveryWarnings]);
 
   const mappedRootOptions = useMemo(
     () => [
@@ -302,6 +290,20 @@ export default function DirectoryMapper() {
     }
   };
 
+  const forceRefreshCache = async () => {
+    setIsReloading(true);
+    setLoadError(null);
+    try {
+      await refreshMappedDirectories();
+      await loadMappedDirectories();
+      await loadDiscoveryWarnings();
+    } catch {
+      setLoadError("Failed to refresh the mapped directories cache.");
+    } finally {
+      setIsReloading(false);
+    }
+  };
+
   const queueReconcile = async () => {
     setIsReconciling(true);
     try {
@@ -324,11 +326,11 @@ export default function DirectoryMapper() {
                 Showing {mappedDirectories.length} of {cacheEntriesTotal}
                 {mappedTruncated ? " (list truncated)" : ""}
               </Text>
-              <Tooltip label="Refresh snapshot now">
+              <Tooltip label="Force full rescan of shadow roots">
                 <ActionIcon
                   variant="light"
                   size="md"
-                  onClick={() => void loadMappedDirectories()}
+                  onClick={() => void forceRefreshCache()}
                   disabled={isReloading}
                   aria-label="Refresh mapped directories"
                 >
@@ -349,8 +351,8 @@ export default function DirectoryMapper() {
 
           <Text size="xs" c="dimmed">{cacheStatusText}</Text>
           <Text size="xs" c="dimmed">
-            The list is built from in-memory cache and updates automatically. Refresh only forces an
-            immediate API fetch.
+            The cache updates automatically after each reconcile. Use the refresh button to force a
+            full rescan of shadow roots.
           </Text>
 
           {(discoveryWarnings?.summary.duplicate_movie_candidates ?? 0) > 0 && (
@@ -385,7 +387,6 @@ export default function DirectoryMapper() {
           <Table striped withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th>Shadow Root</Table.Th>
                 <Table.Th>Virtual Path</Table.Th>
                 <Table.Th>Real Path</Table.Th>
                 <Table.Th>Status</Table.Th>
@@ -394,7 +395,7 @@ export default function DirectoryMapper() {
             <Table.Tbody>
               {loadError ? (
                 <Table.Tr>
-                  <Table.Td colSpan={4}>
+                  <Table.Td colSpan={3}>
                     <Text size="sm" c="red">
                       {loadError}
                     </Text>
@@ -402,7 +403,7 @@ export default function DirectoryMapper() {
                 </Table.Tr>
               ) : mappedDirectories.length === 0 ? (
                 <Table.Tr>
-                  <Table.Td colSpan={4}>
+                  <Table.Td colSpan={3}>
                     <Text size="sm" c="dimmed">
                       {cacheBuilding && !cacheReady
                         ? "Building in-memory directory index… wait a few seconds."
@@ -413,21 +414,14 @@ export default function DirectoryMapper() {
               ) : (
                 mappedDirectories.map((mapped) => (
                   <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-                    <Table.Td style={{ width: "24%", minWidth: 0 }}>
-                      <PathCell
-                        value={mapped.shadow_root}
-                        onCopy={copyToClipboard}
-                        onOpen={setBrowsePath}
-                      />
-                    </Table.Td>
-                    <Table.Td style={{ width: "30%", minWidth: 0 }}>
+                    <Table.Td style={{ width: "42%", minWidth: 0 }}>
                       <PathCell
                         value={mapped.virtual_path}
                         onCopy={copyToClipboard}
                         onOpen={setBrowsePath}
                       />
                     </Table.Td>
-                    <Table.Td style={{ width: "30%", minWidth: 0 }}>
+                    <Table.Td style={{ width: "42%", minWidth: 0 }}>
                       <PathCell
                         value={mapped.real_path}
                         onCopy={copyToClipboard}

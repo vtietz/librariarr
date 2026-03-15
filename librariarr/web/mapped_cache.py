@@ -75,9 +75,12 @@ class MappedDirectoriesCache:
         with self._lock:
             if self._building:
                 return False
-            recent_build = (time.time() - self._last_build_finished) < 10
-            if not force and self._updated_at_ms is not None and recent_build:
-                return False
+            new_roots = sorted(str(r) for r in shadow_roots(config))
+            roots_changed = new_roots != self._shadow_roots
+            if not force and not roots_changed:
+                recent_build = (time.time() - self._last_build_finished) < 10
+                if self._updated_at_ms is not None and recent_build:
+                    return False
             self._building = True
             self._build_event.clear()
 
@@ -113,4 +116,5 @@ def warmup_mapped_directories_cache(config_path: Path) -> None:
         config = load_config(config_path)
     except Exception:
         return
-    _mapped_directories_cache.request_refresh(config, force=True)
+    if _mapped_directories_cache.request_refresh(config, force=True):
+        _mapped_directories_cache.wait_for_build(timeout=10.0)

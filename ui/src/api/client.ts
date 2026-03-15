@@ -147,6 +147,14 @@ export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
   return data;
 };
 
+export const refreshMappedDirectories = async () => {
+  const { data } = await api.post<{
+    ok: boolean;
+    cache: { ready: boolean; building: boolean; entries_total: number; version: number };
+  }>("/fs/mapped-directories/refresh");
+  return data;
+};
+
 export const getRadarrProfiles = async () => {
   const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
     "/radarr/quality-profiles",
