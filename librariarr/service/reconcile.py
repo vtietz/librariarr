@@ -50,7 +50,7 @@ class ServiceReconcileMixin:
                     known_folders=self._known_movie_folders,
                     discover=discover_movie_folders,
                 )
-                self._known_movie_folders = dict(all_movie_folders)
+                self._known_movie_folders = all_movie_folders
 
             series_folders: dict[Path, Path] = {}
             all_series_folders: dict[Path, Path] = {}
@@ -67,31 +67,23 @@ class ServiceReconcileMixin:
                     known_folders=self._known_series_folders,
                     discover=discover_series_folders,
                 )
-                self._known_series_folders = dict(all_series_folders)
+                self._known_series_folders = all_series_folders
 
             target_to_links = collect_current_links(self.shadow_roots)
             should_fetch_movie_index = self.sync_enabled and (
                 not movie_incremental_mode or bool(movie_folders) or bool(movie_affected_targets)
             )
-            movies_by_ref = self._build_movie_index() if should_fetch_movie_index else {}
-            movies_by_path = (
-                self._build_movie_path_index(movies_by_ref) if self.sync_enabled else {}
-            )
-            movies_by_external_id = (
-                self._build_movie_external_id_index(movies_by_ref) if self.sync_enabled else {}
-            )
+            if should_fetch_movie_index:
+                movies_by_ref, movies_by_path, movies_by_external_id = self._build_movie_indices()
+            else:
+                movies_by_ref, movies_by_path, movies_by_external_id = {}, {}, {}
             should_fetch_series_index = self.sonarr_sync_enabled and (
                 not series_incremental_mode or bool(series_folders) or bool(series_affected_targets)
             )
-            series_by_ref = self._build_series_index() if should_fetch_series_index else {}
-            series_by_path = (
-                self._build_series_path_index(series_by_ref) if self.sonarr_sync_enabled else {}
-            )
-            series_by_external_id = (
-                self._build_series_external_id_index(series_by_ref)
-                if self.sonarr_sync_enabled
-                else {}
-            )
+            if should_fetch_series_index:
+                series_by_ref, series_by_path, series_by_external_id = self._build_series_indices()
+            else:
+                series_by_ref, series_by_path, series_by_external_id = {}, {}, {}
             expected_links: set[Path] = set()
             movie_created_links = 0
             matched_movies = 0

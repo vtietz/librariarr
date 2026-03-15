@@ -15,7 +15,7 @@ class ServiceScopeMixin:
     ) -> tuple[dict[Path, Path], dict[Path, Path], set[Path], bool]:
         if affected_paths is None or not affected_paths or known_folders is None:
             found_folders = self._all_folders(discover)
-            return found_folders, found_folders, set(found_folders.keys()), False
+            return found_folders, dict(found_folders), set(found_folders.keys()), False
 
         nested_affected_paths = {
             path for path in affected_paths if self._mapping_for_nested_path(path) is not None

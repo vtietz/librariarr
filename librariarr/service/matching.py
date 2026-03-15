@@ -128,6 +128,19 @@ class ServiceMatchingMixin:
             self._index_movie(index=index, movie=movie)
         return index
 
+    def _build_movie_indices(
+        self,
+    ) -> tuple[dict[MovieRef, dict], dict[str, dict], dict[str, dict]]:
+        """Build ref, path, and external-id indices in a single pass over the API response."""
+        ref_index: dict[MovieRef, dict] = {}
+        path_index: dict[str, dict] = {}
+        ext_id_index: dict[str, dict] = {}
+        for movie in self.radarr.get_movies():
+            self._index_movie(index=ref_index, movie=movie)
+            self._index_movie_path(index=path_index, movie=movie)
+            self._index_movie_external_ids(index=ext_id_index, movie=movie)
+        return ref_index, path_index, ext_id_index
+
     def _build_movie_path_index(self, movies_by_ref: dict[MovieRef, dict]) -> dict[str, dict]:
         index: dict[str, dict] = {}
         seen_ids: set[int] = set()
@@ -330,6 +343,29 @@ class ServiceMatchingMixin:
         for series in series_list:
             self._index_series(index=index, series=series)
         return index
+
+    def _build_series_indices(
+        self,
+    ) -> tuple[dict[MovieRef, dict], dict[str, dict], dict[str, dict]]:
+        """Build ref, path, and external-id indices in a single pass over the API response."""
+        ref_index: dict[MovieRef, dict] = {}
+        path_index: dict[str, dict] = {}
+        ext_id_index: dict[str, dict] = {}
+        try:
+            series_list = self.sonarr.get_series()
+        except requests.RequestException as exc:
+            self._log_sonarr_sync_config_hint(exc)
+            LOG.warning(
+                "Continuing reconcile without Sonarr series index due to request failure: %s",
+                exc,
+            )
+            return ref_index, path_index, ext_id_index
+
+        for series in series_list:
+            self._index_series(index=ref_index, series=series)
+            self._index_series_path(index=path_index, series=series)
+            self._index_series_external_ids(index=ext_id_index, series=series)
+        return ref_index, path_index, ext_id_index
 
     def _build_series_path_index(self, series_by_ref: dict[MovieRef, dict]) -> dict[str, dict]:
         index: dict[str, dict] = {}

@@ -67,17 +67,18 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
     exclude_paths = list(config.paths.exclude_paths)
 
     all_movie_paths: set[Path] = set()
-    included_movie_paths: set[Path] = set()
+    excluded_movie_paths: list[Path] = []
 
     for mapping in config.paths.root_mappings:
         nested_root = Path(mapping.nested_root)
-        all_movie_paths.update(discover_movie_folders(nested_root, video_exts, []))
-        included_movie_paths.update(discover_movie_folders(nested_root, video_exts, exclude_paths))
+        all_folders = discover_movie_folders(nested_root, video_exts, [])
+        all_movie_paths.update(all_folders)
+        if exclude_paths:
+            included = discover_movie_folders(nested_root, video_exts, exclude_paths)
+            excluded_movie_paths.extend(sorted(all_folders - included, key=lambda path: str(path)))
 
-    excluded_movie_paths = sorted(
-        all_movie_paths - included_movie_paths,
-        key=lambda path: str(path),
-    )
+    included_movie_paths = all_movie_paths - set(excluded_movie_paths)
+    excluded_movie_paths.sort(key=lambda path: str(path))
 
     grouped: dict[tuple[str, int | None], list[Path]] = {}
     for movie_path in all_movie_paths:
