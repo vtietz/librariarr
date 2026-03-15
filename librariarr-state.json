@@ -1,0 +1,59 @@
+{
+  "jobs": {
+    "items": {},
+    "order": []
+  },
+  "dashboard": {
+    "runtime_running": false,
+    "watched_nested_roots": 0,
+    "watched_shadow_roots": 0,
+    "watched_roots_total": 0,
+    "debounce_seconds": 0,
+    "dirty_paths_queued": 0,
+    "next_event_reconcile_due_at": null,
+    "current_task": {
+      "state": "idle",
+      "phase": null,
+      "trigger_source": null,
+      "started_at": null,
+      "updated_at": null,
+      "error": null,
+      "task_id": null
+    },
+    "last_reconcile": null,
+    "updated_at": 1773607556.0663486,
+    "next_event_reconcile_in_seconds": null,
+    "known_links_in_memory": 0,
+    "mapped_cache": {
+      "ready": true,
+      "building": false,
+      "updated_at_ms": 1773607378619,
+      "entries_total": 0,
+      "version": 2,
+      "last_error": null,
+      "last_build_duration_ms": 2
+    },
+    "discovery_cache": {
+      "ready": true,
+      "building": false,
+      "updated_at_ms": 1773607378637,
+      "last_error": null,
+      "version": 2,
+      "last_build_duration_ms": 3
+    },
+    "tasks_active_total": 0,
+    "pending_tasks": [],
+    "health": {
+      "status": "degraded",
+      "reasons": [
+        "background runtime is not running",
+        "mapped cache is stale (177s old)"
+      ],
+      "worker_busy": false,
+      "jobs_active": 0,
+      "consecutive_refresh_failures": 0,
+      "last_refresh_error": null
+    }
+  },
+  "cache_snapshots": {}
+}

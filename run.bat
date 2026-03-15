@@ -32,6 +32,7 @@ if /I "%~1"=="sonarr-e2e" goto :sonarre2e
 if /I "%~1"=="quality" goto :quality
 if /I "%~1"=="quality-autofix" goto :qualityautofix
 if /I "%~1"=="dev-up" goto :devup
+if /I "%~1"=="dev-reset" goto :devreset
 if /I "%~1"=="dev-bootstrap" goto :devbootstrap
 if /I "%~1"=="dev-seed" goto :devseed
 if /I "%~1"=="dev-down" goto :devdown
@@ -146,16 +147,50 @@ if not exist .env if exist .env.dev.example (
   copy /Y .env.dev.example .env >nul
   echo Created .env from .env.dev.example
 )
+if not exist data\dev-config mkdir data\dev-config
 call tools\dev_prepare_media_layout.bat
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% up -d %DEV_SERVICE% %DEV_UI_SERVICE% %DEV_RADARR_SERVICE% %DEV_SONARR_SERVICE%
-if "%LIBRARIARR_DEV_BOOTSTRAP%"=="0" goto :eof
-call "%~f0" dev-bootstrap
+if not "%LIBRARIARR_DEV_BOOTSTRAP%"=="0" call "%~f0" dev-bootstrap
+
+set "WEB_PORT=%LIBRARIARR_WEB_PORT%"
+if "%WEB_PORT%"=="" set "WEB_PORT=8787"
+set "RADARR_PORT=%DEV_HOST_PORT_RADARR%"
+if "%RADARR_PORT%"=="" set "RADARR_PORT=17878"
+set "SONARR_PORT=%DEV_HOST_PORT_SONARR%"
+if "%SONARR_PORT%"=="" set "SONARR_PORT=18989"
+echo.
+echo Dev services are up. Open:
+echo - LibrariArr admin GUI: http://localhost:%WEB_PORT%
+echo - Vite dev UI:           http://localhost:5173
+echo - Radarr admin:          http://localhost:%RADARR_PORT%
+echo - Sonarr admin:          http://localhost:%SONARR_PORT%
+goto :eof
+
+:devreset
+call "%~f0" dev-down
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "chown -R ${PUID:-1000}:${PGID:-1000} /data /config || true"
+
+if exist data\dev-media\movies rd /s /q data\dev-media\movies
+if exist data\dev-media\series rd /s /q data\dev-media\series
+if exist data\dev-media\radarr_library rd /s /q data\dev-media\radarr_library
+if exist data\dev-media\sonarr_library rd /s /q data\dev-media\sonarr_library
+if exist data\dev-config rd /s /q data\dev-config
+
+mkdir data\dev-media\movies
+mkdir data\dev-media\series
+mkdir data\dev-media\radarr_library
+mkdir data\dev-media\sonarr_library
+mkdir data\dev-config
+
+call "%~f0" dev-up
+if errorlevel 1 exit /b 1
+call "%~f0" dev-seed
 goto :eof
 
 :devbootstrap
 call "%~f0" setup
 if errorlevel 1 exit /b 1
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm --user 0:0 %DEV_SERVICE% "chown -R ${PUID:-1000}:${PGID:-1000} /config && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.bootstrap"
 docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% restart %DEV_SERVICE%
 goto :eof
@@ -198,6 +233,7 @@ echo   sonarr-e2e  Alias for e2e
 echo   quality     Run lint/format/complexity/LOC checks in Docker
 echo   quality-autofix  Apply auto-fixes, then run quality checks
 echo   dev-up      Start dev API, UI, Sonarr, and Radarr services
+echo   dev-reset   Stop dev stack, wipe dev data/config, start stack, and reseed
 echo   dev-bootstrap  Configure dev Arr instances and sync API keys into config.yaml
 echo   dev-seed    Create fake movie/series folders/files in configured source roots
 echo   dev-down    Stop dev services

@@ -73,11 +73,18 @@ def _movie_file_name(title: str, year: int) -> str:
     return f"{title.replace(' ', '.')}.{year}.1080p.mkv"
 
 
+def _movie_variants_for_root(root: Path) -> list[tuple[str, int]]:
+    bucket = root.name.replace("_", " ").strip()
+    if not bucket:
+        return SAMPLE_MOVIES
+    return [(f"{title} {bucket}", year) for title, year in SAMPLE_MOVIES]
+
+
 def _seed_movie_root(root: Path) -> tuple[int, int]:
     created_dirs = 0
     created_files = 0
 
-    for title, year in SAMPLE_MOVIES:
+    for title, year in _movie_variants_for_root(root):
         movie_dir = root / f"{title} ({year})"
         if not movie_dir.exists():
             movie_dir.mkdir(parents=True, exist_ok=True)

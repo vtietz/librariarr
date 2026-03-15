@@ -17,6 +17,7 @@ services:
       LIBRARIARR_UI_DEV_URL: ${LIBRARIARR_UI_DEV_URL:-http://localhost:5173}
     volumes:
       - ./:/app
+      - ./data/dev-config:/config
       - ./config.yaml:/config/config.yaml
       - ${MEDIA_ROOT:-/data}:/data
       - radarr-dev-appdata:/radarr-config:ro
