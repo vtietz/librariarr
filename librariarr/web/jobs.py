@@ -110,6 +110,7 @@ class JobManager:
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         with self._lock:
+            self._sync_from_store_locked()
             item = self._jobs.get(job_id)
             if item is None:
                 return None
@@ -118,6 +119,7 @@ class JobManager:
     def cancel(self, job_id: str) -> dict[str, Any] | None:
         now = time.time()
         with self._lock:
+            self._sync_from_store_locked()
             item = self._jobs.get(job_id)
             if item is None:
                 return None
@@ -160,6 +162,7 @@ class JobManager:
 
     def list(self, *, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
+            self._sync_from_store_locked()
             ordered = [
                 self._jobs[job_id]
                 for job_id in reversed(self._order)
@@ -171,6 +174,7 @@ class JobManager:
 
     def list_active_tasks(self, *, limit: int = 20) -> list[dict[str, Any]]:
         with self._lock:
+            self._sync_from_store_locked()
             ordered = [
                 self._jobs[job_id]
                 for job_id in reversed(self._order)
@@ -181,6 +185,7 @@ class JobManager:
 
     def summary(self) -> dict[str, Any]:
         with self._lock:
+            self._sync_from_store_locked()
             queued = 0
             running = 0
             succeeded = 0
@@ -453,3 +458,10 @@ class JobManager:
         if self._state_store is None:
             return
         self._state_store.save_jobs(self._jobs, self._order)
+
+    def _sync_from_store_locked(self) -> None:
+        if self._state_store is None:
+            return
+        items, order = self._state_store.load_jobs()
+        self._jobs = items
+        self._order = order

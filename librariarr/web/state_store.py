@@ -7,6 +7,14 @@ from pathlib import Path
 from typing import Any
 
 
+def _default_state() -> dict[str, Any]:
+    return {
+        "jobs": {"items": {}, "order": []},
+        "dashboard": None,
+        "cache_snapshots": {},
+    }
+
+
 class PersistentStateStore:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -15,29 +23,12 @@ class PersistentStateStore:
     def load_state(self) -> dict[str, Any]:
         with self._lock:
             if not self.path.exists():
-                return {
-                    "jobs": {"items": {}, "order": []},
-                    "dashboard": None,
-                    "cache_snapshots": {},
-                }
+                return _default_state()
             try:
                 payload = json.loads(self.path.read_text(encoding="utf-8"))
             except Exception:
-                return {
-                    "jobs": {"items": {}, "order": []},
-                    "dashboard": None,
-                    "cache_snapshots": {},
-                }
-            if not isinstance(payload, dict):
-                return {
-                    "jobs": {"items": {}, "order": []},
-                    "dashboard": None,
-                    "cache_snapshots": {},
-                }
-            payload.setdefault("jobs", {"items": {}, "order": []})
-            payload.setdefault("dashboard", None)
-            payload.setdefault("cache_snapshots", {})
-            return payload
+                return _default_state()
+            return self._normalize_state(payload)
 
     def load_jobs(self) -> tuple[dict[str, dict[str, Any]], list[str]]:
         state = self.load_state()
@@ -100,3 +91,27 @@ class PersistentStateStore:
         temp_path = self.path.with_suffix(f"{self.path.suffix}.tmp")
         temp_path.write_text(json.dumps(payload, ensure_ascii=True, indent=2), encoding="utf-8")
         temp_path.replace(self.path)
+
+    def _normalize_state(self, payload: Any) -> dict[str, Any]:
+        if not isinstance(payload, dict):
+            return _default_state()
+
+        payload.setdefault("jobs", {"items": {}, "order": []})
+        payload.setdefault("dashboard", None)
+        payload.setdefault("cache_snapshots", {})
+
+        jobs = payload.get("jobs")
+        if not isinstance(jobs, dict):
+            jobs = {"items": {}, "order": []}
+            payload["jobs"] = jobs
+        items = jobs.get("items")
+        order = jobs.get("order")
+        if not isinstance(items, dict):
+            jobs["items"] = {}
+        if not isinstance(order, list):
+            jobs["order"] = []
+
+        if not isinstance(payload.get("cache_snapshots"), dict):
+            payload["cache_snapshots"] = {}
+
+        return payload
