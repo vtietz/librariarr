@@ -194,6 +194,11 @@ def discover_series_folders(
             if not _is_excluded_path(cur_path / dirname, root, excludes, is_dir=True)
         ]
 
+        # A folder whose name matches a season pattern (Season 01, Staffel 02, S03, …)
+        # is never a series root — skip it so we don't create spurious links.
+        if _is_season_folder_name(cur_path.name):
+            continue
+
         # Flat-series fallback: treat folder as a series root when it contains episode files.
         if any(
             Path(filename).suffix.lower() in video_exts
