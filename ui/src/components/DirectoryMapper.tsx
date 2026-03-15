@@ -1,4 +1,5 @@
 import {
+  ActionIcon,
   Badge,
   Button,
   Card,
@@ -8,14 +9,17 @@ import {
   Table,
   Text,
   TextInput,
+  Tooltip,
   Title
 } from "@mantine/core";
+import { IconArrowsShuffle, IconCopy, IconFolderOpen, IconRefresh } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   getDiscoveryWarnings,
   getFsRoots,
   getMappedDirectories,
-  getMappedDirectoriesStreamUrl
+  getMappedDirectoriesStreamUrl,
+  runMaintenanceReconcile
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 
@@ -26,13 +30,66 @@ type MappedDirectory = {
   target_exists: boolean;
 };
 
+type PathCellProps = {
+  value: string;
+  onCopy: (value: string) => Promise<void>;
+  onOpen: (value: string) => void;
+};
+
+const truncateMiddle = (value: string, maxLen: number = 54): string => {
+  if (value.length <= maxLen) {
+    return value;
+  }
+  const keep = maxLen - 3;
+  const left = Math.ceil(keep / 2);
+  const right = Math.floor(keep / 2);
+  return `${value.slice(0, left)}...${value.slice(value.length - right)}`;
+};
+
+function PathCell({ value, onCopy, onOpen }: PathCellProps) {
+  return (
+    <Group gap="xs" wrap="nowrap">
+      <Text
+        size="sm"
+        title={value}
+        style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+      >
+        {truncateMiddle(value)}
+      </Text>
+      <Tooltip label="Copy path">
+        <ActionIcon
+          size="sm"
+          variant="light"
+          aria-label="Copy path"
+          onClick={() => void onCopy(value)}
+        >
+          <IconCopy size={14} />
+        </ActionIcon>
+      </Tooltip>
+      <Tooltip label="Open path">
+        <ActionIcon
+          size="sm"
+          variant="light"
+          aria-label="Open path"
+          onClick={() => onOpen(value)}
+        >
+          <IconFolderOpen size={14} />
+        </ActionIcon>
+      </Tooltip>
+    </Group>
+  );
+}
+
 export default function DirectoryMapper() {
   const [mappedDirectories, setMappedDirectories] = useState<MappedDirectory[]>([]);
   const [mappedSearch, setMappedSearch] = useState("");
+  const [debouncedMappedSearch, setDebouncedMappedSearch] = useState("");
   const [mappedRootFilter, setMappedRootFilter] = useState<string>("all");
   const [mappedRoots, setMappedRoots] = useState<string[]>([]);
   const [mappedTruncated, setMappedTruncated] = useState(false);
+  const [cacheEntriesTotal, setCacheEntriesTotal] = useState(0);
   const [isReloading, setIsReloading] = useState(false);
+  const [isReconciling, setIsReconciling] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cacheBuilding, setCacheBuilding] = useState(false);
   const [cacheReady, setCacheReady] = useState(false);
@@ -48,6 +105,8 @@ export default function DirectoryMapper() {
     setLoadError(null);
     try {
       const result = await getMappedDirectories({
+        search: debouncedMappedSearch.trim() || undefined,
+        shadowRoot: mappedRootFilter === "all" ? undefined : mappedRootFilter,
         limit: 5000,
         timeoutMs: 90000
       });
@@ -62,12 +121,15 @@ export default function DirectoryMapper() {
         }
         return left.real_path.localeCompare(right.real_path);
       });
+
       setMappedDirectories(sortedItems);
       setMappedRoots([...result.shadow_roots].sort((left, right) => left.localeCompare(right)));
       setMappedTruncated(result.truncated);
       setCacheBuilding(result.cache?.building ?? false);
       setCacheReady(result.cache?.ready ?? false);
       setCacheUpdatedAtMs(result.cache?.updated_at_ms ?? null);
+      setCacheEntriesTotal(result.cache?.entries_total ?? sortedItems.length);
+
       if ((result.cache?.last_error ?? null) && sortedItems.length === 0) {
         setLoadError(result.cache?.last_error ?? "Failed to load mapped directories.");
       }
@@ -85,10 +147,11 @@ export default function DirectoryMapper() {
         error !== null &&
         "code" in error &&
         (error as { code?: string }).code === "ECONNABORTED";
+
       setLoadError(
         detail ||
           (timedOut
-            ? "Mapped directories snapshot timed out. Click Reload; if this persists, reduce dataset or check filesystem latency."
+            ? "Snapshot request timed out. The backend may still be rebuilding/scanning or serializing a large index; wait briefly or trigger a full reconcile."
             : "Failed to load mapped directories.")
       );
       setMappedDirectories([]);
@@ -97,15 +160,23 @@ export default function DirectoryMapper() {
       setCacheBuilding(false);
       setCacheReady(false);
       setCacheUpdatedAtMs(null);
+      setCacheEntriesTotal(0);
     } finally {
       setIsReloading(false);
     }
-  }, []);
+  }, [debouncedMappedSearch, mappedRootFilter]);
 
   useEffect(() => {
-    void (async () => {
-      await loadMappedDirectories();
-    })();
+    const timer = window.setTimeout(() => {
+      setDebouncedMappedSearch(mappedSearch);
+    }, 300);
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [mappedSearch]);
+
+  useEffect(() => {
+    void loadMappedDirectories();
   }, [loadMappedDirectories]);
 
   useEffect(() => {
@@ -174,22 +245,6 @@ export default function DirectoryMapper() {
     };
   }, [loadMappedDirectories]);
 
-  const filteredMappedDirectories = useMemo(() => {
-    const loweredSearch = mappedSearch.trim().toLowerCase();
-    return mappedDirectories.filter((mapped) => {
-      if (mappedRootFilter !== "all" && mapped.shadow_root !== mappedRootFilter) {
-        return false;
-      }
-      if (!loweredSearch) {
-        return true;
-      }
-      return (
-        mapped.virtual_path.toLowerCase().includes(loweredSearch) ||
-        mapped.real_path.toLowerCase().includes(loweredSearch)
-      );
-    });
-  }, [mappedDirectories, mappedRootFilter, mappedSearch]);
-
   const mappedRootOptions = useMemo(
     () => [
       { label: "All shadow roots", value: "all" },
@@ -239,21 +294,20 @@ export default function DirectoryMapper() {
     return `Index ready · updated ${elapsedHours}h ago`;
   }, [cacheBuilding, cacheReady, cacheUpdatedAtMs]);
 
-  const truncateMiddle = (value: string, maxLen: number = 76): string => {
-    if (value.length <= maxLen) {
-      return value;
-    }
-    const keep = maxLen - 3;
-    const left = Math.ceil(keep / 2);
-    const right = Math.floor(keep / 2);
-    return `${value.slice(0, left)}...${value.slice(value.length - right)}`;
-  };
-
   const copyToClipboard = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
     } catch {
       /* ignore clipboard failures */
+    }
+  };
+
+  const queueReconcile = async () => {
+    setIsReconciling(true);
+    try {
+      await runMaintenanceReconcile();
+    } finally {
+      setIsReconciling(false);
     }
   };
 
@@ -267,16 +321,37 @@ export default function DirectoryMapper() {
             <Text fw={600}>Mapped Directories (Virtual vs Real)</Text>
             <Group gap="sm">
               <Text size="sm" c="dimmed">
-                Showing {filteredMappedDirectories.length} of {mappedDirectories.length}
+                Showing {mappedDirectories.length} of {cacheEntriesTotal}
                 {mappedTruncated ? " (list truncated)" : ""}
               </Text>
-              <Button variant="light" size="xs" onClick={() => void loadMappedDirectories()} loading={isReloading}>
-                Reload
+              <Tooltip label="Refresh snapshot now">
+                <ActionIcon
+                  variant="light"
+                  size="md"
+                  onClick={() => void loadMappedDirectories()}
+                  disabled={isReloading}
+                  aria-label="Refresh mapped directories"
+                >
+                  <IconRefresh size={16} />
+                </ActionIcon>
+              </Tooltip>
+              <Button
+                variant="light"
+                size="xs"
+                leftSection={<IconArrowsShuffle size={14} />}
+                onClick={() => void queueReconcile()}
+                loading={isReconciling}
+              >
+                Reconcile whole library
               </Button>
             </Group>
           </Group>
 
           <Text size="xs" c="dimmed">{cacheStatusText}</Text>
+          <Text size="xs" c="dimmed">
+            The list is built from in-memory cache and updates automatically. Refresh only forces an
+            immediate API fetch.
+          </Text>
 
           {(discoveryWarnings?.summary.duplicate_movie_candidates ?? 0) > 0 && (
             <Text size="sm" c="yellow.8">
@@ -307,7 +382,7 @@ export default function DirectoryMapper() {
             />
           </Group>
 
-          <Table striped withRowBorders={false}>
+          <Table striped withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
                 <Table.Th>Shadow Root</Table.Th>
@@ -325,85 +400,41 @@ export default function DirectoryMapper() {
                     </Text>
                   </Table.Td>
                 </Table.Tr>
-              ) : filteredMappedDirectories.length === 0 ? (
+              ) : mappedDirectories.length === 0 ? (
                 <Table.Tr>
                   <Table.Td colSpan={4}>
                     <Text size="sm" c="dimmed">
-                      {mappedDirectories.length === 0
-                        ? cacheBuilding && !cacheReady
-                          ? "Building in-memory directory index… reload in a few seconds."
-                          : "No mapped directories found yet. Run a reconcile and then reload this page."
-                        : "No mapped directories match the current filters."}
+                      {cacheBuilding && !cacheReady
+                        ? "Building in-memory directory index… wait a few seconds."
+                        : "No mapped directories match the current search/filter."}
                     </Text>
                   </Table.Td>
                 </Table.Tr>
               ) : (
-                filteredMappedDirectories.map((mapped) => (
+                mappedDirectories.map((mapped) => (
                   <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-                    <Table.Td>
-                      <Group gap="xs" wrap="nowrap">
-                        <Text size="sm" title={mapped.shadow_root} style={{ whiteSpace: "nowrap" }}>
-                          {truncateMiddle(mapped.shadow_root)}
-                        </Text>
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          onClick={() => void copyToClipboard(mapped.shadow_root)}
-                        >
-                          Copy
-                        </Button>
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          onClick={() => setBrowsePath(mapped.shadow_root)}
-                        >
-                          Open
-                        </Button>
-                      </Group>
+                    <Table.Td style={{ width: "24%", minWidth: 0 }}>
+                      <PathCell
+                        value={mapped.shadow_root}
+                        onCopy={copyToClipboard}
+                        onOpen={setBrowsePath}
+                      />
                     </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs" wrap="nowrap">
-                        <Text size="sm" title={mapped.virtual_path} style={{ whiteSpace: "nowrap" }}>
-                          {truncateMiddle(mapped.virtual_path)}
-                        </Text>
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          onClick={() => void copyToClipboard(mapped.virtual_path)}
-                        >
-                          Copy
-                        </Button>
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          onClick={() => setBrowsePath(mapped.virtual_path)}
-                        >
-                          Open
-                        </Button>
-                      </Group>
+                    <Table.Td style={{ width: "30%", minWidth: 0 }}>
+                      <PathCell
+                        value={mapped.virtual_path}
+                        onCopy={copyToClipboard}
+                        onOpen={setBrowsePath}
+                      />
                     </Table.Td>
-                    <Table.Td>
-                      <Group gap="xs" wrap="nowrap">
-                        <Text size="sm" title={mapped.real_path} style={{ whiteSpace: "nowrap" }}>
-                          {truncateMiddle(mapped.real_path)}
-                        </Text>
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          onClick={() => void copyToClipboard(mapped.real_path)}
-                        >
-                          Copy
-                        </Button>
-                        <Button
-                          size="compact-xs"
-                          variant="light"
-                          onClick={() => setBrowsePath(mapped.real_path)}
-                        >
-                          Open
-                        </Button>
-                      </Group>
+                    <Table.Td style={{ width: "30%", minWidth: 0 }}>
+                      <PathCell
+                        value={mapped.real_path}
+                        onCopy={copyToClipboard}
+                        onOpen={setBrowsePath}
+                      />
                     </Table.Td>
-                    <Table.Td>
+                    <Table.Td style={{ width: "16%", minWidth: 0 }}>
                       <Group gap={6}>
                         <Badge color={mapped.target_exists ? "green" : "red"}>
                           {mapped.target_exists ? "target exists" : "missing target"}
@@ -423,17 +454,17 @@ export default function DirectoryMapper() {
               )}
             </Table.Tbody>
           </Table>
+
+          <DirectoryPickerModal
+            opened={browsePath !== null}
+            title="Browse directory"
+            roots={fsRoots}
+            initialPath={browsePath ?? ""}
+            onClose={() => setBrowsePath(null)}
+            mode="browse"
+          />
         </Stack>
       </Card>
-
-      <DirectoryPickerModal
-        opened={browsePath !== null}
-        title="Browse directory"
-        roots={fsRoots}
-        initialPath={browsePath ?? ""}
-        onClose={() => setBrowsePath(null)}
-        mode="browse"
-      />
     </Stack>
   );
 }
