@@ -1,6 +1,8 @@
 import logging
 from types import SimpleNamespace
 
+import requests
+
 from librariarr.runtime.loop import ReconcileSchedule, RuntimeSyncLoop
 
 
@@ -135,28 +137,69 @@ def test_runtime_sync_loop_mark_dirty_accepts_shadow_top_level_event(tmp_path) -
     assert schedule.last_event > 0.0
 
 
-def test_runtime_sync_loop_handles_reconcile_exception() -> None:
+def test_runtime_sync_loop_handles_reconcile_exception(caplog) -> None:
     seen: list[Exception] = []
 
     def failing_reconcile(_paths=None) -> bool:
         raise RuntimeError("boom")
 
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    logger = logging.getLogger("tests.runtime.loop")
     loop = RuntimeSyncLoop(
         nested_roots=[],
         shadow_roots=[],
         schedule=schedule,
         reconcile=failing_reconcile,
         on_reconcile_error=lambda exc: seen.append(exc),
-        logger=logging.getLogger("tests.runtime.loop"),
+        logger=logger,
     )
 
-    result = loop._run_reconcile_with_handling("test failure")
+    with caplog.at_level(logging.ERROR, logger=logger.name):
+        result = loop._run_reconcile_with_handling("test failure")
 
     assert result is False
     assert len(seen) == 1
     assert isinstance(seen[0], RuntimeError)
     assert schedule.last_sync > 0.0
+    records = [record for record in caplog.records if record.message == "test failure"]
+    assert len(records) == 1
+    assert records[0].exc_info is not None
+
+
+def test_runtime_sync_loop_logs_request_exception_as_single_line(caplog) -> None:
+    seen: list[Exception] = []
+
+    def failing_reconcile(_paths=None) -> bool:
+        raise requests.Timeout("read timed out")
+
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    logger = logging.getLogger("tests.runtime.loop.request")
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=failing_reconcile,
+        on_reconcile_error=lambda exc: seen.append(exc),
+        logger=logger,
+    )
+
+    with caplog.at_level(logging.WARNING, logger=logger.name):
+        result = loop._run_reconcile_with_handling("test failure")
+
+    assert result is False
+    assert len(seen) == 1
+    assert isinstance(seen[0], requests.Timeout)
+    assert schedule.last_sync > 0.0
+
+    records = [
+        record
+        for record in caplog.records
+        if record.levelname == "WARNING" and record.message.startswith("test failure: ")
+    ]
+    assert len(records) == 1
+    assert "read timed out" in records[0].message
+    assert "Timeout" in records[0].message
+    assert records[0].exc_info is None
 
 
 def test_runtime_sync_loop_returns_reconcile_pending_state() -> None:

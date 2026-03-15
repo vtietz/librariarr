@@ -7,6 +7,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+import requests
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
@@ -279,7 +280,15 @@ class RuntimeSyncLoop:
             return ingest_pending
         except Exception as exc:
             self.on_reconcile_error(exc)
-            self.log.exception(error_log_message)
+            if isinstance(exc, requests.RequestException):
+                self.log.warning(
+                    "%s: %s (%s)",
+                    error_log_message,
+                    exc,
+                    type(exc).__name__,
+                )
+            else:
+                self.log.exception(error_log_message)
             if self.status_tracker is not None:
                 self.status_tracker.mark_reconcile_finished(
                     success=False,
