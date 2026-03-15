@@ -18,7 +18,13 @@ class ServiceReconcileMixin:
     def reconcile(self, affected_paths: set[Path] | None = None) -> bool:
         with self._lock:
             started = time.time()
-            LOG.info("Reconciling shadow links and Arr state...")
+            reconcile_mode = "incremental" if affected_paths is not None else "full"
+            affected_paths_count = len(affected_paths) if affected_paths is not None else "all"
+            LOG.info(
+                "Reconciling shadow links and Arr state (mode=%s, affected_paths=%s)...",
+                reconcile_mode,
+                affected_paths_count,
+            )
             for shadow_root in self.shadow_roots:
                 shadow_root.mkdir(parents=True, exist_ok=True)
 
@@ -64,14 +70,20 @@ class ServiceReconcileMixin:
                 self._known_series_folders = dict(all_series_folders)
 
             target_to_links = collect_current_links(self.shadow_roots)
-            movies_by_ref = self._build_movie_index() if self.sync_enabled else {}
+            should_fetch_movie_index = self.sync_enabled and (
+                not movie_incremental_mode or bool(movie_folders) or bool(movie_affected_targets)
+            )
+            movies_by_ref = self._build_movie_index() if should_fetch_movie_index else {}
             movies_by_path = (
                 self._build_movie_path_index(movies_by_ref) if self.sync_enabled else {}
             )
             movies_by_external_id = (
                 self._build_movie_external_id_index(movies_by_ref) if self.sync_enabled else {}
             )
-            series_by_ref = self._build_series_index() if self.sonarr_sync_enabled else {}
+            should_fetch_series_index = self.sonarr_sync_enabled and (
+                not series_incremental_mode or bool(series_folders) or bool(series_affected_targets)
+            )
+            series_by_ref = self._build_series_index() if should_fetch_series_index else {}
             series_by_path = (
                 self._build_series_path_index(series_by_ref) if self.sonarr_sync_enabled else {}
             )
@@ -151,11 +163,12 @@ class ServiceReconcileMixin:
                     }
                 )
             LOG.info(
-                "Reconcile complete: movie_folders=%s existing_links=%s "
+                "Reconcile complete: mode=%s movie_folders=%s existing_links=%s "
                 "created_links=%s matched_movies=%s unmatched_movies=%s "
                 "series_folders=%s matched_series=%s unmatched_series=%s "
                 "removed_orphans=%s ingested_dirs=%s ingest_pending=%s "
                 "sync_enabled=%s sonarr_sync_enabled=%s duration_seconds=%s",
+                reconcile_mode,
                 len(movie_folders),
                 sum(len(links) for links in target_to_links.values()),
                 created_links,

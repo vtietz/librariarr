@@ -211,6 +211,41 @@ def test_reconcile_skips_sonarr_when_sync_disabled(tmp_path: Path) -> None:
     assert fake.refreshed == []
 
 
+def test_reconcile_shadow_only_event_skips_sonarr_catalog_fetch_in_incremental_mode(
+    tmp_path: Path,
+) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Fixture Show (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(nested_root, shadow_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(
+        series=[
+            {
+                "id": 1,
+                "title": "Fixture Show",
+                "year": 2020,
+                "path": str(shadow_root / "Fixture Show (2020)"),
+                "monitored": True,
+            }
+        ]
+    )
+    service.sonarr = fake
+
+    service.reconcile()
+    assert fake.get_series_calls == 1
+
+    shadow_event_path = shadow_root / "incoming"
+    service.reconcile({shadow_event_path})
+
+    assert fake.get_series_calls == 1
+
+
 def test_reconcile_auto_adds_unmatched_series(tmp_path: Path) -> None:
     nested_root = tmp_path / "series"
     shadow_root = tmp_path / "sonarr_library"

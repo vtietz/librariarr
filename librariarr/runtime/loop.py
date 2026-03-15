@@ -159,6 +159,13 @@ class RuntimeSyncLoop:
         if poll_triggered and not should_maintenance and not should_event_sync:
             self.log.info("Running poll-triggered reconcile")
 
+        reconcile_mode = "incremental" if reconcile_paths is not None else "full"
+        self.log.info(
+            "Starting reconcile cycle (mode=%s, trigger=%s)",
+            reconcile_mode,
+            trigger_source,
+        )
+
         if self.status_tracker is not None:
             self.status_tracker.mark_reconcile_started(trigger_source=trigger_source)
             self.status_tracker.update_reconcile_phase("running")

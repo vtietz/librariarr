@@ -257,3 +257,27 @@ def test_runtime_sync_loop_passes_affected_paths_to_reconcile(tmp_path) -> None:
     assert loop._run_reconcile_with_handling("test", affected_paths=affected_paths) is False
 
     assert captured == [affected_paths]
+
+
+def test_runtime_sync_loop_logs_reconcile_mode_for_event_cycle(caplog) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=0, maintenance_interval_seconds=None)
+    logger = logging.getLogger("tests.runtime.loop.mode")
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logger,
+    )
+
+    schedule.mark_event()
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        loop._run_due_reconcile_cycle(poll_triggered=False)
+
+    messages = [record.message for record in caplog.records]
+    assert any(
+        message.startswith("Starting reconcile cycle (mode=incremental, trigger=filesystem)")
+        for message in messages
+    )

@@ -1,6 +1,6 @@
 import { Badge, Button, Card, Group, Loader, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
-import { cancelJob, getDiscoveryWarnings, getJobs } from "../api/client";
+import { cancelJob, getDiscoveryWarnings, getJobs, runMaintenanceReconcile } from "../api/client";
 import type { JobRecord, JobsSummary, RuntimeStatusResponse } from "../api/client";
 
 type Props = {
@@ -20,6 +20,7 @@ export default function Dashboard({
   const [recentJobs, setRecentJobs] = useState<JobRecord[]>([]);
   const [loadingJobs, setLoadingJobs] = useState(false);
   const [cancelingJobId, setCancelingJobId] = useState<string | null>(null);
+  const [runningReconcile, setRunningReconcile] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -152,6 +153,19 @@ export default function Dashboard({
     }
   };
 
+  const handleRunReconcile = async () => {
+    setRunningReconcile(true);
+    try {
+      await runMaintenanceReconcile();
+      const items = await getJobs({ limit: 12 });
+      setRecentJobs(items);
+    } catch (error) {
+      console.error("[Dashboard] Failed to queue maintenance reconcile", error);
+    } finally {
+      setRunningReconcile(false);
+    }
+  };
+
   return (
     <Stack>
       <Title order={3}>Dashboard</Title>
@@ -204,7 +218,17 @@ export default function Dashboard({
           </Text>
         </Card>
         <Card withBorder>
-          <Text fw={600}>Last Reconcile</Text>
+          <Group justify="space-between">
+            <Text fw={600}>Last Reconcile</Text>
+            <Button
+              size="compact-xs"
+              variant="light"
+              loading={runningReconcile}
+              onClick={() => void handleRunReconcile()}
+            >
+              Run Reconcile
+            </Button>
+          </Group>
           <Text size="sm" c="dimmed">
             {(runtimeStatus?.last_reconcile?.state ?? "none").toUpperCase()} ·
             {` duration ${runtimeStatus?.last_reconcile?.duration_seconds ?? 0}s`}

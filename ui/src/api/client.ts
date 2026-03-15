@@ -239,6 +239,16 @@ export const testSonarrConnection = async (url: string, apiKey: string) => {
   return data;
 };
 
+export const runMaintenanceReconcile = async () => {
+  const { data } = await api.post<{
+    ok: boolean;
+    queued: boolean;
+    job_id: string;
+    message: string;
+  }>("/maintenance/reconcile");
+  return data;
+};
+
 export type JobRecord = {
   job_id: string;
   kind: string;

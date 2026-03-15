@@ -101,6 +101,41 @@ def test_reconcile_shadow_only_event_skips_movie_rescan_when_ingest_enabled(tmp_
     assert scanned_roots == []
 
 
+def test_reconcile_shadow_only_event_skips_radarr_catalog_fetch_in_incremental_mode(
+    tmp_path: Path,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie = nested_root / "Fixture Catalog A (2008)"
+    movie.mkdir(parents=True)
+    (movie / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Fixture Catalog A",
+                "year": 2008,
+                "path": str(shadow_root / "Fixture Catalog A (2008)"),
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+    assert fake.get_movies_calls == 1
+
+    shadow_event_path = shadow_root / "incoming"
+    service.reconcile({shadow_event_path})
+
+    assert fake.get_movies_calls == 1
+
+
 def test_reconcile_removes_orphaned_symlink(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
