@@ -1,3 +1,4 @@
+import errno
 import logging
 from types import SimpleNamespace
 
@@ -317,3 +318,61 @@ def test_on_reconcile_complete_not_called_on_failure() -> None:
     loop._run_due_reconcile_cycle(poll_triggered=False)
     assert completed == []
     assert len(errors) == 1
+
+
+def test_runtime_sync_loop_falls_back_to_polling_on_inotify_limit(
+    tmp_path,
+    monkeypatch,
+    caplog,
+) -> None:
+    class BrokenObserver:
+        def schedule(self, *_args, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            raise OSError(errno.ENOSPC, "inotify watch limit reached")
+
+        def stop(self) -> None:
+            return None
+
+        def join(self) -> None:
+            return None
+
+    class WorkingPollingObserver:
+        started = False
+
+        def schedule(self, *_args, **_kwargs) -> None:
+            return None
+
+        def start(self) -> None:
+            self.started = True
+
+        def stop(self) -> None:
+            return None
+
+        def join(self) -> None:
+            return None
+
+    monkeypatch.setattr("librariarr.runtime.loop.Observer", BrokenObserver)
+    monkeypatch.setattr("librariarr.runtime.loop.PollingObserver", WorkingPollingObserver)
+
+    stop_event = SimpleNamespace(is_set=lambda: True, wait=lambda _timeout: True)
+    schedule = ReconcileSchedule(debounce_seconds=1, maintenance_interval_seconds=None)
+    logger = logging.getLogger("tests.runtime.loop.polling")
+    loop = RuntimeSyncLoop(
+        nested_roots=[tmp_path / "nested"],
+        shadow_roots=[tmp_path / "shadow"],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logger,
+    )
+
+    with caplog.at_level(logging.INFO, logger=logger.name):
+        loop.run(stop_event=stop_event)
+
+    messages = [record.message for record in caplog.records]
+    assert any(
+        "Inotify watch limit reached; falling back to polling observer mode" in m for m in messages
+    )
+    assert any(m == "Runtime observer mode: polling" for m in messages)

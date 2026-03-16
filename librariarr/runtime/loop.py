@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import errno
 import logging
 import threading
 import time
@@ -10,6 +11,7 @@ from pathlib import Path
 import requests
 from watchdog.events import FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
+from watchdog.observers.polling import PollingObserver
 
 from .status import RuntimeStatusTracker
 
@@ -78,23 +80,8 @@ class RuntimeSyncLoop:
             self.status_tracker.set_debounce_seconds(self.schedule.debounce_seconds)
 
     def run(self, stop_event: threading.Event | None = None) -> None:
-        observer = Observer()
         handler = _SyncEventHandler(self.mark_dirty)
-        watched_roots: set[Path] = set()
-
-        for root in self.nested_roots:
-            root.mkdir(parents=True, exist_ok=True)
-            if root not in watched_roots:
-                observer.schedule(handler, str(root), recursive=True)
-                self.log.info("Watching nested root: %s", root)
-                watched_roots.add(root)
-
-        for root in self.shadow_roots:
-            root.mkdir(parents=True, exist_ok=True)
-            if root not in watched_roots:
-                observer.schedule(handler, str(root), recursive=True)
-                self.log.info("Watching shadow root: %s", root)
-                watched_roots.add(root)
+        observer, watched_roots, observer_mode = self._start_observer(handler)
 
         if self.status_tracker is not None:
             self.status_tracker.mark_runtime_running(
@@ -104,7 +91,9 @@ class RuntimeSyncLoop:
                 watched_roots_total=len(watched_roots),
             )
 
-        observer.start()
+        if observer_mode == "polling":
+            self.log.info("Runtime observer mode: polling")
+
         try:
             if self._run_reconcile_with_handling("Initial reconcile failed"):
                 self.log.info(
@@ -124,6 +113,51 @@ class RuntimeSyncLoop:
             observer.join()
             if self.status_tracker is not None:
                 self.status_tracker.mark_runtime_running(running=False)
+
+    def _start_observer(
+        self,
+        handler: _SyncEventHandler,
+    ) -> tuple[Observer | PollingObserver, set[Path], str]:
+        observer = Observer()
+        watched_roots = self._schedule_observer_roots(observer, handler)
+        try:
+            observer.start()
+            return observer, watched_roots, "inotify"
+        except OSError as exc:
+            if exc.errno != errno.ENOSPC:
+                raise
+
+        self.log.warning(
+            "Inotify watch limit reached; falling back to polling observer mode. "
+            "Filesystem sync remains active but may react slower to changes.",
+        )
+        polling_observer = PollingObserver()
+        watched_roots = self._schedule_observer_roots(polling_observer, handler)
+        polling_observer.start()
+        return polling_observer, watched_roots, "polling"
+
+    def _schedule_observer_roots(
+        self,
+        observer: Observer | PollingObserver,
+        handler: _SyncEventHandler,
+    ) -> set[Path]:
+        watched_roots: set[Path] = set()
+
+        for root in self.nested_roots:
+            root.mkdir(parents=True, exist_ok=True)
+            if root not in watched_roots:
+                observer.schedule(handler, str(root), recursive=True)
+                self.log.info("Watching nested root: %s", root)
+                watched_roots.add(root)
+
+        for root in self.shadow_roots:
+            root.mkdir(parents=True, exist_ok=True)
+            if root not in watched_roots:
+                observer.schedule(handler, str(root), recursive=True)
+                self.log.info("Watching shadow root: %s", root)
+                watched_roots.add(root)
+
+        return watched_roots
 
     def _poll_reconcile_trigger_safe(self) -> bool:
         if self.poll_reconcile_trigger is None:

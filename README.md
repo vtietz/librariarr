@@ -155,6 +155,24 @@ docker compose -f docker-compose.full-stack.example.yml logs -f librariarr
 
 Then open `http://localhost:8787` for the LibrariArr GUI.
 
+### Linux note: inotify watch limits
+
+If logs show `OSError: [Errno 28] inotify watch limit reached`, increase host
+inotify limits (run on the Docker host, not inside the container):
+
+```bash
+sudo sysctl -w fs.inotify.max_user_watches=524288
+sudo sysctl -w fs.inotify.max_user_instances=1024
+```
+
+Persist after reboot:
+
+```bash
+printf 'fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=1024\n' | \
+  sudo tee /etc/sysctl.d/99-librariarr-inotify.conf
+sudo sysctl --system
+```
+
 5. Stop when needed:
 
 ```bash
