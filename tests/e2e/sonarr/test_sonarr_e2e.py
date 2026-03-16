@@ -216,11 +216,19 @@ def test_sonarr_e2e_reconcile_updates_existing_series_path() -> None:
     assert expected_link.is_symlink()
 
     series_id = int(seeded_series["id"])
-    get_series_resp = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
-    get_series_resp.raise_for_status()
-    refreshed_series = get_series_resp.json()
 
-    assert refreshed_series["path"] == str(expected_link)
+    def _series_path_updated() -> bool:
+        get_series_resp = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
+        get_series_resp.raise_for_status()
+        refreshed_series = get_series_resp.json()
+        return refreshed_series.get("path") == str(expected_link)
+
+    _wait_for_condition(
+        _series_path_updated,
+        timeout_seconds=20,
+        step_seconds=0.5,
+        error_message="Timed out waiting for Sonarr series path update",
+    )
 
 
 @pytest.mark.e2e
@@ -287,10 +295,19 @@ def test_sonarr_e2e_reconcile_uses_root_level_nfo_tvdbid_with_nested_noise() -> 
     assert expected_link.is_symlink()
 
     series_id = int(seeded_series["id"])
-    get_series_resp = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
-    get_series_resp.raise_for_status()
-    refreshed_series = get_series_resp.json()
-    assert refreshed_series["path"] == str(expected_link)
+
+    def _series_path_updated() -> bool:
+        get_series_resp = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
+        get_series_resp.raise_for_status()
+        refreshed_series = get_series_resp.json()
+        return refreshed_series.get("path") == str(expected_link)
+
+    _wait_for_condition(
+        _series_path_updated,
+        timeout_seconds=20,
+        step_seconds=0.5,
+        error_message="Timed out waiting for Sonarr series path update",
+    )
 
 
 @pytest.mark.e2e

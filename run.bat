@@ -103,7 +103,7 @@ goto :eof
 
 :fse2e
 if not exist .e2e-data mkdir .e2e-data
-docker compose -p %PROJECT_NAME% -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
+docker compose -p %PROJECT_NAME% -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q tests/e2e/filesystem -m fs_e2e -p no:cacheprovider"
 goto :eof
 
 :quality

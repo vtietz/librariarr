@@ -14,4 +14,4 @@ services:
     entrypoint: ["bash", "-lc"]
     command:
       - |
-        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider
+        PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q tests/e2e/filesystem -m fs_e2e -p no:cacheprovider

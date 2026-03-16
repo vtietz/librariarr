@@ -123,7 +123,7 @@ case "$cmd" in
   fs-e2e)
     mkdir -p .e2e-data
     compose_fs_e2e run --rm "$FS_E2E_SERVICE" \
-      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q tests/e2e/filesystem -m fs_e2e -p no:cacheprovider"
     ;;
   quality)
     compose_dev run --rm "$DEV_SERVICE" \
