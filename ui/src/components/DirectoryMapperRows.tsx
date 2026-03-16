@@ -8,7 +8,7 @@ import {
   IconSearch,
   IconX
 } from "@tabler/icons-react";
-import { memo } from "react";
+import { memo, useState } from "react";
 
 export type MappedDirectory = {
   shadow_root: string;
@@ -159,10 +159,24 @@ const MappedRows = memo(function MappedRows({
   onRefreshRadarr,
   onReconcilePath
 }: MappedRowsProps) {
+  const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
+
   return (
     <>
-      {visibleDirectories.map((mapped) => (
-        <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
+      {visibleDirectories.map((mapped) => {
+        const rowKey = `${mapped.shadow_root}:${mapped.virtual_path}`;
+        const isHovered = hoveredRowKey === rowKey;
+
+        return (
+        <Table.Tr
+          key={rowKey}
+          onMouseEnter={() => setHoveredRowKey(rowKey)}
+          onMouseLeave={() => setHoveredRowKey((current) => (current === rowKey ? null : current))}
+          style={{
+            backgroundColor: isHovered ? "var(--mantine-color-default-hover)" : undefined,
+            transition: "background-color 120ms ease"
+          }}
+        >
           <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <PathCell value={mapped.virtual_path} onCopy={onCopy} />
           </Table.Td>
@@ -292,7 +306,8 @@ const MappedRows = memo(function MappedRows({
             </Group>
           </Table.Td>
         </Table.Tr>
-      ))}
+        );
+      })}
     </>
   );
 });
