@@ -27,8 +27,6 @@ if /I "%~1"=="once" goto :once
 if /I "%~1"=="test" goto :test
 if /I "%~1"=="e2e" goto :e2e
 if /I "%~1"=="fs-e2e" goto :fse2e
-if /I "%~1"=="radarr-e2e" goto :radarre2e
-if /I "%~1"=="sonarr-e2e" goto :sonarre2e
 if /I "%~1"=="quality" goto :quality
 if /I "%~1"=="quality-autofix" goto :qualityautofix
 if /I "%~1"=="dev-up" goto :devup
@@ -91,7 +89,7 @@ docker compose -p %PROJECT_NAME% -f %COMPOSE_FILE% run --rm %SERVICE% --config /
 goto :eof
 
 :test
-docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider"
+docker compose -p %PROJECT_NAME% -f %DEV_COMPOSE_FILE% run --rm %DEV_SERVICE% "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e' -p no:cacheprovider"
 goto :eof
 
 :e2e
@@ -106,24 +104,6 @@ goto :eof
 :fse2e
 if not exist .e2e-data mkdir .e2e-data
 docker compose -p %PROJECT_NAME% -f %FS_E2E_COMPOSE_FILE% run --rm %FS_E2E_SERVICE% "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
-goto :eof
-
-:radarre2e
-if not exist .e2e-data\arr-e2e\movies mkdir .e2e-data\arr-e2e\movies
-if not exist .e2e-data\arr-e2e\radarr_library mkdir .e2e-data\arr-e2e\radarr_library
-if not exist .e2e-data\arr-e2e\series mkdir .e2e-data\arr-e2e\series
-if not exist .e2e-data\arr-e2e\sonarr_library mkdir .e2e-data\arr-e2e\sonarr_library
-docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
-docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
-goto :eof
-
-:sonarre2e
-if not exist .e2e-data\arr-e2e\movies mkdir .e2e-data\arr-e2e\movies
-if not exist .e2e-data\arr-e2e\radarr_library mkdir .e2e-data\arr-e2e\radarr_library
-if not exist .e2e-data\arr-e2e\series mkdir .e2e-data\arr-e2e\series
-if not exist .e2e-data\arr-e2e\sonarr_library mkdir .e2e-data\arr-e2e\sonarr_library
-docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% down -v --remove-orphans >nul 2>&1
-docker compose -p %PROJECT_NAME% -f %E2E_COMPOSE_FILE% run --rm %E2E_SERVICE%
 goto :eof
 
 :quality
@@ -228,8 +208,6 @@ echo   once        Run one reconcile cycle and exit
 echo   test        Run unit tests in Docker
 echo   e2e         Run end-to-end integration tests against live Arr services
 echo   fs-e2e      Run end-to-end filesystem tests in Docker
-echo   radarr-e2e  Alias for e2e
-echo   sonarr-e2e  Alias for e2e
 echo   quality     Run lint/format/complexity/LOC checks in Docker
 echo   quality-autofix  Apply auto-fixes, then run quality checks
 echo   dev-up      Start dev API, UI, Sonarr, and Radarr services

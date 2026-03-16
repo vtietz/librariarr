@@ -39,8 +39,6 @@ Commands:
   test        Run unit tests in Docker
   e2e         Run end-to-end integration tests against live Arr services
   fs-e2e      Run end-to-end filesystem tests in Docker
-  radarr-e2e  Alias for e2e
-  sonarr-e2e  Alias for e2e
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev API, UI, Sonarr, and Radarr services
@@ -115,7 +113,7 @@ case "$cmd" in
       compose_dev build "$DEV_SERVICE"
     fi
     compose_dev run --rm "$DEV_SERVICE" \
-      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e and not radarr_e2e and not sonarr_e2e' -p no:cacheprovider ${LIBRARIARR_PYTEST_ARGS:-}"
+      "LIBRARIARR_RADARR_URL= LIBRARIARR_RADARR_API_KEY= LIBRARIARR_SONARR_URL= LIBRARIARR_SONARR_API_KEY= PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m 'not e2e and not fs_e2e' -p no:cacheprovider ${LIBRARIARR_PYTEST_ARGS:-}"
     ;;
   e2e)
     mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
@@ -126,16 +124,6 @@ case "$cmd" in
     mkdir -p .e2e-data
     compose_fs_e2e run --rm "$FS_E2E_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app pytest -q -m fs_e2e -p no:cacheprovider"
-    ;;
-  radarr-e2e)
-    mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
-    compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
-    compose_e2e run --rm "$E2E_SERVICE"
-    ;;
-  sonarr-e2e)
-    mkdir -p .e2e-data/arr-e2e/movies .e2e-data/arr-e2e/radarr_library .e2e-data/arr-e2e/series .e2e-data/arr-e2e/sonarr_library
-    compose_e2e down -v --remove-orphans >/dev/null 2>&1 || true
-    compose_e2e run --rm "$E2E_SERVICE"
     ;;
   quality)
     compose_dev run --rm "$DEV_SERVICE" \

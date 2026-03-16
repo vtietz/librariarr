@@ -1,152 +1,28 @@
 from __future__ import annotations
 
 import os
-from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
 import yaml
 
-DEFAULT_SCAN_VIDEO_EXTENSIONS = [
-    ".mkv",
-    ".mp4",
-    ".avi",
-    ".m2ts",
-    ".mov",
-    ".wmv",
-    ".ts",
-    ".m4v",
-    ".mpg",
-    ".mpeg",
-]
-
-
-@dataclass
-class QualityRule:
-    match: list[str]
-    target_id: int
-
-
-@dataclass
-class CustomFormatRule:
-    match: list[str]
-    format_id: int
-
-
-@dataclass
-class ProfileRule:
-    match: list[str]
-    profile_id: int
-
-
-@dataclass
-class RadarrMappingConfig:
-    quality_map: list[QualityRule] = field(default_factory=list)
-    custom_format_map: list[CustomFormatRule] = field(default_factory=list)
-
-
-@dataclass
-class SonarrMappingConfig:
-    quality_profile_map: list[ProfileRule] = field(default_factory=list)
-    language_profile_map: list[ProfileRule] = field(default_factory=list)
-
-
-@dataclass
-class CleanupConfig:
-    remove_orphaned_links: bool = True
-    radarr_action_on_missing: str = "unmonitor"
-    sonarr_action_on_missing: str = "unmonitor"
-    missing_grace_seconds: int = 3600
-
-
-@dataclass
-class RuntimeConfig:
-    debounce_seconds: int = 8
-    maintenance_interval_minutes: int = 1440
-    arr_root_poll_interval_minutes: int = 1
-    scan_video_extensions: list[str] | None = field(
-        default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
-    )
-
-
-@dataclass
-class AnalysisConfig:
-    use_nfo: bool = False
-    use_media_probe: bool = False
-    media_probe_bin: str = "ffprobe"
-
-
-@dataclass
-class IngestConfig:
-    enabled: bool = False
-    min_age_seconds: int = 30
-    collision_policy: str = "qualify"
-    quarantine_root: str = ""
-
-
-@dataclass
-class RadarrConfig:
-    url: str
-    api_key: str
-    enabled: bool = True
-    sync_enabled: bool = True
-    refresh_debounce_seconds: int = 15
-    auto_add_unmatched: bool = False
-    auto_add_quality_profile_id: int | None = None
-    auto_add_search_on_add: bool = False
-    auto_add_monitored: bool = True
-    mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
-
-
-@dataclass
-class SonarrConfig:
-    enabled: bool = False
-    url: str = ""
-    api_key: str = ""
-    sync_enabled: bool = True
-    refresh_debounce_seconds: int = 15
-    auto_add_unmatched: bool = False
-    auto_add_quality_profile_id: int | None = None
-    auto_add_language_profile_id: int | None = None
-    auto_add_search_on_add: bool = False
-    auto_add_monitored: bool = True
-    auto_add_season_folder: bool = True
-    mapping: SonarrMappingConfig = field(default_factory=SonarrMappingConfig)
-
-
-@dataclass
-class PathsConfig:
-    root_mappings: list[RootMapping] = field(default_factory=list)
-    exclude_paths: list[str] = field(default_factory=list)
-
-
-@dataclass
-class RootMapping:
-    nested_root: str
-    shadow_root: str
-
-
-@dataclass
-class AppConfig:
-    paths: PathsConfig
-    radarr: RadarrConfig
-    cleanup: CleanupConfig
-    runtime: RuntimeConfig
-    sonarr: SonarrConfig = field(default_factory=SonarrConfig)
-    analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
-    ingest: IngestConfig = field(default_factory=IngestConfig)
-
-    def effective_radarr_quality_map(self) -> list[QualityRule]:
-        return self.radarr.mapping.quality_map
-
-    def effective_radarr_custom_format_map(self) -> list[CustomFormatRule]:
-        return self.radarr.mapping.custom_format_map
-
-    def effective_sonarr_quality_profile_map(self) -> list[ProfileRule]:
-        return self.sonarr.mapping.quality_profile_map
-
-    def effective_sonarr_language_profile_map(self) -> list[ProfileRule]:
-        return self.sonarr.mapping.language_profile_map
+from .defaults import DEFAULT_SCAN_VIDEO_EXTENSIONS
+from .models import (
+    AnalysisConfig,
+    AppConfig,
+    CleanupConfig,
+    CustomFormatRule,
+    IngestConfig,
+    PathsConfig,
+    ProfileRule,
+    QualityRule,
+    RadarrConfig,
+    RadarrMappingConfig,
+    RootMapping,
+    RuntimeConfig,
+    SonarrConfig,
+    SonarrMappingConfig,
+)
 
 
 def _require(data: dict[str, Any], key: str) -> Any:
@@ -164,7 +40,7 @@ def _env_or_default(name: str, default: str) -> str:
     return value
 
 
-def load_config(path: str | Path) -> AppConfig:
+def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     with Path(path).open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
 
@@ -205,7 +81,6 @@ def load_config(path: str | Path) -> AppConfig:
         raise ValueError("paths.exclude_paths must be a list of glob-style path patterns")
     exclude_paths = [str(item).strip() for item in exclude_paths_raw if str(item).strip()]
 
-    # Deployment-only overrides: allow URL and API key from env.
     radarr_default_url = str(_require(radarr, "url")).rstrip("/") if has_radarr else ""
     radarr_default_api_key = str(_require(radarr, "api_key")) if has_radarr else ""
     radarr_url = _env_or_default("LIBRARIARR_RADARR_URL", radarr_default_url)
@@ -248,36 +123,63 @@ def load_config(path: str | Path) -> AppConfig:
     sonarr_refresh_debounce_seconds = max(0, int(sonarr.get("refresh_debounce_seconds", 15)))
 
     quality_map_raw = radarr_mapping_raw.get("quality_map", [])
+    for item in quality_map_raw:
+        if "target_id" not in item:
+            raise ValueError(
+                "radarr.mapping.quality_map entries must define target_id; "
+                "legacy 'id' is not supported"
+            )
     quality_map = [
         QualityRule(
             match=item.get("match", []),
-            target_id=int(item["target_id"] if "target_id" in item else item["id"]),
+            target_id=int(item["target_id"]),
         )
         for item in quality_map_raw
     ]
 
     custom_format_map_raw = radarr_mapping_raw.get("custom_format_map", [])
+    for item in custom_format_map_raw:
+        if "format_id" not in item:
+            raise ValueError(
+                "radarr.mapping.custom_format_map entries must define format_id; "
+                "legacy 'format' is not supported"
+            )
     custom_format_map = [
         CustomFormatRule(
             match=item.get("match", []),
-            format_id=int(item["format_id"] if "format_id" in item else item["format"]),
+            format_id=int(item["format_id"]),
         )
         for item in custom_format_map_raw
     ]
 
+    sonarr_quality_profile_map_raw = sonarr_mapping_raw.get("quality_profile_map", [])
+    for item in sonarr_quality_profile_map_raw:
+        if "profile_id" not in item:
+            raise ValueError(
+                "sonarr.mapping.quality_profile_map entries must define profile_id; "
+                "legacy 'id' is not supported"
+            )
     sonarr_quality_profile_map = [
         ProfileRule(
             match=item.get("match", []),
-            profile_id=int(item["profile_id"] if "profile_id" in item else item["id"]),
+            profile_id=int(item["profile_id"]),
         )
-        for item in sonarr_mapping_raw.get("quality_profile_map", [])
+        for item in sonarr_quality_profile_map_raw
     ]
+
+    sonarr_language_profile_map_raw = sonarr_mapping_raw.get("language_profile_map", [])
+    for item in sonarr_language_profile_map_raw:
+        if "profile_id" not in item:
+            raise ValueError(
+                "sonarr.mapping.language_profile_map entries must define profile_id; "
+                "legacy 'id' is not supported"
+            )
     sonarr_language_profile_map = [
         ProfileRule(
             match=item.get("match", []),
-            profile_id=int(item["profile_id"] if "profile_id" in item else item["id"]),
+            profile_id=int(item["profile_id"]),
         )
-        for item in sonarr_mapping_raw.get("language_profile_map", [])
+        for item in sonarr_language_profile_map_raw
     ]
 
     cleanup_raw = raw.get("cleanup", {})

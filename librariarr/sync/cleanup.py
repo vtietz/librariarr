@@ -14,8 +14,11 @@ class ShadowCleanupManager:
         sync_enabled: bool,
         on_missing_action: str,
         missing_grace_seconds: int,
-        get_radarr_client: Callable[[], Any],
-        resolve_movie_for_link_name: Callable[[str, dict[Any, dict]], dict | None],
+        get_arr_client: Callable[[], Any],
+        resolve_item_for_link_name: Callable[[str, dict[Any, dict]], dict | None],
+        unmonitor_item: Callable[[Any, dict], None],
+        delete_item: Callable[[Any, int], None],
+        refresh_item: Callable[[Any, int], None],
         logger: logging.Logger | None = None,
     ) -> None:
         self.shadow_roots = shadow_roots
@@ -25,87 +28,90 @@ class ShadowCleanupManager:
             raise ValueError("on_missing_action must be one of: none, unmonitor, delete")
         self.on_missing_action = normalized_action
         self.missing_grace_seconds = max(0, int(missing_grace_seconds))
-        self.get_radarr_client = get_radarr_client
-        self.resolve_movie_for_link_name = resolve_movie_for_link_name
+        self.get_arr_client = get_arr_client
+        self.resolve_item_for_link_name = resolve_item_for_link_name
+        self.unmonitor_item = unmonitor_item
+        self.delete_item = delete_item
+        self.refresh_item = refresh_item
         self.log = logger or logging.getLogger(__name__)
-        self._missing_since_by_movie_id: dict[int, float] = {}
+        self._missing_since_by_item_id: dict[int, float] = {}
 
-    def _build_movies_by_id(self, movies_by_ref: dict[Any, dict]) -> dict[int, dict]:
-        movies_by_id: dict[int, dict] = {}
-        for movie in movies_by_ref.values():
-            movie_id = movie.get("id")
-            if isinstance(movie_id, int):
-                movies_by_id.setdefault(movie_id, movie)
-        return movies_by_id
+    def _build_items_by_id(self, items_by_ref: dict[Any, dict]) -> dict[int, dict]:
+        items_by_id: dict[int, dict] = {}
+        for item in items_by_ref.values():
+            item_id = item.get("id")
+            if isinstance(item_id, int):
+                items_by_id.setdefault(item_id, item)
+        return items_by_id
 
-    def _queue_missing_movie(self, movie_id: int) -> None:
-        self._missing_since_by_movie_id.setdefault(movie_id, time.time())
+    def _queue_missing_item(self, item_id: int) -> None:
+        self._missing_since_by_item_id.setdefault(item_id, time.time())
 
-    def _clear_pending_missing(self, movie_id: int) -> None:
-        self._missing_since_by_movie_id.pop(movie_id, None)
+    def _clear_pending_missing(self, item_id: int) -> None:
+        self._missing_since_by_item_id.pop(item_id, None)
 
     def _apply_pending_missing_actions(
         self,
-        movies_by_ref: dict[Any, dict],
-        matched_movie_ids: set[int],
+        items_by_ref: dict[Any, dict],
+        matched_item_ids: set[int],
     ) -> None:
         if not self.sync_enabled or self.on_missing_action == "none":
-            self._missing_since_by_movie_id.clear()
+            self._missing_since_by_item_id.clear()
             return
 
-        if not self._missing_since_by_movie_id:
+        if not self._missing_since_by_item_id:
             return
 
-        movies_by_id = self._build_movies_by_id(movies_by_ref)
+        items_by_id = self._build_items_by_id(items_by_ref)
         now = time.time()
-        radarr = None
+        arr_client = None
 
-        for movie_id, first_missing_at in list(self._missing_since_by_movie_id.items()):
-            if movie_id in matched_movie_ids:
-                self._clear_pending_missing(movie_id)
+        for item_id, first_missing_at in list(self._missing_since_by_item_id.items()):
+            if item_id in matched_item_ids:
+                self._clear_pending_missing(item_id)
                 continue
 
-            movie = movies_by_id.get(movie_id)
-            if movie is None:
-                self._clear_pending_missing(movie_id)
+            item = items_by_id.get(item_id)
+            if item is None:
+                self._clear_pending_missing(item_id)
                 continue
 
             elapsed = now - first_missing_at
             if elapsed < self.missing_grace_seconds:
                 continue
 
-            if radarr is None:
-                radarr = self.get_radarr_client()
+            if arr_client is None:
+                arr_client = self.get_arr_client()
 
             if self.on_missing_action == "delete":
-                radarr.delete_movie(movie_id, delete_files=False)
+                self.delete_item(arr_client, item_id)
             else:
-                radarr.unmonitor_movie(movie)
-                radarr.refresh_movie(movie_id)
-            self._clear_pending_missing(movie_id)
+                self.unmonitor_item(arr_client, item)
+                self.refresh_item(arr_client, item_id)
+            self._clear_pending_missing(item_id)
 
     def _queue_missing_action_for_link(
         self,
         link_name: str,
-        movies_by_ref: dict[Any, dict],
-        matched_movie_ids: set[int],
+        items_by_ref: dict[Any, dict],
+        matched_item_ids: set[int],
     ) -> None:
         if not self.sync_enabled or self.on_missing_action == "none":
             return
 
-        movie = self.resolve_movie_for_link_name(link_name, movies_by_ref)
-        if not movie:
+        item = self.resolve_item_for_link_name(link_name, items_by_ref)
+        if not item:
             return
 
-        movie_id = movie.get("id")
-        if not isinstance(movie_id, int):
+        item_id = item.get("id")
+        if not isinstance(item_id, int):
             return
 
-        if movie_id in matched_movie_ids:
-            self._clear_pending_missing(movie_id)
+        if item_id in matched_item_ids:
+            self._clear_pending_missing(item_id)
             return
 
-        self._queue_missing_movie(movie_id)
+        self._queue_missing_item(item_id)
 
     def cleanup_orphans(
         self,
@@ -145,13 +151,13 @@ class ShadowCleanupManager:
                     continue
                 self._queue_missing_action_for_link(
                     link_name=child.name,
-                    movies_by_ref=movies_by_ref,
-                    matched_movie_ids=matched_ids,
+                    items_by_ref=movies_by_ref,
+                    matched_item_ids=matched_ids,
                 )
 
         self._apply_pending_missing_actions(
-            movies_by_ref=movies_by_ref,
-            matched_movie_ids=matched_ids,
+            items_by_ref=movies_by_ref,
+            matched_item_ids=matched_ids,
         )
 
         return removed_count
@@ -201,13 +207,13 @@ class ShadowCleanupManager:
                     continue
                 self._queue_missing_action_for_link(
                     link_name=child.name,
-                    movies_by_ref=movies_by_ref,
-                    matched_movie_ids=matched_ids,
+                    items_by_ref=movies_by_ref,
+                    matched_item_ids=matched_ids,
                 )
 
         self._apply_pending_missing_actions(
-            movies_by_ref=movies_by_ref,
-            matched_movie_ids=matched_ids,
+            items_by_ref=movies_by_ref,
+            matched_item_ids=matched_ids,
         )
 
         return removed_count

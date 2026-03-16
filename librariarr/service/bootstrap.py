@@ -67,8 +67,11 @@ class ServiceBootstrapMixin:
             sync_enabled=self.sync_enabled,
             on_missing_action=config.cleanup.radarr_action_on_missing,
             missing_grace_seconds=config.cleanup.missing_grace_seconds,
-            get_radarr_client=lambda: self.radarr,
-            resolve_movie_for_link_name=self._resolve_movie_for_link_name,
+            get_arr_client=lambda: self.radarr,
+            resolve_item_for_link_name=self._resolve_movie_for_link_name,
+            unmonitor_item=lambda client, item: client.unmonitor_movie(item),
+            delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
+            refresh_item=lambda client, item_id: client.refresh_movie(item_id),
             logger=LOG,
         )
         self.sonarr_cleanup_manager = ShadowCleanupManager(
@@ -76,8 +79,11 @@ class ServiceBootstrapMixin:
             sync_enabled=self.sonarr_sync_enabled,
             on_missing_action=config.cleanup.sonarr_action_on_missing,
             missing_grace_seconds=config.cleanup.missing_grace_seconds,
-            get_radarr_client=lambda: self.sonarr,
-            resolve_movie_for_link_name=self._resolve_series_for_link_name,
+            get_arr_client=lambda: self.sonarr,
+            resolve_item_for_link_name=self._resolve_series_for_link_name,
+            unmonitor_item=lambda client, item: client.unmonitor_series(item),
+            delete_item=lambda client, item_id: client.delete_series(item_id, delete_files=False),
+            refresh_item=lambda client, item_id: client.refresh_series(item_id),
             logger=LOG,
         )
 

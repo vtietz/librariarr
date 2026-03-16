@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import difflib
 import hashlib
 import io
 import logging
@@ -14,10 +13,9 @@ from tempfile import NamedTemporaryFile
 from typing import Any
 
 import uvicorn
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
@@ -34,24 +32,18 @@ from .jobs import JobManager
 from .log_buffer import install_log_buffer
 from .mapped_cache import get_mapped_directories_cache, warmup_mapped_directories_cache
 from .operations import build_operations_router, run_radarr_diagnostics, run_sonarr_diagnostics
+from .routers import (
+    build_basic_fs_router,
+    build_config_router,
+    build_diagnostics_router,
+    build_dry_run_router,
+    build_metadata_router,
+)
 from .runtime_supervisor import RuntimeSupervisor
 from .runtime_task_wiring import configure_runtime_task_callbacks
 from .state_store import PersistentStateStore
 
 LOG = logging.getLogger(__name__)
-
-
-class ConfigPayload(BaseModel):
-    yaml: str | None = Field(default=None)
-    config: dict[str, Any] | None = Field(default=None)
-
-
-class ValidateRequest(ConfigPayload):
-    source: str = Field(default="disk")
-
-
-class DryRunRequest(BaseModel):
-    yaml: str | None = Field(default=None)
 
 
 @dataclass
@@ -146,7 +138,7 @@ def _quote_string_scalars(node: Any) -> Any:
     return node
 
 
-def _to_yaml_text(payload: ConfigPayload, base_yaml_text: str) -> str:
+def _to_yaml_text(payload: Any, base_yaml_text: str) -> str:
     if payload.yaml is not None:
         return payload.yaml
     if payload.config is None:
@@ -283,362 +275,57 @@ def create_app(  # noqa: C901
             return {"status": "starting"}
         return health_payload
 
-    @app.get("/api/config")
-    def get_config(
-        include_secrets: bool = Query(default=False),
-        source: str = Query(default="disk"),
-    ) -> dict[str, Any]:
-        with state.lock:
-            disk_yaml = _load_disk_yaml(state.config_path)
-            selected_source = "disk"
-            selected_yaml = disk_yaml
-            if source == "draft" and state.draft_yaml is not None:
-                selected_source = "draft"
-                selected_yaml = state.draft_yaml
-
-        config, error = _validate_yaml_text(selected_yaml)
-        if config is None:
-            raise HTTPException(status_code=500, detail=f"Config parse error: {error}")
-
-        return {
-            "source": selected_source,
-            "checksum": _checksum(selected_yaml),
-            "yaml": selected_yaml,
-            "has_draft": state.draft_yaml is not None,
-            "config": _serialize_config(config, include_secrets=include_secrets),
-        }
-
-    @app.post("/api/config/validate")
-    def validate_config(request: ValidateRequest) -> dict[str, Any]:
-        LOG.info("Config validation requested (source=%s)", request.source)
-        with state.lock:
-            disk_yaml = _load_disk_yaml(state.config_path)
-            base_yaml = disk_yaml
-            if request.source == "draft" and state.draft_yaml is not None:
-                base_yaml = state.draft_yaml
-
-            try:
-                candidate_yaml = _to_yaml_text(request, base_yaml)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-            state.draft_yaml = candidate_yaml
-
-        config, error = _validate_yaml_text(candidate_yaml)
-        if config is None:
-            LOG.warning("Config validation failed: %s", error)
-            return {
-                "valid": False,
-                "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
-                "checksum": _checksum(candidate_yaml),
-            }
-
-        LOG.info("Config validation passed")
-        return {
-            "valid": True,
-            "issues": [],
-            "checksum": _checksum(candidate_yaml),
-            "config": _serialize_config(config, include_secrets=False),
-        }
-
-    @app.put("/api/config")
-    def put_config(request: ConfigPayload) -> dict[str, Any]:
-        LOG.info("Config save requested")
-        with state.lock:
-            disk_yaml = _load_disk_yaml(state.config_path)
-            try:
-                candidate_yaml = _to_yaml_text(request, disk_yaml)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-            config, error = _validate_yaml_text(candidate_yaml)
-            if config is None:
-                LOG.warning("Config save validation failed: %s", error)
-                return {
-                    "saved": False,
-                    "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
-                    "checksum": _checksum(candidate_yaml),
-                }
-
-            try:
-                _write_config_with_backup(
-                    config_path=state.config_path,
-                    previous_yaml=disk_yaml,
-                    next_yaml=candidate_yaml,
-                )
-            except OSError as exc:
-                if _is_permission_error(exc):
-                    LOG.error(
-                        "Config save failed due to permissions for %s: %s",
-                        state.config_path,
-                        exc,
-                    )
-                    raise HTTPException(
-                        status_code=500,
-                        detail=(
-                            "Unable to save config file due to permissions. "
-                            "Ensure the runtime user can write both config.yaml "
-                            "and config.yaml.bak."
-                        ),
-                    ) from exc
-                LOG.error("Config save failed due to filesystem error: %s", exc)
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Unable to save config file: {exc}",
-                ) from exc
-            state.draft_yaml = None
-            LOG.info("Config saved to %s (backup written)", state.config_path)
-
-        # The RuntimeSupervisor config-watch loop detects the mtime change
-        # and triggers a restart automatically — no explicit restart needed.
-        runtime_will_restart = state.runtime_supervisor is not None
-        if runtime_will_restart:
-            LOG.info("Config file written; runtime config-watcher will pick up the change")
-
-        return {
-            "saved": True,
-            "issues": [],
-            "checksum": _checksum(candidate_yaml),
-            "runtime_restart_recommended": not runtime_will_restart,
-            "runtime_restarted": runtime_will_restart,
-            "config": _serialize_config(config, include_secrets=False),
-        }
-
-    @app.get("/api/config/diff")
-    def config_diff() -> dict[str, Any]:
-        with state.lock:
-            disk_yaml = _load_disk_yaml(state.config_path)
-            draft_yaml = state.draft_yaml
-
-        if draft_yaml is None:
-            return {"has_diff": False, "diff": ""}
-
-        diff = "".join(
-            difflib.unified_diff(
-                disk_yaml.splitlines(keepends=True),
-                draft_yaml.splitlines(keepends=True),
-                fromfile="config.yaml",
-                tofile="draft.yaml",
-            )
+    app.include_router(
+        build_config_router(
+            state=state,
+            load_disk_yaml_fn=_load_disk_yaml,
+            validate_yaml_text_fn=_validate_yaml_text,
+            to_yaml_text_fn=_to_yaml_text,
+            checksum_fn=_checksum,
+            serialize_config_fn=_serialize_config,
+            write_config_with_backup_fn=_write_config_with_backup,
+            is_permission_error_fn=_is_permission_error,
+            logger=LOG,
         )
-        return {"has_diff": bool(diff.strip()), "diff": diff}
-
-    @app.get("/api/fs/roots")
-    def fs_roots() -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        roots = _allowed_roots(config)
-        return {"roots": [str(root) for root in roots]}
-
-    @app.get("/api/fs/ls")
-    def fs_ls(
-        path: str | None = Query(default=None),
-        include_hidden: bool = Query(default=False),
-    ) -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        allowed = _allowed_roots(config)
-
-        if path is None:
-            return {"path": None, "entries": [], "allowed_roots": [str(root) for root in allowed]}
-
-        requested = Path(path)
-        if not _is_allowed_path(requested, allowed):
-            raise HTTPException(status_code=403, detail="Requested path is outside allowed roots.")
-        if not requested.exists() or not requested.is_dir():
-            raise HTTPException(status_code=404, detail="Requested path does not exist.")
-
-        entries: list[dict[str, Any]] = []
-        sorted_entries = sorted(
-            requested.iterdir(),
-            key=lambda item: (not item.is_dir(), item.name.lower()),
+    )
+    app.include_router(
+        build_basic_fs_router(
+            state=state,
+            safe_load_disk_config_fn=_safe_load_disk_config,
+            allowed_roots_fn=_allowed_roots,
+            is_allowed_path_fn=_is_allowed_path,
         )
-        for child in sorted_entries:
-            if not include_hidden and child.name.startswith("."):
-                continue
-            entries.append(
-                {
-                    "name": child.name,
-                    "path": str(child),
-                    "is_dir": child.is_dir(),
-                    "is_symlink": child.is_symlink(),
-                }
-            )
-
-        return {
-            "path": str(requested),
-            "entries": entries,
-            "allowed_roots": [str(root) for root in allowed],
-        }
-
-    def _radarr_items(fetch: callable) -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.radarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = RadarrClient(config.radarr.url, config.radarr.api_key, timeout=5)
-        try:
-            items = fetch(client)
-            count = len(items) if isinstance(items, list) else 0
-            LOG.debug("Radarr metadata fetch returned %d items", count)
-            return {"enabled": True, "items": items, "error": None}
-        except Exception as exc:
-            LOG.error("Radarr metadata fetch failed: %s", exc)
-            return {"enabled": True, "items": [], "error": str(exc)}
-
-    def _sonarr_items(fetch: callable) -> dict[str, Any]:
-        config = _safe_load_disk_config(state.config_path)
-        if not config.sonarr.enabled:
-            return {"enabled": False, "items": [], "error": None}
-
-        client = SonarrClient(config.sonarr.url, config.sonarr.api_key, timeout=5)
-        try:
-            items = fetch(client)
-            count = len(items) if isinstance(items, list) else 0
-            LOG.debug("Sonarr metadata fetch returned %d items", count)
-            return {"enabled": True, "items": items, "error": None}
-        except Exception as exc:
-            LOG.error("Sonarr metadata fetch failed: %s", exc)
-            return {"enabled": True, "items": [], "error": str(exc)}
-
-    @app.get("/api/radarr/quality-profiles")
-    def radarr_quality_profiles() -> dict[str, Any]:
-        return _radarr_items(lambda client: client.get_quality_profiles())
-
-    @app.get("/api/radarr/quality-definitions")
-    def radarr_quality_definitions() -> dict[str, Any]:
-        return _radarr_items(lambda client: client.get_quality_definitions())
-
-    @app.get("/api/radarr/custom-formats")
-    def radarr_custom_formats() -> dict[str, Any]:
-        return _radarr_items(lambda client: client.get_custom_formats())
-
-    @app.get("/api/radarr/root-folders")
-    def radarr_root_folders() -> dict[str, Any]:
-        return _radarr_items(lambda client: client.get_root_folders())
-
-    @app.get("/api/radarr/tags")
-    def radarr_tags() -> dict[str, Any]:
-        return _radarr_items(lambda client: client.get_tags())
-
-    @app.get("/api/sonarr/quality-profiles")
-    def sonarr_quality_profiles() -> dict[str, Any]:
-        return _sonarr_items(lambda client: client.get_quality_profiles())
-
-    @app.get("/api/sonarr/language-profiles")
-    def sonarr_language_profiles() -> dict[str, Any]:
-        return _sonarr_items(lambda client: client.get_language_profiles())
-
-    @app.get("/api/sonarr/root-folders")
-    def sonarr_root_folders() -> dict[str, Any]:
-        return _sonarr_items(lambda client: client.get_root_folders())
-
-    @app.get("/api/sonarr/tags")
-    def sonarr_tags() -> dict[str, Any]:
-        return _sonarr_items(lambda client: client.get_tags())
-
-    @app.post("/api/diagnostics/radarr")
-    def diagnostics_radarr() -> dict[str, Any]:
-        manager = _job_manager_or_http(state)
-
-        def action() -> dict[str, Any]:
-            LOG.info("Running Radarr diagnostics")
-            config = _safe_load_disk_config(state.config_path)
-            result = run_radarr_diagnostics(config)
-            issue_count = len(result.get("issues", []))
-            LOG.info(
-                "Radarr diagnostics completed: status=%s, issues=%d",
-                result.get("status"),
-                issue_count,
-            )
-            return result
-
-        job_id = manager.submit(kind="diagnostics-radarr", func=action)
-        return {
-            "ok": True,
-            "queued": True,
-            "job_id": job_id,
-            "message": "Radarr diagnostics scheduled.",
-        }
-
-    @app.post("/api/diagnostics/sonarr")
-    def diagnostics_sonarr() -> dict[str, Any]:
-        manager = _job_manager_or_http(state)
-
-        def action() -> dict[str, Any]:
-            LOG.info("Running Sonarr diagnostics")
-            config = _safe_load_disk_config(state.config_path)
-            result = run_sonarr_diagnostics(config)
-            issue_count = len(result.get("issues", []))
-            LOG.info(
-                "Sonarr diagnostics completed: status=%s, issues=%d",
-                result.get("status"),
-                issue_count,
-            )
-            return result
-
-        job_id = manager.submit(kind="diagnostics-sonarr", func=action)
-        return {
-            "ok": True,
-            "queued": True,
-            "job_id": job_id,
-            "message": "Sonarr diagnostics scheduled.",
-        }
-
-    @app.post("/api/dry-run")
-    def dry_run(request: DryRunRequest) -> dict[str, Any]:
-        manager = _job_manager_or_http(state)
-
-        def action() -> dict[str, Any]:
-            if request.yaml is None:
-                config = _safe_load_disk_config(state.config_path)
-            else:
-                config, error = _validate_yaml_text(request.yaml)
-                if config is None:
-                    return {
-                        "ok": False,
-                        "issues": [{"severity": "error", "message": error or "Invalid YAML"}],
-                    }
-
-            video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
-            movie_folder_count = 0
-            series_folder_count = 0
-
-            for mapping in config.paths.root_mappings:
-                nested_root = Path(mapping.nested_root)
-                if config.radarr.enabled:
-                    movie_folder_count += len(
-                        discover_movie_folders(
-                            nested_root,
-                            video_exts,
-                            config.paths.exclude_paths,
-                        )
-                    )
-                if config.sonarr.enabled:
-                    series_folder_count += len(
-                        discover_series_folders(
-                            nested_root,
-                            video_exts,
-                            config.paths.exclude_paths,
-                        )
-                    )
-
-            return {
-                "ok": True,
-                "summary": {
-                    "movie_folders_detected": movie_folder_count,
-                    "series_folders_detected": series_folder_count,
-                    "root_mappings": len(config.paths.root_mappings),
-                },
-                "issues": [],
-                "mode": "read-only",
-            }
-
-        job_id = manager.submit(kind="dry-run", func=action)
-        return {
-            "ok": True,
-            "queued": True,
-            "job_id": job_id,
-            "message": "Dry-run scheduled.",
-        }
+    )
+    app.include_router(
+        build_metadata_router(
+            state=state,
+            safe_load_disk_config_fn=_safe_load_disk_config,
+            logger=LOG,
+            radarr_client_cls=RadarrClient,
+            sonarr_client_cls=SonarrClient,
+        )
+    )
+    app.include_router(
+        build_diagnostics_router(
+            state=state,
+            job_manager_or_http_fn=_job_manager_or_http,
+            safe_load_disk_config_fn=_safe_load_disk_config,
+            run_radarr_diagnostics_fn=run_radarr_diagnostics,
+            run_sonarr_diagnostics_fn=run_sonarr_diagnostics,
+            logger=LOG,
+        )
+    )
+    app.include_router(
+        build_dry_run_router(
+            state=state,
+            job_manager_or_http_fn=_job_manager_or_http,
+            safe_load_disk_config_fn=_safe_load_disk_config,
+            validate_yaml_text_fn=_validate_yaml_text,
+            discover_movie_folders_fn=discover_movie_folders,
+            discover_series_folders_fn=discover_series_folders,
+            video_extensions=VIDEO_EXTENSIONS,
+        )
+    )
 
     @app.get("/{full_path:path}", include_in_schema=False)
     def spa_fallback(full_path: str):

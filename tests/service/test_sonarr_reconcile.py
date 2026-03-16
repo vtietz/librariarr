@@ -95,22 +95,18 @@ class FakeSonarr:
         del force
         self.refreshed.append(series_id)
 
-    def unmonitor_movie(self, movie: dict) -> None:
-        del movie
+    def unmonitor_series(self, series: dict) -> None:
+        del series
 
-    def delete_movie(
+    def delete_series(
         self,
-        movie_id: int,
+        series_id: int,
         delete_files: bool = False,
-        add_import_exclusion: bool = False,
+        add_import_list_exclusion: bool = False,
     ) -> None:
-        del movie_id
+        del series_id
         del delete_files
-        del add_import_exclusion
-
-    def refresh_movie(self, movie_id: int, force: bool = False) -> bool:
-        self.refresh_series(movie_id, force=force)
-        return True
+        del add_import_list_exclusion
 
 
 def _make_config(

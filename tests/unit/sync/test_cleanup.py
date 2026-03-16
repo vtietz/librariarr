@@ -38,10 +38,13 @@ def test_cleanup_manager_removes_orphan_and_unmonitors_movie(tmp_path: Path) -> 
         sync_enabled=True,
         on_missing_action="unmonitor",
         missing_grace_seconds=0,
-        get_radarr_client=lambda: radarr,
-        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+        get_arr_client=lambda: radarr,
+        resolve_item_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
         ),
+        unmonitor_item=lambda client, item: client.unmonitor_movie(item),
+        delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
+        refresh_item=lambda client, item_id: client.refresh_movie(item_id),
     )
 
     removed = manager.cleanup_orphans(
@@ -75,10 +78,13 @@ def test_cleanup_manager_removes_orphan_and_deletes_movie_when_configured(tmp_pa
         sync_enabled=True,
         on_missing_action="delete",
         missing_grace_seconds=0,
-        get_radarr_client=lambda: radarr,
-        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+        get_arr_client=lambda: radarr,
+        resolve_item_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
         ),
+        unmonitor_item=lambda client, item: client.unmonitor_movie(item),
+        delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
+        refresh_item=lambda client, item_id: client.refresh_movie(item_id),
     )
 
     removed = manager.cleanup_orphans(
@@ -114,10 +120,13 @@ def test_cleanup_manager_defers_missing_action_until_grace_expires(
         sync_enabled=True,
         on_missing_action="unmonitor",
         missing_grace_seconds=60,
-        get_radarr_client=lambda: radarr,
-        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+        get_arr_client=lambda: radarr,
+        resolve_item_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
         ),
+        unmonitor_item=lambda client, item: client.unmonitor_movie(item),
+        delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
+        refresh_item=lambda client, item_id: client.refresh_movie(item_id),
     )
 
     current_time = 1000.0
@@ -176,10 +185,13 @@ def test_cleanup_manager_clears_pending_missing_when_movie_rematches(
         sync_enabled=True,
         on_missing_action="unmonitor",
         missing_grace_seconds=60,
-        get_radarr_client=lambda: radarr,
-        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+        get_arr_client=lambda: radarr,
+        resolve_item_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
         ),
+        unmonitor_item=lambda client, item: client.unmonitor_movie(item),
+        delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
+        refresh_item=lambda client, item_id: client.refresh_movie(item_id),
     )
 
     current_time = 2000.0
@@ -235,10 +247,13 @@ def test_cleanup_manager_applies_missing_actions_in_incremental_target_cleanup(
         sync_enabled=True,
         on_missing_action="unmonitor",
         missing_grace_seconds=0,
-        get_radarr_client=lambda: radarr,
-        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+        get_arr_client=lambda: radarr,
+        resolve_item_for_link_name=lambda link_name, movie_map: movie_map.get(
             link_name.split("--", 1)[0]
         ),
+        unmonitor_item=lambda client, item: client.unmonitor_movie(item),
+        delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
+        refresh_item=lambda client, item_id: client.refresh_movie(item_id),
     )
 
     removed = manager.cleanup_orphans_for_targets(

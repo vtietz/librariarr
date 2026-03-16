@@ -2,10 +2,19 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 import requests
 
+from ..core import (
+    MediaReconcileOutcome,
+    MediaScope,
+    ReconcilePlan,
+    build_cleanup_tasks,
+    create_reconcile_plan,
+    resolve_reconcile_mode,
+)
 from ..sync import (
     MovieRef,
     ShadowCleanupManager,
@@ -16,8 +25,28 @@ from ..sync import (
 from .common import LOG
 
 
+@dataclass(frozen=True)
+class _MediaReconcileSpec:
+    sync_enabled: bool
+    auto_add_unmatched: bool
+    is_root_available: Callable[[Path], bool]
+    skip_log_message: str
+    post_auto_add_no_match_log_message: str
+    post_auto_add_no_match_log_level: str
+    no_match_message_when_auto_add_disabled: str
+    match_item_for_folder: Callable[
+        [Path, dict[MovieRef, dict], dict[str, dict], dict[str, dict], set[Path]],
+        dict | None,
+    ]
+    auto_add_item_for_folder: Callable[[Path, Path], dict | None]
+    sync_item_for_folder: Callable[[Path, Path, dict, bool], None]
+    index_item: Callable[[dict[MovieRef, dict], dict], None]
+    index_item_path: Callable[[dict[str, dict], dict], None]
+    index_item_external_ids: Callable[[dict[str, dict], dict], None]
+
+
 class ServiceReconcileMixin:
-    def reconcile(
+    def reconcile(  # noqa: C901
         self,
         affected_paths: set[Path] | None = None,
         *,
@@ -25,8 +54,7 @@ class ServiceReconcileMixin:
     ) -> bool:
         with self._lock:
             started = time.time()
-            reconcile_mode = "incremental" if affected_paths is not None else "full"
-            affected_paths_count = len(affected_paths) if affected_paths is not None else "all"
+            reconcile_mode, affected_paths_count = resolve_reconcile_mode(affected_paths)
             LOG.info(
                 "Reconciling shadow links and Arr state (mode=%s, affected_paths=%s)...",
                 reconcile_mode,
@@ -45,64 +73,34 @@ class ServiceReconcileMixin:
             if self.config.ingest.enabled:
                 ingest_pending = self.ingestor.last_pending_quiescent_count > 0
 
-            movie_folders: dict[Path, Path] = {}
-            all_movie_folders: dict[Path, Path] = {}
-            movie_affected_targets: set[Path] = set()
-            movie_incremental_mode = False
-            if self.radarr_enabled:
-                (
-                    movie_folders,
-                    all_movie_folders,
-                    movie_affected_targets,
-                    movie_incremental_mode,
-                ) = self._resolve_reconcile_scope(
-                    affected_paths,
-                    known_folders=self._known_movie_folders,
-                    discover=discover_movie_folders,
-                )
-                self._known_movie_folders = all_movie_folders
-
-            series_folders: dict[Path, Path] = {}
-            all_series_folders: dict[Path, Path] = {}
-            series_affected_targets: set[Path] = set()
-            series_incremental_mode = False
-            if self.sonarr_enabled:
-                (
-                    series_folders,
-                    all_series_folders,
-                    series_affected_targets,
-                    series_incremental_mode,
-                ) = self._resolve_reconcile_scope(
-                    affected_paths,
-                    known_folders=self._known_series_folders,
-                    discover=discover_series_folders,
-                )
-                self._known_series_folders = all_series_folders
+            plan = self._build_reconcile_plan(
+                affected_paths=affected_paths,
+                reconcile_mode=reconcile_mode,
+                affected_paths_count=affected_paths_count,
+            )
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
 
             LOG.info(
                 "Reconcile scope resolved: mode=%s affected_paths=%s "
                 "considered_movie_folders=%s considered_series_folders=%s",
-                reconcile_mode,
-                affected_paths_count,
-                len(movie_folders),
-                len(series_folders),
+                plan.mode,
+                plan.affected_paths_count,
+                len(plan.movie_scope.folders),
+                len(plan.series_scope.folders),
             )
 
             target_to_links = collect_current_links(self.shadow_roots)
-            should_fetch_movie_index = self.sync_enabled and (
-                not movie_incremental_mode or bool(movie_folders) or bool(movie_affected_targets)
-            )
-            if should_fetch_movie_index:
+            if plan.fetch_movie_index:
                 movies_by_ref, movies_by_path, movies_by_external_id = self._build_movie_indices()
             else:
                 movies_by_ref, movies_by_path, movies_by_external_id = {}, {}, {}
-            should_fetch_series_index = self.sonarr_sync_enabled and (
-                not series_incremental_mode or bool(series_folders) or bool(series_affected_targets)
-            )
-            if should_fetch_series_index:
+            if plan.fetch_series_index:
                 series_by_ref, series_by_path, series_by_external_id = self._build_series_indices()
             else:
                 series_by_ref, series_by_path, series_by_external_id = {}, {}, {}
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_reconcile_phase("indexed")
             expected_links: set[Path] = set()
             movie_created_links = 0
             matched_movies = 0
@@ -115,7 +113,7 @@ class ServiceReconcileMixin:
                     unmatched_movies,
                     matched_movie_ids,
                 ) = self._reconcile_movie_links(
-                    movie_folders=movie_folders,
+                    movie_folders=plan.movie_scope.folders,
                     target_to_links=target_to_links,
                     expected_links=expected_links,
                     movies_by_ref=movies_by_ref,
@@ -128,7 +126,7 @@ class ServiceReconcileMixin:
                 unmatched_series,
                 matched_series_ids,
             ) = self._reconcile_series_links(
-                series_folders=series_folders,
+                series_folders=plan.series_scope.folders,
                 target_to_links=target_to_links,
                 expected_links=expected_links,
                 series_by_ref=series_by_ref,
@@ -136,27 +134,31 @@ class ServiceReconcileMixin:
                 series_by_external_id=series_by_external_id,
             )
             created_links = movie_created_links + series_created_links
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_reconcile_phase("applied")
 
             orphaned_links_removed = self._cleanup_orphans(
-                all_movie_folders=all_movie_folders,
-                all_series_folders=all_series_folders,
+                all_movie_folders=plan.movie_scope.all_folders,
+                all_series_folders=plan.series_scope.all_folders,
                 expected_links=expected_links,
                 movies_by_ref=movies_by_ref,
                 series_by_ref=series_by_ref,
-                movie_incremental_mode=movie_incremental_mode,
-                series_incremental_mode=series_incremental_mode,
-                movie_affected_targets=movie_affected_targets,
-                series_affected_targets=series_affected_targets,
+                movie_incremental_mode=plan.movie_scope.incremental_mode,
+                series_incremental_mode=plan.series_scope.incremental_mode,
+                movie_affected_targets=plan.movie_scope.affected_targets,
+                series_affected_targets=plan.series_scope.affected_targets,
                 matched_movie_ids=matched_movie_ids,
                 matched_series_ids=matched_series_ids,
             )
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_reconcile_phase("cleaned")
 
             duration_seconds = round(time.time() - started, 2)
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_active_reconcile_metrics(
                     {
-                        "movie_folders_seen": len(movie_folders),
-                        "series_folders_seen": len(series_folders),
+                        "movie_folders_seen": len(plan.movie_scope.folders),
+                        "series_folders_seen": len(plan.series_scope.folders),
                         "existing_links": sum(len(links) for links in target_to_links.values()),
                         "created_links": created_links,
                         "matched_movies": matched_movies,
@@ -169,7 +171,9 @@ class ServiceReconcileMixin:
                         "ingest_pending": ingest_pending,
                         "duration_seconds": duration_seconds,
                         "affected_paths_count": (
-                            len(affected_paths) if affected_paths is not None else None
+                            int(plan.affected_paths_count)
+                            if isinstance(plan.affected_paths_count, int)
+                            else None
                         ),
                     }
                 )
@@ -179,13 +183,13 @@ class ServiceReconcileMixin:
                 "series_folders=%s matched_series=%s unmatched_series=%s "
                 "removed_orphans=%s ingested_dirs=%s ingest_pending=%s "
                 "sync_enabled=%s sonarr_sync_enabled=%s duration_seconds=%s",
-                reconcile_mode,
-                len(movie_folders),
+                plan.mode,
+                len(plan.movie_scope.folders),
                 sum(len(links) for links in target_to_links.values()),
                 created_links,
                 matched_movies,
                 unmatched_movies,
-                len(series_folders),
+                len(plan.series_scope.folders),
                 matched_series,
                 unmatched_series,
                 orphaned_links_removed,
@@ -195,7 +199,75 @@ class ServiceReconcileMixin:
                 self.sonarr_sync_enabled,
                 duration_seconds,
             )
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_reconcile_phase("completed")
             return ingest_pending
+
+    def _build_reconcile_plan(
+        self,
+        *,
+        affected_paths: set[Path] | None,
+        reconcile_mode: str,
+        affected_paths_count: int | str,
+    ) -> ReconcilePlan:
+        movie_scope = MediaScope(
+            folders={},
+            all_folders={},
+            affected_targets=set(),
+            incremental_mode=False,
+        )
+        if self.radarr_enabled:
+            (
+                movie_folders,
+                all_movie_folders,
+                movie_affected_targets,
+                movie_incremental_mode,
+            ) = self._resolve_reconcile_scope(
+                affected_paths,
+                known_folders=self._known_movie_folders,
+                discover=discover_movie_folders,
+            )
+            self._known_movie_folders = all_movie_folders
+            movie_scope = MediaScope(
+                folders=movie_folders,
+                all_folders=all_movie_folders,
+                affected_targets=movie_affected_targets,
+                incremental_mode=movie_incremental_mode,
+            )
+
+        series_scope = MediaScope(
+            folders={},
+            all_folders={},
+            affected_targets=set(),
+            incremental_mode=False,
+        )
+        if self.sonarr_enabled:
+            (
+                series_folders,
+                all_series_folders,
+                series_affected_targets,
+                series_incremental_mode,
+            ) = self._resolve_reconcile_scope(
+                affected_paths,
+                known_folders=self._known_series_folders,
+                discover=discover_series_folders,
+            )
+            self._known_series_folders = all_series_folders
+            series_scope = MediaScope(
+                folders=series_folders,
+                all_folders=all_series_folders,
+                affected_targets=series_affected_targets,
+                incremental_mode=series_incremental_mode,
+            )
+
+        return create_reconcile_plan(
+            mode=reconcile_mode,
+            affected_paths_count=affected_paths_count,
+            movie_scope=movie_scope,
+            series_scope=series_scope,
+            movie_sync_enabled=self.sync_enabled,
+            series_sync_enabled=self.sonarr_sync_enabled,
+        )
 
     def _reconcile_movie_links(
         self,
@@ -206,105 +278,62 @@ class ServiceReconcileMixin:
         movies_by_path: dict[str, dict],
         movies_by_external_id: dict[str, dict],
     ) -> tuple[int, int, int, set[int]]:
-        created_links = 0
-        matched_movies = 0
-        unmatched_movies = 0
-        auto_added_movie_ids: set[int] = set()
-        matched_movie_ids: set[int] = set()
-        logged_unavailable_roots: set[str] = set()
-
-        for folder, shadow_root in sorted(movie_folders.items()):
-            existing_links = target_to_links.get(folder, set())
-            root_available, preserved_existing_link = (
-                self._resolve_root_availability_and_preserve_existing_link(
-                    sync_enabled=self.sync_enabled,
-                    shadow_root=shadow_root,
-                    existing_links=existing_links,
-                    expected_links=expected_links,
-                    target_to_links=target_to_links,
-                    folder=folder,
-                    logged_unavailable_roots=logged_unavailable_roots,
-                    is_root_available=self._is_radarr_root_available,
-                    skip_log_message=(
-                        "Skipping Radarr matching/sync for shadow root not configured in Radarr: %s"
-                    ),
-                )
-            )
-            if preserved_existing_link:
-                continue
-            movie = (
-                self._match_movie_for_folder(
+        def _sync_movie(folder: Path, link_path: Path, movie: dict, auto_added: bool) -> None:
+            movie_id = movie.get("id")
+            try:
+                self._sync_radarr_for_folder(
                     folder,
-                    movies_by_ref,
-                    movies_by_path,
-                    movies_by_external_id,
-                    existing_links,
+                    link_path,
+                    movie,
+                    force_refresh=auto_added,
+                    apply_quality_mapping=auto_added,
                 )
-                if self.sync_enabled and root_available
-                else None
-            )
-            attempted_auto_add = False
-            if self.sync_enabled and root_available and movie is None and self.auto_add_unmatched:
-                attempted_auto_add = True
-                movie = self.radarr_sync.auto_add_movie_for_folder(folder, shadow_root)
-                if movie is not None:
-                    self._add_movie_id_if_present(auto_added_movie_ids, movie)
-                    self._index_movie(index=movies_by_ref, movie=movie)
-                    self._index_movie_path(index=movies_by_path, movie=movie)
-                    self._index_movie_external_ids(index=movies_by_external_id, movie=movie)
-
-            link_path, was_created = self.link_manager.ensure_link(
-                folder,
-                shadow_root,
-                existing_links,
-                movie,
-            )
-            expected_links.add(link_path)
-            target_to_links.setdefault(folder, set()).add(link_path)
-            if was_created:
-                created_links += 1
-
-            if not self.sync_enabled or not root_available:
-                continue
-
-            if movie is not None:
-                movie_id = self._add_movie_id_if_present(matched_movie_ids, movie)
-                auto_added = movie_id is not None and movie_id in auto_added_movie_ids
-                try:
-                    self._sync_radarr_for_folder(
-                        folder,
-                        link_path,
-                        movie,
-                        force_refresh=auto_added,
-                        apply_quality_mapping=auto_added,
-                    )
-                except requests.RequestException as exc:
-                    self._log_sync_config_hint(exc)
-                    LOG.warning(
-                        "Skipping Radarr sync for movie id=%s title=%s due to request failure: %s",
-                        movie_id,
-                        movie.get("title"),
-                        exc,
-                    )
-                matched_movies += 1
-                continue
-
-            if self.auto_add_unmatched:
-                if attempted_auto_add:
-                    LOG.debug(
-                        "No Radarr match for folder after auto-add attempt: %s",
-                        folder,
-                    )
-            else:
+            except requests.RequestException as exc:
+                self._log_sync_config_hint(exc)
                 LOG.warning(
+                    "Skipping Radarr sync for movie id=%s title=%s due to request failure: %s",
+                    movie_id,
+                    movie.get("title"),
+                    exc,
+                )
+
+        outcome = self._reconcile_links_for_kind(
+            folders=movie_folders,
+            target_to_links=target_to_links,
+            expected_links=expected_links,
+            items_by_ref=movies_by_ref,
+            items_by_path=movies_by_path,
+            items_by_external_id=movies_by_external_id,
+            spec=_MediaReconcileSpec(
+                sync_enabled=self.sync_enabled,
+                auto_add_unmatched=self.auto_add_unmatched,
+                is_root_available=self._is_radarr_root_available,
+                skip_log_message=(
+                    "Skipping Radarr matching/sync for shadow root not configured in Radarr: %s"
+                ),
+                post_auto_add_no_match_log_message=(
+                    "No Radarr match for folder after auto-add attempt: %s"
+                ),
+                post_auto_add_no_match_log_level="debug",
+                no_match_message_when_auto_add_disabled=(
                     "No Radarr match for folder: %s "
                     "(enable radarr.auto_add_unmatched=true to auto-create, "
-                    "or add/import in Radarr first)",
-                    folder,
-                )
-            unmatched_movies += 1
-
-        return created_links, matched_movies, unmatched_movies, matched_movie_ids
+                    "or add/import in Radarr first)"
+                ),
+                match_item_for_folder=self._match_movie_for_folder,
+                auto_add_item_for_folder=self.radarr_sync.auto_add_movie_for_folder,
+                sync_item_for_folder=_sync_movie,
+                index_item=self._index_movie,
+                index_item_path=self._index_movie_path,
+                index_item_external_ids=self._index_movie_external_ids,
+            ),
+        )
+        return (
+            outcome.created_links,
+            outcome.matched_items,
+            outcome.unmatched_items,
+            outcome.matched_item_ids,
+        )
 
     def _reconcile_series_links(
         self,
@@ -315,99 +344,150 @@ class ServiceReconcileMixin:
         series_by_path: dict[str, dict],
         series_by_external_id: dict[str, dict],
     ) -> tuple[int, int, int, set[int]]:
+        def _sync_series(folder: Path, link_path: Path, series: dict, auto_added: bool) -> None:
+            self._sync_sonarr_for_folder(
+                folder,
+                link_path,
+                series,
+                force_refresh=auto_added,
+            )
+
+        outcome = self._reconcile_links_for_kind(
+            folders=series_folders,
+            target_to_links=target_to_links,
+            expected_links=expected_links,
+            items_by_ref=series_by_ref,
+            items_by_path=series_by_path,
+            items_by_external_id=series_by_external_id,
+            spec=_MediaReconcileSpec(
+                sync_enabled=self.sonarr_sync_enabled,
+                auto_add_unmatched=self.sonarr_auto_add_unmatched,
+                is_root_available=self._is_sonarr_root_available,
+                skip_log_message=(
+                    "Skipping Sonarr matching/sync for shadow root not configured in Sonarr: %s"
+                ),
+                post_auto_add_no_match_log_message=(
+                    "No Sonarr match for folder after auto-add attempt: %s"
+                ),
+                post_auto_add_no_match_log_level="warning",
+                no_match_message_when_auto_add_disabled=(
+                    "No Sonarr match for folder: %s "
+                    "(enable sonarr.auto_add_unmatched=true to auto-create, "
+                    "or add/import in Sonarr first)"
+                ),
+                match_item_for_folder=self._match_series_for_folder,
+                auto_add_item_for_folder=self.sonarr_sync.auto_add_series_for_folder,
+                sync_item_for_folder=_sync_series,
+                index_item=self._index_series,
+                index_item_path=self._index_series_path,
+                index_item_external_ids=self._index_series_external_ids,
+            ),
+        )
+        return (
+            outcome.created_links,
+            outcome.matched_items,
+            outcome.unmatched_items,
+            outcome.matched_item_ids,
+        )
+
+    def _reconcile_links_for_kind(
+        self,
+        *,
+        folders: dict[Path, Path],
+        target_to_links: dict[Path, set[Path]],
+        expected_links: set[Path],
+        items_by_ref: dict[MovieRef, dict],
+        items_by_path: dict[str, dict],
+        items_by_external_id: dict[str, dict],
+        spec: _MediaReconcileSpec,
+    ) -> MediaReconcileOutcome:
         created_links = 0
-        matched_series = 0
-        unmatched_series = 0
-        auto_added_series_ids: set[int] = set()
-        matched_series_ids: set[int] = set()
+        matched_items = 0
+        unmatched_items = 0
+        auto_added_item_ids: set[int] = set()
+        matched_item_ids: set[int] = set()
         logged_unavailable_roots: set[str] = set()
 
-        for folder, shadow_root in sorted(series_folders.items()):
+        for folder, shadow_root in sorted(folders.items()):
             existing_links = target_to_links.get(folder, set())
             root_available, preserved_existing_link = (
                 self._resolve_root_availability_and_preserve_existing_link(
-                    sync_enabled=self.sonarr_sync_enabled,
+                    sync_enabled=spec.sync_enabled,
                     shadow_root=shadow_root,
                     existing_links=existing_links,
                     expected_links=expected_links,
                     target_to_links=target_to_links,
                     folder=folder,
                     logged_unavailable_roots=logged_unavailable_roots,
-                    is_root_available=self._is_sonarr_root_available,
-                    skip_log_message=(
-                        "Skipping Sonarr matching/sync for shadow root not configured in Sonarr: %s"
-                    ),
+                    is_root_available=spec.is_root_available,
+                    skip_log_message=spec.skip_log_message,
                 )
             )
             if preserved_existing_link:
                 continue
-            series = (
-                self._match_series_for_folder(
+
+            item = (
+                spec.match_item_for_folder(
                     folder,
-                    series_by_ref,
-                    series_by_path,
-                    series_by_external_id,
+                    items_by_ref,
+                    items_by_path,
+                    items_by_external_id,
                     existing_links,
                 )
-                if self.sonarr_sync_enabled and root_available
+                if spec.sync_enabled and root_available
                 else None
             )
             attempted_auto_add = False
-            if (
-                self.sonarr_sync_enabled
-                and root_available
-                and series is None
-                and self.sonarr_auto_add_unmatched
-            ):
+            if spec.sync_enabled and root_available and item is None and spec.auto_add_unmatched:
                 attempted_auto_add = True
-                series = self.sonarr_sync.auto_add_series_for_folder(folder, shadow_root)
-                if series is not None:
-                    self._add_movie_id_if_present(auto_added_series_ids, series)
-                    self._index_series(index=series_by_ref, series=series)
-                    self._index_series_path(index=series_by_path, series=series)
-                    self._index_series_external_ids(index=series_by_external_id, series=series)
+                item = spec.auto_add_item_for_folder(folder, shadow_root)
+                if item is not None:
+                    self._add_movie_id_if_present(auto_added_item_ids, item)
+                    spec.index_item(items_by_ref, item)
+                    spec.index_item_path(items_by_path, item)
+                    spec.index_item_external_ids(items_by_external_id, item)
 
             link_path, was_created = self.link_manager.ensure_link(
                 folder,
                 shadow_root,
                 existing_links,
-                series,
+                item,
             )
             expected_links.add(link_path)
             target_to_links.setdefault(folder, set()).add(link_path)
             if was_created:
                 created_links += 1
 
-            if not self.sonarr_sync_enabled or not root_available:
+            if not spec.sync_enabled or not root_available:
                 continue
 
-            if series is not None:
-                series_id = self._add_movie_id_if_present(matched_series_ids, series)
-                self._sync_sonarr_for_folder(
+            if item is not None:
+                item_id = self._add_movie_id_if_present(matched_item_ids, item)
+                spec.sync_item_for_folder(
                     folder,
                     link_path,
-                    series,
-                    force_refresh=series_id is not None and series_id in auto_added_series_ids,
+                    item,
+                    item_id is not None and item_id in auto_added_item_ids,
                 )
-                matched_series += 1
+                matched_items += 1
                 continue
 
-            if self.sonarr_auto_add_unmatched:
+            if spec.auto_add_unmatched:
                 if attempted_auto_add:
-                    LOG.warning(
-                        "No Sonarr match for folder after auto-add attempt: %s",
-                        folder,
-                    )
+                    if spec.post_auto_add_no_match_log_level == "debug":
+                        LOG.debug(spec.post_auto_add_no_match_log_message, folder)
+                    else:
+                        LOG.warning(spec.post_auto_add_no_match_log_message, folder)
             else:
-                LOG.warning(
-                    "No Sonarr match for folder: %s "
-                    "(enable sonarr.auto_add_unmatched=true to auto-create, "
-                    "or add/import in Sonarr first)",
-                    folder,
-                )
-            unmatched_series += 1
+                LOG.warning(spec.no_match_message_when_auto_add_disabled, folder)
+            unmatched_items += 1
 
-        return created_links, matched_series, unmatched_series, matched_series_ids
+        return MediaReconcileOutcome(
+            created_links=created_links,
+            matched_items=matched_items,
+            unmatched_items=unmatched_items,
+            matched_item_ids=matched_item_ids,
+        )
 
     def _existing_link_for_shadow_root(
         self,
@@ -468,31 +548,33 @@ class ServiceReconcileMixin:
         matched_movie_ids: set[int],
         matched_series_ids: set[int],
     ) -> int:
-        if not self.config.cleanup.remove_orphaned_links:
+        cleanup_tasks = build_cleanup_tasks(
+            remove_orphaned_links=self.config.cleanup.remove_orphaned_links,
+            radarr_enabled=self.radarr_enabled,
+            sonarr_enabled=self.sonarr_enabled,
+            movie_incremental_mode=movie_incremental_mode,
+            series_incremental_mode=series_incremental_mode,
+            movie_affected_targets=movie_affected_targets,
+            series_affected_targets=series_affected_targets,
+            matched_movie_ids=matched_movie_ids,
+            matched_series_ids=matched_series_ids,
+        )
+        if not cleanup_tasks:
             return 0
 
         existing_folders = set(all_movie_folders.keys()) | set(all_series_folders.keys())
         removed_orphans = 0
-        if self.radarr_enabled:
-            removed_orphans = self._cleanup_with_manager(
-                manager=self.cleanup_manager,
-                existing_folders=existing_folders,
-                items_by_ref=movies_by_ref,
-                expected_links=expected_links,
-                incremental_mode=movie_incremental_mode,
-                affected_targets=movie_affected_targets,
-                matched_item_ids=matched_movie_ids,
-            )
-
-        if self.sonarr_enabled:
+        for task in cleanup_tasks:
+            manager = self.cleanup_manager if task.kind == "radarr" else self.sonarr_cleanup_manager
+            items_by_ref = movies_by_ref if task.kind == "radarr" else series_by_ref
             removed_orphans += self._cleanup_with_manager(
-                manager=self.sonarr_cleanup_manager,
+                manager=manager,
                 existing_folders=existing_folders,
-                items_by_ref=series_by_ref,
+                items_by_ref=items_by_ref,
                 expected_links=expected_links,
-                incremental_mode=series_incremental_mode,
-                affected_targets=series_affected_targets,
-                matched_item_ids=matched_series_ids,
+                incremental_mode=task.incremental_mode,
+                affected_targets=task.affected_targets,
+                matched_item_ids=task.matched_item_ids,
             )
 
         return removed_orphans

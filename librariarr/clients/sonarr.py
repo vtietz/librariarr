@@ -139,22 +139,3 @@ class SonarrClient:
         self._request("POST", "/command", json={"name": "RefreshSeries", "seriesId": series_id})
         self._last_refresh_by_series_id[series_id] = now
         return True
-
-    # Compatibility aliases so shared cleanup logic can be reused for both clients.
-    def unmonitor_movie(self, movie: dict[str, Any]) -> None:
-        self.unmonitor_series(movie)
-
-    def delete_movie(
-        self,
-        movie_id: int,
-        delete_files: bool = False,
-        add_import_exclusion: bool = False,
-    ) -> None:
-        self.delete_series(
-            series_id=movie_id,
-            delete_files=delete_files,
-            add_import_list_exclusion=add_import_exclusion,
-        )
-
-    def refresh_movie(self, movie_id: int, force: bool = False) -> bool:
-        return self.refresh_series(series_id=movie_id, force=force)
