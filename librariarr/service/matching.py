@@ -115,7 +115,9 @@ class ServiceMatchingMixin:
             if movie_norm == ref_norm:
                 score += 100
             elif movie_norm in ref_norm or ref_norm in movie_norm:
-                score += 50
+                overlap = movie_norm if movie_norm in ref_norm else ref_norm
+                if len(overlap) >= 5:
+                    score += 50
 
             if score > best_score:
                 best_score = score
