@@ -213,3 +213,43 @@ def test_cleanup_manager_clears_pending_missing_when_movie_rematches(
     assert radarr.unmonitored == []
     assert radarr.deleted == []
     assert radarr.refreshed == []
+
+
+def test_cleanup_manager_applies_missing_actions_in_incremental_target_cleanup(
+    tmp_path: Path,
+) -> None:
+    shadow_root = tmp_path / "radarr_library"
+    nested_root = tmp_path / "nested"
+    shadow_root.mkdir(parents=True)
+    nested_root.mkdir(parents=True)
+
+    missing_target = nested_root / "Tears of Steel (2012)"
+    orphan_link = shadow_root / "Tears of Steel (2012)"
+    orphan_link.symlink_to(missing_target, target_is_directory=True)
+
+    radarr = FakeRadarr()
+    movies = {"Tears of Steel (2012)": {"id": 123}}
+
+    manager = ShadowCleanupManager(
+        shadow_roots=[shadow_root],
+        sync_enabled=True,
+        on_missing_action="unmonitor",
+        missing_grace_seconds=0,
+        get_radarr_client=lambda: radarr,
+        resolve_movie_for_link_name=lambda link_name, movie_map: movie_map.get(
+            link_name.split("--", 1)[0]
+        ),
+    )
+
+    removed = manager.cleanup_orphans_for_targets(
+        existing_folders=set(),
+        movies_by_ref=movies,
+        expected_links=set(),
+        affected_targets={missing_target},
+    )
+
+    assert removed == 1
+    assert not orphan_link.exists()
+    assert radarr.unmonitored == [123]
+    assert radarr.deleted == []
+    assert radarr.refreshed == [123]

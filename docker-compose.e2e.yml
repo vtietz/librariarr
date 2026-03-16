@@ -45,7 +45,7 @@ services:
     entrypoint: ["bash", "-lc"]
     command:
       - |
-        pytest -q -rs -m e2e -p no:cacheprovider
+        pytest -q -rs tests/e2e -m e2e -p no:cacheprovider
 
 volumes:
   radarr-e2e-appdata:

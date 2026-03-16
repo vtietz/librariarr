@@ -20,14 +20,14 @@ def test_link_manager_creates_canonical_link_without_movie(tmp_path: Path) -> No
     assert link.resolve(strict=False) == folder
 
 
-def test_link_manager_uses_movie_metadata_name(tmp_path: Path) -> None:
+def test_link_manager_uses_folder_name_not_movie_metadata(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    folder = nested_root / "Fixture Legacy"
+    folder = nested_root / "Fixture Legacy (1977)"
     folder.mkdir(parents=True)
     shadow_root.mkdir(parents=True)
 
-    movie = {"title": "Fixture Legacy", "year": 1977}
+    movie = {"title": "Completely Different Title", "year": 1977}
     manager = ShadowLinkManager([nested_root])
 
     link, _ = manager.ensure_link(folder, shadow_root, existing_links=set(), movie=movie)
@@ -36,19 +36,21 @@ def test_link_manager_uses_movie_metadata_name(tmp_path: Path) -> None:
     assert link.is_symlink()
 
 
-def test_link_manager_sanitizes_movie_title_path_separators(tmp_path: Path) -> None:
+def test_link_manager_does_not_use_movie_metadata_title_for_link_name(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
-    folder = nested_root / "Face Off Source"
+    folder = nested_root / "Face Off Source (1997)"
     folder.mkdir(parents=True)
     shadow_root.mkdir(parents=True)
 
+    # Movie has a slash title - it must NOT be used for naming; folder name is the source of truth.
     movie = {"title": "Face/Off\\Redux", "year": 1997}
     manager = ShadowLinkManager([nested_root])
 
     link, _ = manager.ensure_link(folder, shadow_root, existing_links=set(), movie=movie)
 
-    assert link.name == "Face-Off-Redux (1997)"
+    assert link.name == "Face Off Source (1997)"
+    assert "/" not in link.name
     assert link.is_symlink()
 
 
@@ -97,6 +99,40 @@ def test_link_manager_preserves_existing_local_name_over_metadata_name(tmp_path:
     assert created is False
     assert link == existing_link
     assert not (shadow_root / "Benno Makes Stories (1982)").exists()
+
+
+def test_link_manager_does_not_reuse_stale_wrong_named_link(
+    tmp_path: Path,
+) -> None:
+    """Regression: a stale symlink that points to the right target but has a wrong name
+    (e.g. created when an NFO contained a wrong tmdbId that matched a different movie)
+    must not be returned as-is.  A new symlink with the correct folder-canonical name
+    should be created instead."""
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    folder = nested_root / "EO (2022)"
+    folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True)
+
+    # Simulate the stale link created when NFO had the wrong Minions tmdbId.
+    stale_link = shadow_root / "Minions - The Rise of Gru (2022)"
+    stale_link.symlink_to(folder, target_is_directory=True)
+
+    # NFO has been corrected; movie is now matched to EO.
+    movie = {"title": "EO", "year": 2022}
+    manager = ShadowLinkManager([nested_root])
+
+    link, created = manager.ensure_link(
+        folder,
+        shadow_root,
+        existing_links={stale_link},
+        movie=movie,
+    )
+
+    assert link.name == "EO (2022)"
+    assert link.is_symlink()
+    assert link.resolve(strict=False) == folder
+    assert created is True
 
 
 def test_link_manager_omits_redundant_root_name_in_qualifier(tmp_path: Path) -> None:

@@ -94,9 +94,38 @@ def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
     assert schedule.last_event > 0.0
 
 
-def test_runtime_sync_loop_mark_dirty_ignores_shadow_nested_event(tmp_path) -> None:
+def test_runtime_sync_loop_mark_dirty_accepts_shadow_nested_event_for_real_dir(tmp_path) -> None:
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
     shadow_root = tmp_path / "shadow"
+    (shadow_root / "Movie (2024)").mkdir(parents=True)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[shadow_root],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+    )
+
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=False,
+            src_path=str(shadow_root / "Movie (2024)" / "movie.mkv"),
+        )
+    )
+    assert schedule.last_event > 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_ignores_shadow_nested_event_under_symlink(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    shadow_root = tmp_path / "shadow"
+    target_root = tmp_path / "target"
+    target_movie = target_root / "Movie (2024)"
+    target_movie.mkdir(parents=True)
+    shadow_root.mkdir(parents=True)
+    (shadow_root / "Movie (2024)").symlink_to(target_movie, target_is_directory=True)
+
     loop = RuntimeSyncLoop(
         nested_roots=[],
         shadow_roots=[shadow_root],

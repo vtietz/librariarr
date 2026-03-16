@@ -4,6 +4,8 @@ Use `config.yaml.example` as your starting point.
 
 This page is the detailed reference for all `config.yaml` options.
 
+For end-to-end lifecycle behavior examples, see `docs/workflows.md`.
+
 ## Quick Start
 
 Recommended baseline:
@@ -160,6 +162,8 @@ Notes:
 `paths.root_mappings`:
 - Each nested source root maps to one shadow root.
 - Avoids ambiguity and works best with ingest.
+- Managed link names are derived from discovered folder names.
+- Arr metadata titles do not control shadow link names.
 
 `paths.exclude_paths`:
 - Optional list of glob-style ignore patterns applied during movie/series discovery.
@@ -192,6 +196,7 @@ Notes:
 - If true, unmatched folders can be auto-added to Radarr.
 - Recommended for normal automation.
 - Disable if your source folder names are frequently temporary/incomplete.
+- Auto-add still converges to folder-derived managed link paths.
 
 `radarr.auto_add_quality_profile_id`:
 - Optional fixed quality profile id for auto-add.
@@ -234,6 +239,7 @@ Notes:
 
 `sonarr.auto_add_unmatched`:
 - If true, unmatched series folders can be auto-added to Sonarr.
+- Auto-add still converges to folder-derived managed link paths.
 
 `sonarr.auto_add_quality_profile_id`:
 - Optional fixed quality profile id for Sonarr auto-add.
@@ -373,11 +379,15 @@ Note:
 `cleanup.missing_grace_seconds`:
 - Delay before `unmonitor` or `delete` is applied.
 - Helps avoid false actions during temporary storage/network outages.
+- Missing-item actions are applied in both full and incremental reconciles.
 
 ## Runtime
 
 `runtime.debounce_seconds`:
 - Debounce window for filesystem events.
+- Shadow-root nested file events under real top-level directories trigger
+  incremental reconcile.
+- Nested events under existing top-level symlink entries are ignored.
 
 `runtime.maintenance_interval_minutes`:
 - Periodic full reconcile interval.

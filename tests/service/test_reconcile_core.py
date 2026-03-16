@@ -355,8 +355,8 @@ def test_reconcile_matches_existing_radarr_movie_for_alias_title_same_year(tmp_p
     assert fake.lookup_terms == []
     assert fake.added_movies == []
     assert fake.updated_paths and fake.updated_paths[0][0] == 4
-    assert (shadow_root / "Fixture Title (2017)").is_symlink()
-    assert not (shadow_root / "Fixture Title - Variant (2017)").exists()
+    # Link is named after the folder, not Radarr's canonical title.
+    assert (shadow_root / "Fixture Title - Variant (2017)").is_symlink()
 
 
 def test_reconcile_matches_existing_radarr_movie_by_tmdb_id_from_nfo(tmp_path: Path) -> None:
@@ -408,7 +408,58 @@ def test_reconcile_matches_existing_radarr_movie_by_tmdb_id_from_nfo(tmp_path: P
     assert fake.lookup_terms == []
     assert fake.added_movies == []
     assert fake.updated_paths and fake.updated_paths[0][0] == 44
-    assert (shadow_root / "Fixture Title (2017)").is_symlink()
+    # Link is named after the folder, not the Radarr-matched movie title.
+    assert (shadow_root / "Totally Custom Folder Name").is_symlink()
+
+
+def test_reconcile_matches_movie_using_root_level_nfo_tmdbid_with_nested_noise(
+    tmp_path: Path,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Custom Folder Without Year"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "movie.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "movie.nfo").write_text(
+        """
+<movie>
+  <credits>
+    <person><tmdbid>99999999</tmdbid></person>
+  </credits>
+  <tmdbid>260514</tmdbid>
+</movie>
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=False,
+        auto_add_quality_profile_id=7,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 55,
+                "title": "Fixture Title",
+                "year": 2017,
+                "tmdbId": 260514,
+                "path": "/old/path",
+                "movieFile": {"id": 155},
+                "monitored": True,
+            }
+        ],
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.updated_paths and fake.updated_paths[0][0] == 55
+    assert (shadow_root / "Custom Folder Without Year").is_symlink()
 
 
 def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path) -> None:
@@ -443,13 +494,14 @@ def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path
 
     service.reconcile()
 
-    canonical_link = shadow_root / "Fixture Title (2017)"
+    # Link is named after the folder, not the auto-add result title.
+    canonical_link = shadow_root / "Fixture Title - Variant (2017)"
     assert canonical_link.is_symlink()
     assert canonical_link.resolve(strict=False) == movie_dir
-    assert not (shadow_root / "Fixture Title - Variant (2017)").exists()
     assert fake.lookup_terms == ["fixture title - variant 2017"]
     assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
-    assert fake.updated_paths == []
+    # Path is updated to the folder-named link (differs from the add_movie_result path).
+    assert fake.updated_paths and fake.updated_paths[0][0] == 10
     assert fake.updated_qualities == [(10, 7)]
     assert fake.refreshed == [10]
 
@@ -590,6 +642,8 @@ def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path:
     service.radarr = fake
 
     service.reconcile()
+    # Link is named after the folder, not the auto-add lookup result title.
+    canonical_link = shadow_root / "Cap und Capper (1981)"
     assert canonical_link.is_symlink()
 
     fake.movies = [
@@ -608,4 +662,3 @@ def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path:
     assert len(fake.added_movies) == 1
     assert fake.updated_qualities == [(21, 7)]
     assert canonical_link.is_symlink()
-    assert not (shadow_root / "Cap und Capper (1981)").exists()

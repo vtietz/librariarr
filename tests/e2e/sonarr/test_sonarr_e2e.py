@@ -1,4 +1,6 @@
 import os
+import shutil
+import threading
 import time
 import uuid
 import xml.etree.ElementTree as ET
@@ -52,6 +54,21 @@ def _wait_for_sonarr(base_url: str, api_key: str, timeout_seconds: int = 180) ->
         time.sleep(2)
 
     raise TimeoutError(f"Timed out waiting for Sonarr API readiness: {last_error}")
+
+
+def _wait_for_condition(
+    predicate,
+    *,
+    timeout_seconds: int = 20,
+    step_seconds: float = 0.2,
+    error_message: str,
+) -> None:
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if predicate():
+            return
+        time.sleep(step_seconds)
+    raise TimeoutError(error_message)
 
 
 def _find_series_by_tvdb_or_none(
@@ -204,6 +221,227 @@ def test_sonarr_e2e_reconcile_updates_existing_series_path() -> None:
     refreshed_series = get_series_resp.json()
 
     assert refreshed_series["path"] == str(expected_link)
+
+
+@pytest.mark.e2e
+def test_sonarr_e2e_reconcile_uses_root_level_nfo_tvdbid_with_nested_noise() -> None:
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / f"sonarr_nfo_noise_{uuid.uuid4().hex[:8]}"
+
+    nested_root = case_root / "series"
+    shadow_root = case_root / "sonarr_library"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
+    sonarr_url = os.getenv("LIBRARIARR_SONARR_E2E_URL", "http://sonarr-test:8989").rstrip("/")
+    api_key = _wait_for_api_key(Path("/sonarr-config/config.xml"))
+    session = _wait_for_sonarr(sonarr_url, api_key)
+
+    seeded_series = _seed_series_or_skip(session, sonarr_url, shadow_root)
+    tvdb_id = int(seeded_series["tvdbId"])
+
+    folder_name = "Custom Series Folder"
+    series_folder = nested_root / folder_name
+    season_one = series_folder / "Season 01"
+    season_one.mkdir(parents=True, exist_ok=True)
+    (season_one / "Fixture.Series.S01E01.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+    (series_folder / "series.nfo").write_text(
+        (
+            "<tvshow>"
+            "<actors><actor><tvdbid>9999999</tvdbid></actor></actors>"
+            f"<tvdbid>{tvdb_id}</tvdbid>"
+            "</tvshow>"
+        ),
+        encoding="utf-8",
+    )
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(
+                    nested_root=str(nested_root),
+                    shadow_root=str(shadow_root),
+                )
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            enabled=False,
+            sync_enabled=False,
+        ),
+        sonarr=SonarrConfig(
+            enabled=True,
+            url=sonarr_url,
+            api_key=api_key,
+            sync_enabled=True,
+        ),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+
+    expected_link = shadow_root / folder_name
+    assert expected_link.is_symlink()
+
+    series_id = int(seeded_series["id"])
+    get_series_resp = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
+    get_series_resp.raise_for_status()
+    refreshed_series = get_series_resp.json()
+    assert refreshed_series["path"] == str(expected_link)
+
+
+@pytest.mark.e2e
+def test_sonarr_e2e_incremental_cleanup_unmonitors_missing_series() -> None:
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / f"sonarr_missing_action_{uuid.uuid4().hex[:8]}"
+
+    nested_root = case_root / "series"
+    shadow_root = case_root / "sonarr_library"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
+    sonarr_url = os.getenv("LIBRARIARR_SONARR_E2E_URL", "http://sonarr-test:8989").rstrip("/")
+    api_key = _wait_for_api_key(Path("/sonarr-config/config.xml"))
+    session = _wait_for_sonarr(sonarr_url, api_key)
+
+    seeded_series = _seed_series_or_skip(session, sonarr_url, shadow_root)
+    canonical_name = _canonical_name_from_seeded_series(seeded_series)
+
+    series_folder = nested_root / canonical_name
+    season_one = series_folder / "Season 01"
+    season_one.mkdir(parents=True, exist_ok=True)
+    (season_one / "Fixture.Series.S01E01.1080p.x265.mkv").write_text("stub", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(
+                    nested_root=str(nested_root),
+                    shadow_root=str(shadow_root),
+                )
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            enabled=False,
+            sync_enabled=False,
+        ),
+        sonarr=SonarrConfig(
+            enabled=True,
+            url=sonarr_url,
+            api_key=api_key,
+            sync_enabled=True,
+        ),
+        cleanup=CleanupConfig(
+            remove_orphaned_links=True,
+            sonarr_action_on_missing="unmonitor",
+            missing_grace_seconds=0,
+        ),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    service.reconcile()
+
+    expected_link = shadow_root / canonical_name
+    assert expected_link.is_symlink()
+
+    shutil.rmtree(series_folder)
+    service.reconcile(affected_paths={series_folder})
+
+    assert not expected_link.exists()
+    series_id = int(seeded_series["id"])
+    get_series_resp = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
+    get_series_resp.raise_for_status()
+    refreshed_series = get_series_resp.json()
+    assert refreshed_series["monitored"] is False
+
+
+@pytest.mark.e2e
+def test_sonarr_e2e_runtime_reconcile_handles_nested_shadow_file_create() -> None:
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / f"sonarr_runtime_shadow_nested_{uuid.uuid4().hex[:8]}"
+
+    nested_root = case_root / "series"
+    shadow_root = case_root / "sonarr_library"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
+    sonarr_url = os.getenv("LIBRARIARR_SONARR_E2E_URL", "http://sonarr-test:8989").rstrip("/")
+    api_key = _wait_for_api_key(Path("/sonarr-config/config.xml"))
+    session = _wait_for_sonarr(sonarr_url, api_key)
+
+    seeded_series = _seed_series_or_skip(session, sonarr_url, shadow_root)
+    canonical_name = _canonical_name_from_seeded_series(seeded_series)
+
+    incoming_series_folder = shadow_root / canonical_name
+    (incoming_series_folder / "Season 01").mkdir(parents=True, exist_ok=True)
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(
+                    nested_root=str(nested_root),
+                    shadow_root=str(shadow_root),
+                )
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            enabled=False,
+            sync_enabled=False,
+        ),
+        sonarr=SonarrConfig(
+            enabled=True,
+            url=sonarr_url,
+            api_key=api_key,
+            sync_enabled=True,
+        ),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=0),
+        ingest=IngestConfig(enabled=True, min_age_seconds=0),
+    )
+
+    service = LibrariArrService(config)
+    stop_event = threading.Event()
+    runtime_thread = threading.Thread(target=service.run, kwargs={"stop_event": stop_event})
+    runtime_thread.start()
+
+    try:
+        (
+            incoming_series_folder
+            / "Season 01"
+            / "Fixture.Series.Runtime.Nested.Event.S01E01.1080p.x265.mkv"
+        ).write_text("stub", encoding="utf-8")
+
+        destination = nested_root / canonical_name
+        expected_link = shadow_root / canonical_name
+        _wait_for_condition(
+            lambda: expected_link.is_symlink() and destination.exists(),
+            error_message="Timed out waiting for runtime-triggered Sonarr ingest/symlink update",
+        )
+
+        series_id = int(seeded_series["id"])
+
+        def _sonarr_path_matches_expected() -> bool:
+            response = session.get(f"{sonarr_url}/api/v3/series/{series_id}", timeout=20)
+            response.raise_for_status()
+            return response.json().get("path") == str(expected_link)
+
+        _wait_for_condition(
+            _sonarr_path_matches_expected,
+            error_message="Timed out waiting for runtime-triggered Sonarr path update",
+        )
+    finally:
+        stop_event.set()
+        runtime_thread.join(timeout=20)
+
+    assert not runtime_thread.is_alive()
 
 
 @pytest.mark.e2e

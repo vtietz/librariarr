@@ -304,6 +304,10 @@ class RuntimeSyncLoop:
 
                 if len(relative.parts) == 1:
                     return True
+
+                top_level = root / relative.parts[0]
+                if top_level.exists() and top_level.is_dir() and not top_level.is_symlink():
+                    return True
         return False
 
     def _run_reconcile_with_handling(

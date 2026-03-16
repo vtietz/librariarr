@@ -197,9 +197,11 @@ def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
     session = _wait_for_radarr(radarr_url, api_key)
 
     seeded_movie = _seed_slash_title_movie_or_skip(session, radarr_url, shadow_root)
-    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
 
-    movie_folder = nested_root / "Fahrenheit 11-9 (2004)"
+    # Folder name is intentionally different from Radarr's title (which may contain "/").
+    # The link must be named after the folder, not the Radarr metadata title.
+    folder_name = "Fahrenheit 11-9 (2004)"
+    movie_folder = nested_root / folder_name
     movie_folder.mkdir(parents=True, exist_ok=True)
     (movie_folder / "Fahrenheit.11.9.2004.1080p.x265.mkv").write_text("stub", encoding="utf-8")
     (movie_folder / "movie.nfo").write_text(
@@ -228,9 +230,128 @@ def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
     service = LibrariArrService(config)
     service.reconcile()
 
-    expected_link = shadow_root / canonical_name
+    # Link is always named from the folder, never from Radarr's metadata title.
+    expected_link = shadow_root / folder_name
     assert expected_link.is_symlink()
     assert "/" not in expected_link.name
+
+
+@pytest.mark.e2e
+def test_radarr_e2e_reconcile_corrects_path_after_nfo_fix() -> None:
+    """
+    Regression test for: folder named 'EO (2022)' had an NFO with the wrong tmdbId
+    (for a different movie, e.g. Minions).  After the NFO is corrected, reconcile must
+    (a) produce a link whose name comes from the folder, not the old wrong-movie title,
+    and (b) correctly update the matched movie's Radarr path to that link.
+    """
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / f"radarr_nfo_fix_{uuid.uuid4().hex[:8]}"
+
+    nested_root = case_root / "movies"
+    shadow_root = case_root / "radarr_library"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
+    radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
+    api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
+    session = _wait_for_radarr(radarr_url, api_key)
+
+    # Two movies: the folder will initially bear the wrong movie's tmdbId in the NFO.
+    wrong_movie = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        shadow_root,
+        title="Fixture Wrong NFO Movie",
+        title_slug="fixture-wrong-nfo-movie-2010",
+        tmdb_id=807,
+        year=2010,
+    )
+    correct_movie = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        shadow_root,
+        title="Fixture Correct NFO Movie",
+        title_slug="fixture-correct-nfo-movie-2011",
+        tmdb_id=808,
+        year=2011,
+    )
+
+    # Folder is named after the correct movie.
+    correct_canonical = _canonical_name_from_seeded_movie(correct_movie)
+    movie_folder = nested_root / correct_canonical
+    movie_folder.mkdir(parents=True, exist_ok=True)
+    (movie_folder / "Fixture.Video.mkv").write_text("stub", encoding="utf-8")
+    nfo_path = movie_folder / "movie.nfo"
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(
+                    nested_root=str(nested_root),
+                    shadow_root=str(shadow_root),
+                )
+            ]
+        ),
+        radarr=RadarrConfig(
+            url=radarr_url,
+            api_key=api_key,
+            sync_enabled=True,
+        ),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+    service = LibrariArrService(config)
+
+    # --- Phase 1: NFO contains the wrong movie's tmdbId. ---
+    nfo_path.write_text(
+        f'<movie><uniqueid type="tmdb">{int(wrong_movie["tmdbId"])}</uniqueid></movie>',
+        encoding="utf-8",
+    )
+    service.reconcile()
+
+    # The link must always be named after the folder regardless of NFO content.
+    expected_link = shadow_root / correct_canonical
+    assert expected_link.is_symlink(), "link should be created on first reconcile"
+    assert expected_link.resolve(strict=False) == movie_folder
+
+    # --- Phase 2: NFO corrected to the right movie's tmdbId. ---
+    wrong_id = int(wrong_movie["id"])
+    wrong_movie_resp = session.get(f"{radarr_url}/api/v3/movie/{wrong_id}", timeout=20)
+    wrong_movie_resp.raise_for_status()
+    wrong_movie_payload = wrong_movie_resp.json()
+    wrong_canonical = _canonical_name_from_seeded_movie(wrong_movie)
+    wrong_detour_path = shadow_root / f"{wrong_canonical} [detour]"
+    wrong_detour_path.mkdir(parents=True, exist_ok=True)
+    wrong_movie_payload["path"] = str(wrong_detour_path)
+    move_wrong_resp = session.put(
+        f"{radarr_url}/api/v3/movie/{wrong_id}",
+        json=wrong_movie_payload,
+        timeout=20,
+    )
+    if move_wrong_resp.status_code >= 400:
+        pytest.skip(
+            f"Unable to move wrong movie off shared path before phase 2 "
+            f"({move_wrong_resp.status_code}): {move_wrong_resp.text[:200]}"
+        )
+
+    nfo_path.write_text(
+        f'<movie><uniqueid type="tmdb">{int(correct_movie["tmdbId"])}</uniqueid></movie>',
+        encoding="utf-8",
+    )
+    service.reconcile()
+
+    # Link name must still come from the folder.
+    assert expected_link.is_symlink(), "link should survive the second reconcile"
+    assert expected_link.resolve(strict=False) == movie_folder
+
+    # The correct movie's Radarr path must now point to the link.
+    correct_id = int(correct_movie["id"])
+    resp = session.get(f"{radarr_url}/api/v3/movie/{correct_id}", timeout=20)
+    resp.raise_for_status()
+    assert resp.json()["path"] == str(expected_link), (
+        f"Radarr path for the correct movie should be {expected_link!s}, "
+        f"got {resp.json()['path']!r}"
+    )
 
 
 @pytest.mark.e2e

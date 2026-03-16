@@ -178,6 +178,50 @@ def test_reconcile_syncs_sonarr_series_when_enabled(tmp_path: Path) -> None:
     assert fake.refreshed == [1]
 
 
+def test_reconcile_matches_series_using_root_level_nfo_tvdbid_with_nested_noise(
+    tmp_path: Path,
+) -> None:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "sonarr_library"
+    series_dir = nested_root / "Custom Series Folder"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Show.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+    (series_dir / "series.nfo").write_text(
+        """
+<tvshow>
+  <actors>
+    <actor><tvdbid>9999999</tvdbid></actor>
+  </actors>
+  <tvdbid>12345</tvdbid>
+</tvshow>
+""".strip(),
+        encoding="utf-8",
+    )
+
+    config = _make_config(nested_root, shadow_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+
+    fake = FakeSonarr(
+        series=[
+            {
+                "id": 22,
+                "title": "Fixture Show",
+                "year": 2020,
+                "tvdbId": 12345,
+                "path": "/old/path",
+                "monitored": True,
+            }
+        ]
+    )
+    service.sonarr = fake
+
+    service.reconcile()
+
+    assert fake.updated_paths and fake.updated_paths[0][0] == 22
+    assert (shadow_root / "Custom Series Folder").is_symlink()
+
+
 def test_reconcile_skips_sonarr_when_sync_disabled(tmp_path: Path) -> None:
     nested_root = tmp_path / "series"
     shadow_root = tmp_path / "sonarr_library"
@@ -280,7 +324,8 @@ def test_reconcile_auto_adds_unmatched_series(tmp_path: Path) -> None:
 
     service.reconcile()
 
-    link = shadow_root / "Fixture Show (2020)"
+    # Link is named after the folder, not the auto-add lookup result title.
+    link = shadow_root / "Fixture Show - Alias (2020)"
     assert link.is_symlink()
     assert fake.lookup_terms == ["fixture show - alias 2020"]
     assert fake.added_series

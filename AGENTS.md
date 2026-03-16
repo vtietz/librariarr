@@ -12,6 +12,14 @@ Use the wrapper scripts for all development operations in this repository.
 - Always provide a commit message proposal in final responses after code changes.
 - Never create README files unless the user explicitly requests README changes.
 
+## Refactoring guidance
+
+- When code becomes too long or hard to follow, prefer extracting cohesive modules/functions by responsibility instead of only splitting lines.
+- Apply clean-code boundaries: one reason to change per module, clear naming, and thin orchestration layers.
+- Keep domain logic, I/O, mapping, and validation concerns separated where practical.
+- Avoid cosmetic slicing that preserves complexity; refactor toward simpler control flow and clearer ownership.
+- Preserve behavior while refactoring and verify with `./run.sh test` and `./run.sh quality` when changes are substantial.
+
 ## Do not run directly (unless user explicitly asks)
 
 - `python ...`

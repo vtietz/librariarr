@@ -9,7 +9,7 @@ import requests
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
 from ..quality import map_profile_id
-from .naming import parse_movie_ref
+from .naming import canonical_name_from_folder, parse_movie_ref, safe_path_component
 from .radarr_mapping import pick_lookup_candidate
 from .sonarr_diagnostics import log_profile_mapping_diagnostics
 
@@ -147,11 +147,8 @@ class SonarrSyncHelper:
         return self._auto_add_language_profile_id_cache
 
     def _canonical_name_from_series(self, series: dict, fallback_folder: Path) -> str:
-        title = str(series.get("title") or "").strip() or fallback_folder.name
-        year = series.get("year")
-        if isinstance(year, int):
-            return f"{title} ({year})"
-        return title
+        del series
+        return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
     def auto_add_series_for_folder(self, folder: Path, shadow_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)

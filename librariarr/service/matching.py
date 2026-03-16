@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import requests
@@ -220,6 +221,113 @@ class ServiceMatchingMixin:
 
         return " ".join(parts).lower()
 
+    def _parse_int_id(self, value: str | None) -> int | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except (TypeError, ValueError):
+            return None
+
+    def _extract_external_ids_from_nfo_xml(
+        self,
+        root: ET.Element,
+    ) -> tuple[int | None, str | None, int | None]:
+        tmdb_id = self._parse_int_id(root.findtext("tmdbid", default=""))
+        tvdb_id = self._parse_int_id(root.findtext("tvdbid", default=""))
+
+        imdb_text = str(root.findtext("imdbid", default="")).strip().lower()
+        imdb_id = imdb_text if imdb_text.startswith("tt") else None
+
+        for uniqueid_node in root.findall("uniqueid"):
+            kind = str(uniqueid_node.attrib.get("type") or "").strip().lower()
+            uniqueid_value = (uniqueid_node.text or "").strip()
+
+            if kind == "tmdb" and tmdb_id is None:
+                tmdb_id = self._parse_int_id(uniqueid_value)
+                continue
+
+            if kind == "imdb" and imdb_id is None:
+                normalized_imdb = uniqueid_value.lower()
+                if normalized_imdb.startswith("tt"):
+                    imdb_id = normalized_imdb
+                continue
+
+            if kind == "tvdb" and tvdb_id is None:
+                tvdb_id = self._parse_int_id(uniqueid_value)
+
+        return tmdb_id, imdb_id, tvdb_id
+
+    def _extract_external_ids_from_nfo(
+        self,
+        nfo_path: Path,
+    ) -> tuple[int | None, str | None, int | None]:
+        try:
+            text = nfo_path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            return None, None, None
+
+        fallback_tmdb_id, fallback_imdb_id = self._extract_external_ids_from_text(text)
+        fallback_tvdb_id = self._extract_tvdb_id_from_text(text)
+
+        try:
+            root = ET.fromstring(text)
+        except ET.ParseError:
+            return fallback_tmdb_id, fallback_imdb_id, fallback_tvdb_id
+
+        tmdb_id, imdb_id, tvdb_id = self._extract_external_ids_from_nfo_xml(root)
+        if tmdb_id is None:
+            tmdb_id = fallback_tmdb_id
+        if imdb_id is None:
+            imdb_id = fallback_imdb_id
+        if tvdb_id is None:
+            tvdb_id = fallback_tvdb_id
+
+        return tmdb_id, imdb_id, tvdb_id
+
+    def _find_external_id_match(
+        self,
+        index: dict[str, dict],
+        candidates: list[tuple[str, int | str]],
+    ) -> dict | None:
+        for kind, value in candidates:
+            matched = index.get(f"{kind}:{value}")
+            if matched is not None:
+                return matched
+        return None
+
+    def _collect_nfo_external_ids(
+        self,
+        folder: Path,
+    ) -> tuple[list[int], list[str], list[int]]:
+        tmdb_ids: list[int] = []
+        imdb_ids: list[str] = []
+        tvdb_ids: list[int] = []
+
+        def _add_unique(target: list[int | str], value: int | str | None) -> None:
+            if value is None:
+                return
+            if value in target:
+                return
+            target.append(value)
+
+        try:
+            for child in sorted(folder.iterdir()):
+                if not child.is_file() or child.suffix.lower() != ".nfo":
+                    continue
+
+                tmdb_id, imdb_id, tvdb_id = self._extract_external_ids_from_nfo(child)
+                _add_unique(tmdb_ids, tmdb_id)
+                _add_unique(imdb_ids, imdb_id)
+                _add_unique(tvdb_ids, tvdb_id)
+        except OSError:
+            pass
+
+        return tmdb_ids, imdb_ids, tvdb_ids
+
     def _extract_external_ids_from_text(self, text: str) -> tuple[int | None, str | None]:
         tmdb_id: int | None = None
         imdb_id: str | None = None
@@ -251,18 +359,24 @@ class ServiceMatchingMixin:
         if not movies_by_external_id:
             return None
 
+        nfo_tmdb_ids, nfo_imdb_ids, _nfo_tvdb_ids = self._collect_nfo_external_ids(folder)
+        nfo_candidates: list[tuple[str, int | str]] = [
+            *[("tmdb", tmdb_id) for tmdb_id in nfo_tmdb_ids],
+            *[("imdb", imdb_id) for imdb_id in nfo_imdb_ids],
+        ]
+        nfo_match = self._find_external_id_match(movies_by_external_id, nfo_candidates)
+        if nfo_match is not None:
+            return nfo_match
+
         identity_text = self._collect_folder_identity_text(folder)
         tmdb_id, imdb_id = self._extract_external_ids_from_text(identity_text)
-
+        text_candidates: list[tuple[str, int | str]] = []
         if tmdb_id is not None:
-            tmdb_match = movies_by_external_id.get(f"tmdb:{tmdb_id}")
-            if tmdb_match is not None:
-                return tmdb_match
-
+            text_candidates.append(("tmdb", tmdb_id))
         if imdb_id is not None:
-            return movies_by_external_id.get(f"imdb:{imdb_id}")
+            text_candidates.append(("imdb", imdb_id))
 
-        return None
+        return self._find_external_id_match(movies_by_external_id, text_candidates)
 
     def _sync_radarr_for_folder(
         self,
@@ -431,24 +545,28 @@ class ServiceMatchingMixin:
         if not series_by_external_id:
             return None
 
+        nfo_tmdb_ids, nfo_imdb_ids, nfo_tvdb_ids = self._collect_nfo_external_ids(folder)
+        nfo_candidates: list[tuple[str, int | str]] = [
+            *[("tvdb", tvdb_id) for tvdb_id in nfo_tvdb_ids],
+            *[("tmdb", tmdb_id) for tmdb_id in nfo_tmdb_ids],
+            *[("imdb", imdb_id) for imdb_id in nfo_imdb_ids],
+        ]
+        nfo_match = self._find_external_id_match(series_by_external_id, nfo_candidates)
+        if nfo_match is not None:
+            return nfo_match
+
         identity_text = self._collect_folder_identity_text(folder)
         tvdb_id = self._extract_tvdb_id_from_text(identity_text)
         tmdb_id, imdb_id = self._extract_external_ids_from_text(identity_text)
-
+        text_candidates: list[tuple[str, int | str]] = []
         if tvdb_id is not None:
-            tvdb_match = series_by_external_id.get(f"tvdb:{tvdb_id}")
-            if tvdb_match is not None:
-                return tvdb_match
-
+            text_candidates.append(("tvdb", tvdb_id))
         if tmdb_id is not None:
-            tmdb_match = series_by_external_id.get(f"tmdb:{tmdb_id}")
-            if tmdb_match is not None:
-                return tmdb_match
-
+            text_candidates.append(("tmdb", tmdb_id))
         if imdb_id is not None:
-            return series_by_external_id.get(f"imdb:{imdb_id}")
+            text_candidates.append(("imdb", imdb_id))
 
-        return None
+        return self._find_external_id_match(series_by_external_id, text_candidates)
 
     def _match_series_for_existing_links(
         self,

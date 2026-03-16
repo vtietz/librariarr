@@ -205,4 +205,9 @@ class ShadowCleanupManager:
                     matched_movie_ids=matched_ids,
                 )
 
+        self._apply_pending_missing_actions(
+            movies_by_ref=movies_by_ref,
+            matched_movie_ids=matched_ids,
+        )
+
         return removed_count

@@ -30,8 +30,9 @@ class ShadowLinkManager:
             if preferred_link in valid_links:
                 return preferred_link, False
 
-        if valid_links:
-            return sorted(valid_links, key=str)[0], False
+        for link in sorted(valid_links, key=str):
+            if link.name.startswith(base_name + "--"):
+                return link, False
 
         created = not (desired.exists() or desired.is_symlink())
         link = self._create_link(folder, shadow_root, base_name)
@@ -58,16 +59,7 @@ class ShadowLinkManager:
         return safe_path_component(folder.name)
 
     def _canonical_link_name(self, folder: Path, movie: dict | None) -> str:
-        if movie is None:
-            return canonical_name_from_folder(self._safe_link_name(folder))
-
-        title = safe_path_component(str(movie.get("title") or "").strip()) or self._safe_link_name(
-            folder
-        )
-        year = movie.get("year")
-        if isinstance(year, int):
-            return f"{title} ({year})"
-        return title
+        return canonical_name_from_folder(self._safe_link_name(folder))
 
     def _normalize_name_part(self, value: str) -> str:
         cleaned = NON_ALNUM_RE.sub("-", value.strip())

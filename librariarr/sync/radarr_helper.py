@@ -9,7 +9,7 @@ import requests
 from ..clients.radarr import RadarrClient
 from ..config import AppConfig
 from ..quality import VIDEO_EXTENSIONS, map_custom_format_ids, map_quality_id
-from .naming import parse_movie_ref, safe_path_component
+from .naming import canonical_name_from_folder, parse_movie_ref, safe_path_component
 from .radarr_diagnostics import log_quality_mapping_diagnostics
 from .radarr_mapping import (
     extract_id_name,
@@ -318,13 +318,8 @@ class RadarrSyncHelper:
         return self._resolve_profile_from_quality_map(folder, profiles)
 
     def _canonical_name_from_movie(self, movie: dict, fallback_folder: Path) -> str:
-        title = safe_path_component(str(movie.get("title") or "").strip()) or safe_path_component(
-            fallback_folder.name
-        )
-        year = movie.get("year")
-        if isinstance(year, int):
-            return f"{title} ({year})"
-        return title
+        del movie
+        return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
     def auto_add_movie_for_folder(self, folder: Path, shadow_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)

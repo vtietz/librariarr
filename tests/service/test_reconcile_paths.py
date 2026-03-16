@@ -136,7 +136,7 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
     assert not (age12_shadow / "Movie B (2021)").exists()
 
 
-def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
+def test_reconcile_uses_folder_name_for_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
     movie_dir = nested_root / "Fixture Legacy"
@@ -161,9 +161,9 @@ def test_reconcile_uses_canonical_radarr_name_for_link(tmp_path: Path) -> None:
 
     service.reconcile()
 
-    canonical_link = shadow_root / "Fixture Legacy (1977)"
-    assert canonical_link.is_symlink()
-    assert not (shadow_root / "Fixture Legacy").exists()
+    # Link is named after the folder, not the Radarr-metadata title+year.
+    folder_link = shadow_root / "Fixture Legacy"
+    assert folder_link.is_symlink()
 
 
 def test_reconcile_skips_quality_update_when_quality_map_empty(tmp_path: Path) -> None:

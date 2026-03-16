@@ -22,10 +22,11 @@ LibrariArr bridges that gap and keeps both sides aligned.
 - Continuous sync for Radarr and Sonarr paths using filesystem events plus scheduled maintenance reconciles.
 - Embedded web UI for visual config editing, mapping exploration, diagnostics, and dry-runs.
 - Shadow-link projection from nested roots into flat roots (`paths.root_mappings`).
+- Folder-authoritative link naming (shadow link names derive from discovered folder names, not Arr metadata).
 - Season-aware series discovery for Sonarr and movie-folder discovery for Radarr.
 - Optional auto-add for unmatched folders (`radarr.auto_add_unmatched`, `sonarr.auto_add_unmatched`).
 - Optional ingest mode to move real folders from shadow roots back into nested storage.
-- Orphan cleanup and missing-source actions (none/unmonitor/delete) for both Radarr and Sonarr.
+- Orphan cleanup and missing-source actions (none/unmonitor/delete) for both Radarr and Sonarr across full and incremental reconciles.
 - Debounced refresh calls to avoid API spam during noisy rename/import bursts.
 
 ## Sync Architecture
@@ -57,9 +58,11 @@ Example:
 On reconcile, LibrariArr:
 
 1. Discovers media folders in nested roots.
-2. Creates/repairs symlinks in mapped shadow roots.
+2. Creates/repairs folder-derived symlinks in mapped shadow roots.
 3. Matches items in Radarr/Sonarr and updates managed paths.
 4. Applies optional quality/auto-add/cleanup behavior.
+
+Auto-add path candidates and managed link paths use the same folder-derived naming strategy to keep naming stable and predictable.
 
 ## Common Sync Scenarios
 
@@ -212,6 +215,7 @@ sonarr:
 ## More Details
 
 - Full option reference: [docs/configuration.md](docs/configuration.md)
+- Workflow/reference behavior guide: [docs/workflows.md](docs/workflows.md)
 - Example baseline: [config.yaml.example](config.yaml.example)
 - Main compose file: [docker-compose.yml](docker-compose.yml)
 - Dev compose file: [docker-compose.dev.yml](docker-compose.dev.yml)
