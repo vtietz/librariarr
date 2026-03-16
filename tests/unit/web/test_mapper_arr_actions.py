@@ -149,14 +149,19 @@ def test_maintenance_reconcile_scoped_path_forwards_affected_path(
     config_path = tmp_path / "config.yaml"
     _write_config(config_path, nested_root, shadow_root)
 
-    captured: list[set[Path] | None] = []
+    captured: list[tuple[set[Path] | None, bool]] = []
 
     class StubService:
         def __init__(self, *_args, **_kwargs):
             pass
 
-        def reconcile(self, affected_paths: set[Path] | None = None):
-            captured.append(affected_paths)
+        def reconcile(
+            self,
+            affected_paths: set[Path] | None = None,
+            *,
+            refresh_arr_root_availability: bool = True,
+        ):
+            captured.append((affected_paths, refresh_arr_root_availability))
             return False
 
     monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)
@@ -179,7 +184,7 @@ def test_maintenance_reconcile_scoped_path_forwards_affected_path(
     assert response.status_code == 200
     job = _wait_for_job(client, response.json()["job_id"])
     assert job["status"] == "succeeded"
-    assert captured == [{selected_path}]
+    assert captured == [({selected_path}, False)]
 
 
 def test_scoped_reconcile_status_is_exposed_in_mapped_directories(
@@ -201,7 +206,12 @@ def test_scoped_reconcile_status_is_exposed_in_mapped_directories(
         def __init__(self, *_args, **_kwargs):
             pass
 
-        def reconcile(self, affected_paths: set[Path] | None = None):
+        def reconcile(
+            self,
+            affected_paths: set[Path] | None = None,
+            *,
+            refresh_arr_root_availability: bool = True,
+        ):
             return False
 
     monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)

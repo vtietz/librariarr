@@ -17,7 +17,12 @@ from .common import LOG
 
 
 class ServiceReconcileMixin:
-    def reconcile(self, affected_paths: set[Path] | None = None) -> bool:
+    def reconcile(
+        self,
+        affected_paths: set[Path] | None = None,
+        *,
+        refresh_arr_root_availability: bool = True,
+    ) -> bool:
         with self._lock:
             started = time.time()
             reconcile_mode = "incremental" if affected_paths is not None else "full"
@@ -30,7 +35,10 @@ class ServiceReconcileMixin:
             for shadow_root in self.shadow_roots:
                 shadow_root.mkdir(parents=True, exist_ok=True)
 
-            self._update_arr_root_folder_availability(force=self._arr_root_poll_interval is None)
+            if refresh_arr_root_availability:
+                self._update_arr_root_folder_availability(
+                    force=self._arr_root_poll_interval is None,
+                )
 
             ingested_count = self.ingestor.run() if self.config.ingest.enabled else 0
             ingest_pending = False

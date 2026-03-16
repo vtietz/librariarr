@@ -40,7 +40,10 @@ def queue_maintenance_reconcile(
         runtime_status.mark_reconcile_started(trigger_source="manual")
         try:
             service = LibrariArrService(config)
-            ingest_pending = service.reconcile(affected_paths=affected_paths)
+            ingest_pending = service.reconcile(
+                affected_paths=affected_paths,
+                refresh_arr_root_availability=affected_paths is None,
+            )
             duration_ms = int((time.perf_counter() - started) * 1000)
             runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
             mapped_cache.request_refresh(config, force=True)
