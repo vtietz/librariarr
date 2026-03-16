@@ -159,7 +159,17 @@ def test_maintenance_reconcile_scoped_path_forwards_affected_path(
             captured.append(affected_paths)
             return False
 
-    monkeypatch.setattr("librariarr.web.operations.LibrariArrService", StubService)
+    monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)
+    monkeypatch.setattr(
+        "librariarr.web.maintenance_ops.build_path_mapping_outcome",
+        lambda **_kwargs: {
+            "status": "not_found_in_arr",
+            "arr": "radarr",
+            "message": "No Arr entry",
+            "movie_id": None,
+            "series_id": None,
+        },
+    )
 
     app = create_app(config_path=config_path)
     client = TestClient(app)
@@ -170,3 +180,59 @@ def test_maintenance_reconcile_scoped_path_forwards_affected_path(
     job = _wait_for_job(client, response.json()["job_id"])
     assert job["status"] == "succeeded"
     assert captured == [{selected_path}]
+
+
+def test_scoped_reconcile_status_is_exposed_in_mapped_directories(
+    tmp_path: Path, monkeypatch
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    movie_dir = nested_root / "Movie One"
+    movie_dir.mkdir()
+    (shadow_root / "Movie One").symlink_to(movie_dir, target_is_directory=True)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    class StubService:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def reconcile(self, affected_paths: set[Path] | None = None):
+            return False
+
+    monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)
+    monkeypatch.setattr(
+        "librariarr.web.maintenance_ops.build_path_mapping_outcome",
+        lambda **_kwargs: {
+            "status": "success",
+            "arr": "radarr",
+            "message": "Movie One",
+            "movie_id": 101,
+            "series_id": None,
+        },
+    )
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    reconcile_response = client.post(
+        "/api/maintenance/reconcile",
+        params={"path": str(movie_dir)},
+    )
+    assert reconcile_response.status_code == 200
+    reconcile_job = _wait_for_job(client, reconcile_response.json()["job_id"])
+    assert reconcile_job["status"] == "succeeded"
+
+    mapped_response = client.get("/api/fs/mapped-directories")
+    assert mapped_response.status_code == 200
+    payload = mapped_response.json()
+
+    item = next(entry for entry in payload["items"] if entry["real_path"] == str(movie_dir))
+    assert item["last_reconcile_status"] == "success"
+    assert item["last_reconcile_arr"] == "radarr"
+    assert item["last_reconcile_movie_id"] == 101
+    assert isinstance(item["last_reconcile_updated_at_ms"], int)

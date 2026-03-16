@@ -334,11 +334,11 @@ export default function DirectoryMapper() {
 
   return (
     <Stack>
-      <Title order={3}>Directory Mapper</Title>
+      <Title order={3}>Path Mapping Status</Title>
       <Card withBorder>
         <Stack>
           <Group justify="space-between">
-            <Text fw={600}>Mapped Directories (Virtual vs Real)</Text>
+            <Text fw={600}>Path Mappings (Virtual vs Real)</Text>
             <Group gap="sm">
               <Text size="sm" c="dimmed">
                 Showing {mappedDirectories.length} of {cacheEntriesTotal}
@@ -409,9 +409,11 @@ export default function DirectoryMapper() {
           <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th style={{ width: "42%" }}>Virtual Path</Table.Th>
-                <Table.Th style={{ width: "42%" }}>Real Path</Table.Th>
-                <Table.Th style={{ width: "16%" }}>Status</Table.Th>
+                <Table.Th style={{ width: "33%" }}>Virtual Path</Table.Th>
+                <Table.Th style={{ width: "33%" }}>Real Path</Table.Th>
+                <Table.Th style={{ width: "12%" }}>Last Result</Table.Th>
+                <Table.Th style={{ width: "10%" }}>Updated</Table.Th>
+                <Table.Th style={{ width: "12%" }}>Status</Table.Th>
               </Table.Tr>
             </Table.Thead>
           </Table>
@@ -430,7 +432,7 @@ export default function DirectoryMapper() {
               <Table.Tbody>
                 {loadError ? (
                   <Table.Tr>
-                    <Table.Td colSpan={3}>
+                    <Table.Td colSpan={5}>
                       <Text size="sm" c="red">
                         {loadError}
                       </Text>
@@ -438,7 +440,7 @@ export default function DirectoryMapper() {
                   </Table.Tr>
                 ) : mappedDirectories.length === 0 ? (
                   <Table.Tr>
-                    <Table.Td colSpan={3}>
+                    <Table.Td colSpan={5}>
                       <Text size="sm" c="dimmed">
                         {cacheBuilding && !cacheReady
                           ? "Building in-memory directory index… wait a few seconds."
@@ -450,7 +452,7 @@ export default function DirectoryMapper() {
                   <>
                     {topSpacerHeight > 0 && (
                       <Table.Tr>
-                        <Table.Td colSpan={3} style={{ height: topSpacerHeight, padding: 0 }} />
+                        <Table.Td colSpan={5} style={{ height: topSpacerHeight, padding: 0 }} />
                       </Table.Tr>
                     )}
                     <MappedRows
@@ -469,7 +471,7 @@ export default function DirectoryMapper() {
                     />
                     {bottomSpacerHeight > 0 && (
                       <Table.Tr>
-                        <Table.Td colSpan={3} style={{ height: bottomSpacerHeight, padding: 0 }} />
+                        <Table.Td colSpan={5} style={{ height: bottomSpacerHeight, padding: 0 }} />
                       </Table.Tr>
                     )}
                   </>

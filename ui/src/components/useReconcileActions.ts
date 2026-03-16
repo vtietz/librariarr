@@ -18,6 +18,30 @@ export function useReconcileActions({
 }: Params) {
   const [recentlyReconciledPath, setRecentlyReconciledPath] = useState<string | null>(null);
 
+  const extractResult = (raw: unknown): { ok?: boolean; message?: string; path_outcome?: { status?: string } } | null => {
+    if (typeof raw !== "object" || raw === null) {
+      return null;
+    }
+    const payload = raw as {
+      ok?: unknown;
+      message?: unknown;
+      path_outcome?: { status?: unknown };
+    };
+    return {
+      ok: typeof payload.ok === "boolean" ? payload.ok : undefined,
+      message: typeof payload.message === "string" ? payload.message : undefined,
+      path_outcome:
+        typeof payload.path_outcome === "object" && payload.path_outcome !== null
+          ? {
+              status:
+                typeof payload.path_outcome.status === "string"
+                  ? payload.path_outcome.status
+                  : undefined
+            }
+          : undefined
+    };
+  };
+
   useEffect(() => {
     if (recentlyReconciledPath === null) {
       return;
@@ -38,7 +62,11 @@ export function useReconcileActions({
       if (!scheduled.job_id) {
         throw new Error("Reconcile job was not scheduled.");
       }
-      await waitForJobCompletion(scheduled.job_id);
+      const completed = await waitForJobCompletion(scheduled.job_id);
+      const result = extractResult(completed.result);
+      if (result?.ok === false) {
+        throw new Error(result.message ?? "Reconcile failed.");
+      }
       await loadMappedDirectories();
       await loadDiscoveryWarnings();
     } catch (error) {
@@ -61,10 +89,16 @@ export function useReconcileActions({
         if (!scheduled.job_id) {
           throw new Error("Scoped reconcile job was not scheduled.");
         }
-        await waitForJobCompletion(scheduled.job_id);
+        const completed = await waitForJobCompletion(scheduled.job_id);
+        const result = extractResult(completed.result);
+        if (result?.ok === false) {
+          throw new Error(result.message ?? "Scoped reconcile failed.");
+        }
         await loadMappedDirectories();
         await loadDiscoveryWarnings();
-        setRecentlyReconciledPath(path);
+        if (result?.path_outcome?.status === "success") {
+          setRecentlyReconciledPath(path);
+        }
       } catch (error) {
         setLoadError(
           error instanceof Error

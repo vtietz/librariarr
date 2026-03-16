@@ -4,7 +4,6 @@ import asyncio
 import json
 import logging
 import time
-from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -16,12 +15,13 @@ from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
 from ..runtime import get_runtime_status_tracker
-from ..service import LibrariArrService
 from .discovery_cache import get_discovery_warnings_cache
 from .log_buffer import LogRingBuffer, get_log_buffer
+from .maintenance_ops import queue_maintenance_reconcile
 from .mapped_arr_state import enrich_mapped_directories_with_radarr_state
 from .mapped_cache import get_mapped_directories_cache
 from .mapped_cache import shadow_roots as _shadow_roots
+from .path_mapping_status import apply_path_mapping_outcomes
 from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 
 LOG = logging.getLogger(__name__)
@@ -417,64 +417,13 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         request: Request,
         path: str | None = Query(default=None),
     ) -> dict[str, Any]:
-        LOG.info("Manual reconcile queued via API")
-        manager = job_manager_or_http(request)
-        config_path = read_config_path(request)
-        path_value = path.strip() if isinstance(path, str) else ""
-        affected_paths: set[Path] | None = None
-        if path_value:
-            candidate_path = Path(path_value)
-            if not candidate_path.is_absolute():
-                raise HTTPException(status_code=400, detail="path must be an absolute path")
-            affected_paths = {candidate_path}
-
-        def action() -> dict[str, Any]:
-            config = load_config_or_http(config_path)
-            started = time.perf_counter()
-            runtime_status.mark_reconcile_started(trigger_source="manual")
-            try:
-                service = LibrariArrService(config)
-                ingest_pending = service.reconcile(affected_paths=affected_paths)
-                duration_ms = int((time.perf_counter() - started) * 1000)
-                runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
-                mapped_cache.request_refresh(config, force=True)
-                discovery_cache.request_refresh(config, force=True)
-                LOG.info(
-                    "Manual reconcile completed in %d ms (ingest_pending=%s, scoped=%s)",
-                    duration_ms,
-                    ingest_pending,
-                    bool(affected_paths),
-                )
-                return {
-                    "ok": True,
-                    "message": "Reconcile completed.",
-                    "duration_ms": duration_ms,
-                    "ingest_pending": ingest_pending,
-                    "scoped": bool(affected_paths),
-                }
-            except Exception as exc:
-                runtime_status.mark_reconcile_finished(
-                    success=False,
-                    ingest_pending=False,
-                    error=str(exc),
-                )
-                LOG.error("Manual reconcile failed: %s", exc)
-                return {"ok": False, "message": str(exc)}
-
-        job_id = manager.submit(
-            kind="reconcile-manual-scoped" if affected_paths else "reconcile-manual",
-            name="Manual Reconcile (Scoped)" if affected_paths else "Manual Reconcile",
-            source="job-manager",
-            detail="queued",
-            func=action,
-            payload={"path": path_value} if path_value else None,
+        return queue_maintenance_reconcile(
+            request=request,
+            path=path,
+            runtime_status=runtime_status,
+            mapped_cache=mapped_cache,
+            discovery_cache=discovery_cache,
         )
-        return {
-            "ok": True,
-            "queued": True,
-            "job_id": job_id,
-            "message": "Reconcile scheduled.",
-        }
 
     @router.get("/api/jobs/summary")
     def jobs_summary(request: Request) -> dict[str, Any]:
@@ -572,6 +521,11 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 selected_roots=selected_roots,
                 lowered_search=lowered_search,
             )
+
+        items = apply_path_mapping_outcomes(
+            items,
+            state_store=getattr(request.app.state.web, "state_store", None),
+        )
 
         truncated = len(items) > limit
         if truncated:

@@ -91,6 +91,12 @@ export const getMappedDirectories = async (params?: {
       arr_movie_id?: number | null;
       arr_title?: string | null;
       arr_monitored?: boolean | null;
+      last_reconcile_status?: string;
+      last_reconcile_arr?: string;
+      last_reconcile_message?: string;
+      last_reconcile_movie_id?: number | null;
+      last_reconcile_series_id?: number | null;
+      last_reconcile_updated_at_ms?: number | null;
     }>;
     shadow_roots: string[];
     truncated: boolean;

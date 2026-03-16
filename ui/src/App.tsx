@@ -262,7 +262,7 @@ export default function App() {
           <Tabs.List>
             <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
             <Tabs.Tab value="config">Config Editor</Tabs.Tab>
-            <Tabs.Tab value="mapper">Directory Mapper</Tabs.Tab>
+            <Tabs.Tab value="mapper">Path Mapping Status</Tabs.Tab>
             <Tabs.Tab value="logs">Logs</Tabs.Tab>
           </Tabs.List>
 

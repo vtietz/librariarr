@@ -311,7 +311,7 @@ def test_maintenance_reconcile_endpoint_runs_service(tmp_path: Path, monkeypatch
         def reconcile(self, affected_paths=None):
             return False
 
-    monkeypatch.setattr("librariarr.web.operations.LibrariArrService", StubService)
+    monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)
 
     app = create_app(config_path=config_path)
     client = TestClient(app)
@@ -342,7 +342,7 @@ def test_runtime_status_endpoint_reports_manual_reconcile(tmp_path: Path, monkey
         def reconcile(self, affected_paths=None):
             return False
 
-    monkeypatch.setattr("librariarr.web.operations.LibrariArrService", StubService)
+    monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)
 
     app = create_app(config_path=config_path)
     client = TestClient(app)

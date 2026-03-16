@@ -19,6 +19,12 @@ export type MappedDirectory = {
   arr_movie_id?: number | null;
   arr_title?: string | null;
   arr_monitored?: boolean | null;
+  last_reconcile_status?: string;
+  last_reconcile_arr?: string;
+  last_reconcile_message?: string;
+  last_reconcile_movie_id?: number | null;
+  last_reconcile_series_id?: number | null;
+  last_reconcile_updated_at_ms?: number | null;
 };
 
 type PathCellProps = {
@@ -102,6 +108,43 @@ function arrStateBadge(state: string | undefined): { label: string; color: strin
   }
 }
 
+function lastOutcomeBadge(
+  status: string | undefined
+): { label: string; color: string; icon: "check" | "warning" | "error" } {
+  switch (status) {
+    case "success":
+      return { label: "Last reconcile: success", color: "green", icon: "check" };
+    case "not_found_in_arr":
+    case "not_mapped":
+      return { label: "Last reconcile: not found", color: "yellow", icon: "warning" };
+    case "arr_unreachable":
+    case "reconcile_failed":
+      return { label: "Last reconcile: failed", color: "red", icon: "error" };
+    default:
+      return { label: "Last reconcile: unknown", color: "gray", icon: "warning" };
+  }
+}
+
+function formatAge(updatedAtMs: number | null | undefined): string {
+  if (typeof updatedAtMs !== "number") {
+    return "—";
+  }
+  const elapsedSec = Math.max(0, Math.floor((Date.now() - updatedAtMs) / 1000));
+  if (elapsedSec < 60) {
+    return `${elapsedSec}s`;
+  }
+  const elapsedMin = Math.floor(elapsedSec / 60);
+  if (elapsedMin < 60) {
+    return `${elapsedMin}m`;
+  }
+  const elapsedHours = Math.floor(elapsedMin / 60);
+  if (elapsedHours < 24) {
+    return `${elapsedHours}h`;
+  }
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  return `${elapsedDays}d`;
+}
+
 const MappedRows = memo(function MappedRows({
   visibleDirectories,
   duplicatePrimaryPaths,
@@ -120,13 +163,35 @@ const MappedRows = memo(function MappedRows({
     <>
       {visibleDirectories.map((mapped) => (
         <Table.Tr key={`${mapped.shadow_root}:${mapped.virtual_path}`}>
-          <Table.Td style={{ width: "42%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
+          <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <PathCell value={mapped.virtual_path} onCopy={onCopy} />
           </Table.Td>
-          <Table.Td style={{ width: "42%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
+          <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <PathCell value={mapped.real_path} onCopy={onCopy} onOpen={onOpen} />
           </Table.Td>
-          <Table.Td style={{ width: "16%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
+          <Table.Td style={{ width: "12%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
+            <Tooltip
+              label={`${lastOutcomeBadge(mapped.last_reconcile_status).label}${mapped.last_reconcile_movie_id ? ` · movie id ${mapped.last_reconcile_movie_id}` : ""}${mapped.last_reconcile_series_id ? ` · series id ${mapped.last_reconcile_series_id}` : ""}${mapped.last_reconcile_message ? ` · ${mapped.last_reconcile_message}` : ""}`}
+            >
+              <Text
+                size="xs"
+                fw={600}
+                c={`${lastOutcomeBadge(mapped.last_reconcile_status).color}.7`}
+                style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+              >
+                {mapped.last_reconcile_status
+                  ? lastOutcomeBadge(mapped.last_reconcile_status).label.replace(
+                      "Last reconcile: ",
+                      ""
+                    )
+                  : "—"}
+              </Text>
+            </Tooltip>
+          </Table.Td>
+          <Table.Td style={{ width: "10%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
+            <Text size="xs" c="dimmed">{formatAge(mapped.last_reconcile_updated_at_ms)}</Text>
+          </Table.Td>
+          <Table.Td style={{ width: "12%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Group gap={6} wrap="nowrap" justify="flex-end">
               <Tooltip label={mapped.arr_title || "Arr path state"}>
                 <ThemeIcon
