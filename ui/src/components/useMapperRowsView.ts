@@ -21,6 +21,10 @@ export const MAPPER_STATUS_FILTER_OPTIONS: Array<{
   { value: "other", label: "Other" }
 ];
 
+const MAPPER_STATUS_FILTER_VALUES = new Set<MapperStatusFilterValue>(
+  MAPPER_STATUS_FILTER_OPTIONS.map((option) => option.value)
+);
+
 const PAGE_SIZE = 200;
 
 function classifyArrState(arrState: string | undefined): MapperStatusFilterValue {
@@ -93,16 +97,14 @@ export function useMapperRowsView(mappedDirectories: MappedDirectory[]) {
     };
   }, [filteredDirectories.length, hasMoreRows]);
 
-  const toggleStatusFilter = useCallback((value: MapperStatusFilterValue) => {
-    setActiveStatusFilters((previous) =>
-      previous.includes(value)
-        ? previous.filter((item) => item !== value)
-        : [...previous, value]
-    );
-  }, []);
-
-  const clearStatusFilters = useCallback(() => {
-    setActiveStatusFilters([]);
+  const setStatusFilters = useCallback((values: string[]) => {
+    const normalized: MapperStatusFilterValue[] = [];
+    for (const value of values) {
+      if (MAPPER_STATUS_FILTER_VALUES.has(value as MapperStatusFilterValue)) {
+        normalized.push(value as MapperStatusFilterValue);
+      }
+    }
+    setActiveStatusFilters(normalized);
   }, []);
 
   return {
@@ -111,7 +113,6 @@ export function useMapperRowsView(mappedDirectories: MappedDirectory[]) {
     visibleDirectories,
     hasMoreRows,
     loadMoreRef,
-    toggleStatusFilter,
-    clearStatusFilters
+    setStatusFilters
   };
 }

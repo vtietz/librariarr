@@ -1,10 +1,11 @@
 import {
   ActionIcon,
-  Badge,
   Box,
   Button,
   Card,
   Group,
+  Loader,
+  MultiSelect,
   Select,
   Stack,
   Table,
@@ -26,11 +27,7 @@ import {
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
-import {
-  MAPPER_STATUS_FILTER_OPTIONS,
-  type MapperStatusFilterValue,
-  useMapperRowsView
-} from "./useMapperRowsView";
+import { MAPPER_STATUS_FILTER_OPTIONS, useMapperRowsView } from "./useMapperRowsView";
 import { useReconcileActions } from "./useReconcileActions";
 import { useRadarrRefreshAction } from "./useRadarrRefreshAction";
 import { useDiscoveryWarningSets } from "./useDiscoveryWarningSets";
@@ -39,6 +36,7 @@ export default function DirectoryMapper() {
   const [mappedDirectories, setMappedDirectories] = useState<MappedDirectory[]>([]);
   const [mappedSearch, setMappedSearch] = useState("");
   const [debouncedMappedSearch, setDebouncedMappedSearch] = useState("");
+  const [isSearchTransitioning, setIsSearchTransitioning] = useState(false);
   const [mappedRootFilter, setMappedRootFilter] = useState<string>("all");
   const [mappedRoots, setMappedRoots] = useState<string[]>([]);
   const [mappedTruncated, setMappedTruncated] = useState(false);
@@ -62,8 +60,6 @@ export default function DirectoryMapper() {
     setLoadError(null);
     try {
       const result = await getMappedDirectories({
-        search: debouncedMappedSearch.trim() || undefined,
-        shadowRoot: mappedRootFilter === "all" ? undefined : mappedRootFilter,
         limit: 5000,
         includeArrState: true,
         timeoutMs: 90000
@@ -122,16 +118,21 @@ export default function DirectoryMapper() {
     } finally {
       setIsReloading(false);
     }
-  }, [debouncedMappedSearch, mappedRootFilter]);
+  }, []);
 
   useEffect(() => {
+    if (mappedSearch === debouncedMappedSearch) {
+      return;
+    }
+    setIsSearchTransitioning(true);
     const timer = window.setTimeout(() => {
       setDebouncedMappedSearch(mappedSearch);
+      setIsSearchTransitioning(false);
     }, 300);
     return () => {
       window.clearTimeout(timer);
     };
-  }, [mappedSearch]);
+  }, [debouncedMappedSearch, mappedSearch]);
 
   useEffect(() => {
     void loadMappedDirectories();
@@ -198,6 +199,27 @@ export default function DirectoryMapper() {
     [mappedRoots]
   );
 
+  const locallyFilteredDirectories = useMemo(() => {
+    const loweredSearch = debouncedMappedSearch.trim().toLowerCase();
+    return mappedDirectories.filter((item) => {
+      if (mappedRootFilter !== "all" && item.shadow_root !== mappedRootFilter) {
+        return false;
+      }
+      if (!loweredSearch) {
+        return true;
+      }
+      return (
+        item.virtual_path.toLowerCase().includes(loweredSearch) ||
+        item.real_path.toLowerCase().includes(loweredSearch)
+      );
+    });
+  }, [debouncedMappedSearch, mappedDirectories, mappedRootFilter]);
+
+  const searchVisibleDirectories = useMemo(
+    () => (isSearchTransitioning ? [] : locallyFilteredDirectories),
+    [isSearchTransitioning, locallyFilteredDirectories]
+  );
+
   const { duplicatePrimaryPaths, excludedByDuplicate, duplicatePathSet, excludedPathSet } =
     useDiscoveryWarningSets(discoveryWarnings);
 
@@ -207,9 +229,10 @@ export default function DirectoryMapper() {
     visibleDirectories,
     hasMoreRows,
     loadMoreRef,
-    toggleStatusFilter,
-    clearStatusFilters
-  } = useMapperRowsView(mappedDirectories);
+    setStatusFilters
+  } = useMapperRowsView(searchVisibleDirectories);
+
+  const isSearchLoading = isSearchTransitioning || isReloading;
 
   const cacheStatusText = useMemo(() => {
     if (reconcilingPath) {
@@ -294,6 +317,12 @@ export default function DirectoryMapper() {
                 Indexed {cacheEntriesTotal}
                 {mappedTruncated ? " (list truncated)" : ""}
               </Text>
+              {isSearchLoading && (
+                <Group gap={6}>
+                  <Loader size="xs" />
+                  <Text size="xs" c="dimmed">Loading path mappings…</Text>
+                </Group>
+              )}
               <Tooltip label="Force full rescan of shadow roots">
                 <ActionIcon
                   variant="light"
@@ -356,31 +385,15 @@ export default function DirectoryMapper() {
             />
           </Group>
 
-          <Group gap="xs" wrap="wrap">
-            <Text size="xs" c="dimmed">Status filter:</Text>
-            {MAPPER_STATUS_FILTER_OPTIONS.map((option) => {
-              const active = activeStatusFilters.includes(option.value);
-              return (
-                <Badge
-                  key={option.value}
-                  variant={active ? "filled" : "light"}
-                  style={{ cursor: "pointer" }}
-                  onClick={() => toggleStatusFilter(option.value as MapperStatusFilterValue)}
-                >
-                  {option.label}
-                </Badge>
-              );
-            })}
-            {activeStatusFilters.length > 0 && (
-              <Badge
-                variant="outline"
-                style={{ cursor: "pointer" }}
-                onClick={clearStatusFilters}
-              >
-                Clear
-              </Badge>
-            )}
-          </Group>
+          <MultiSelect
+            label="Status filter"
+            placeholder="Select one or more statuses"
+            data={MAPPER_STATUS_FILTER_OPTIONS}
+            value={activeStatusFilters}
+            onChange={setStatusFilters}
+            clearable
+            searchable
+          />
 
           <Group gap="xs" wrap="wrap">
             <Text size="xs" c="dimmed">Status legend:</Text>
@@ -410,9 +423,7 @@ export default function DirectoryMapper() {
             </Table.Thead>
           </Table>
 
-          <Box
-            style={{ width: "100%" }}
-          >
+          <Box style={{ width: "100%" }}>
             <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
               <Table.Tbody>
                 {loadError ? (
@@ -427,11 +438,11 @@ export default function DirectoryMapper() {
                   <Table.Tr>
                     <Table.Td colSpan={5}>
                       <Text size="sm" c="dimmed">
-                        {isReloading
+                        {isSearchLoading
                           ? "Loading path mappings…"
                           : cacheBuilding && !cacheReady
-                          ? "Building in-memory directory index… wait a few seconds."
-                          : "No mapped directories match the current search/filter/status."}
+                            ? "Building in-memory directory index… wait a few seconds."
+                            : "No mapped directories match the current search/filter/status."}
                       </Text>
                     </Table.Td>
                   </Table.Tr>
