@@ -16,7 +16,7 @@ import {
   Title
 } from "@mantine/core";
 import { IconArrowsShuffle, IconRefresh } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   type DiscoveryWarningsResponse,
   getDiscoveryWarnings,
@@ -27,6 +27,12 @@ import {
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
+import {
+  mappedCacheStatusText,
+  mappedDirectoriesErrorMessage,
+  sortMappedDirectories
+} from "./directoryMapperLoadUtils";
+import { useScopedArrEnrichment } from "./useScopedArrEnrichment";
 import { MAPPER_STATUS_FILTER_OPTIONS, useMapperRowsView } from "./useMapperRowsView";
 import { useReconcileActions } from "./useReconcileActions";
 import { useRadarrRefreshAction } from "./useRadarrRefreshAction";
@@ -49,37 +55,17 @@ export default function DirectoryMapper() {
   const [cacheBuilding, setCacheBuilding] = useState(false);
   const [cacheReady, setCacheReady] = useState(false);
   const [cacheUpdatedAtMs, setCacheUpdatedAtMs] = useState<number | null>(null);
+  const [isArrEnrichmentLoading, setIsArrEnrichmentLoading] = useState(false);
   const [fsRoots, setFsRoots] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<DiscoveryWarningsResponse | null>(
     null
   );
+  const mappedLoadVersionRef = useRef(0);
 
-  const loadMappedDirectories = useCallback(async () => {
-    setIsReloading(true);
-    setLoadError(null);
-    const searchParam = debouncedMappedSearch.trim();
-    const shadowRootParam = mappedRootFilter !== "all" ? mappedRootFilter : undefined;
-    try {
-      const result = await getMappedDirectories({
-        search: searchParam || undefined,
-        shadowRoot: shadowRootParam,
-        limit: 5000,
-        includeArrState: true,
-        timeoutMs: 90000
-      });
-      const sortedItems = [...result.items].sort((left, right) => {
-        const rootCompare = left.shadow_root.localeCompare(right.shadow_root);
-        if (rootCompare !== 0) {
-          return rootCompare;
-        }
-        const virtualCompare = left.virtual_path.localeCompare(right.virtual_path);
-        if (virtualCompare !== 0) {
-          return virtualCompare;
-        }
-        return left.real_path.localeCompare(right.real_path);
-      });
-
+  const applyMappedSnapshot = useCallback(
+    (result: Awaited<ReturnType<typeof getMappedDirectories>>) => {
+      const sortedItems = sortMappedDirectories(result.items);
       setMappedDirectories(sortedItems);
       setMappedRoots([...result.shadow_roots].sort((left, right) => left.localeCompare(right)));
       setMappedTruncated(result.truncated);
@@ -87,31 +73,38 @@ export default function DirectoryMapper() {
       setCacheReady(result.cache?.ready ?? false);
       setCacheUpdatedAtMs(result.cache?.updated_at_ms ?? null);
       setCacheEntriesTotal(result.cache?.entries_total ?? sortedItems.length);
+      return sortedItems;
+    },
+    []
+  );
 
-      if ((result.cache?.last_error ?? null) && sortedItems.length === 0) {
-        setLoadError(result.cache?.last_error ?? "Failed to load mapped directories.");
+  const loadMappedDirectories = useCallback(async () => {
+    setIsReloading(true);
+    setLoadError(null);
+    const loadVersion = mappedLoadVersionRef.current + 1;
+    mappedLoadVersionRef.current = loadVersion;
+    const searchParam = debouncedMappedSearch.trim();
+    const shadowRootParam = mappedRootFilter !== "all" ? mappedRootFilter : undefined;
+    try {
+      const baseResult = await getMappedDirectories({
+        search: searchParam || undefined,
+        shadowRoot: shadowRootParam,
+        limit: 5000,
+        includeArrState: false,
+        timeoutMs: 30000
+      });
+      if (mappedLoadVersionRef.current !== loadVersion) {
+        return;
+      }
+      const sortedBaseItems = applyMappedSnapshot(baseResult);
+      if ((baseResult.cache?.last_error ?? null) && sortedBaseItems.length === 0) {
+        setLoadError(baseResult.cache?.last_error ?? "Failed to load mapped directories.");
       }
     } catch (error: unknown) {
-      const detail =
-        typeof error === "object" &&
-        error !== null &&
-        "response" in error &&
-        typeof (error as { response?: { data?: { detail?: unknown } } }).response?.data?.detail ===
-          "string"
-          ? ((error as { response: { data: { detail: string } } }).response.data.detail ?? null)
-          : null;
-      const timedOut =
-        typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        (error as { code?: string }).code === "ECONNABORTED";
-
-      setLoadError(
-        detail ||
-          (timedOut
-            ? "Snapshot request timed out. The backend may still be rebuilding/scanning or serializing a large index; wait briefly or trigger a full reconcile."
-            : "Failed to load mapped directories.")
-      );
+      if (mappedLoadVersionRef.current !== loadVersion) {
+        return;
+      }
+      setLoadError(mappedDirectoriesErrorMessage(error));
       setMappedDirectories([]);
       setMappedRoots([]);
       setMappedTruncated(false);
@@ -120,9 +113,11 @@ export default function DirectoryMapper() {
       setCacheUpdatedAtMs(null);
       setCacheEntriesTotal(0);
     } finally {
-      setIsReloading(false);
+      if (mappedLoadVersionRef.current === loadVersion) {
+        setIsReloading(false);
+      }
     }
-  }, [debouncedMappedSearch, mappedRootFilter]);
+  }, [applyMappedSnapshot, debouncedMappedSearch, mappedRootFilter]);
 
   useEffect(() => {
     if (mappedSearch === debouncedMappedSearch) {
@@ -236,35 +231,33 @@ export default function DirectoryMapper() {
     setStatusFilters
   } = useMapperRowsView(searchVisibleDirectories);
 
+  const arrEnrichmentCandidates = useMemo(
+    () => (visibleDirectories.length > 0 ? visibleDirectories : searchVisibleDirectories.slice(0, 200)),
+    [searchVisibleDirectories, visibleDirectories]
+  );
+
+  useScopedArrEnrichment({
+    candidates: arrEnrichmentCandidates,
+    search: debouncedMappedSearch,
+    mappedRootFilter,
+    mappedLoadVersionRef,
+    setMappedDirectories,
+    setCacheBuilding,
+    setCacheReady,
+    setCacheUpdatedAtMs,
+    setCacheEntriesTotal,
+    setArrEnrichmentLoading: setIsArrEnrichmentLoading
+  });
+
   const isSearchLoading = isSearchTransitioning || isReloading;
 
-  const cacheStatusText = useMemo(() => {
-    if (reconcilingPath) {
-      return "Reconciling selected path...";
-    }
-    if (isReconciling) {
-      return "Reconciling whole library...";
-    }
-    if (cacheBuilding && !cacheReady) {
-      return "Indexing in progress";
-    }
-    if (!cacheReady) {
-      return "Index not ready";
-    }
-    if (typeof cacheUpdatedAtMs !== "number") {
-      return "Index ready";
-    }
-    const elapsedSec = Math.max(0, Math.floor((Date.now() - cacheUpdatedAtMs) / 1000));
-    if (elapsedSec < 60) {
-      return `Index ready · updated ${elapsedSec}s ago`;
-    }
-    const elapsedMin = Math.floor(elapsedSec / 60);
-    if (elapsedMin < 60) {
-      return `Index ready · updated ${elapsedMin}m ago`;
-    }
-    const elapsedHours = Math.floor(elapsedMin / 60);
-    return `Index ready · updated ${elapsedHours}h ago`;
-  }, [cacheBuilding, cacheReady, cacheUpdatedAtMs, isReconciling, reconcilingPath]);
+  const cacheStatusText = mappedCacheStatusText({
+    reconcilingPath,
+    isReconciling,
+    cacheBuilding,
+    cacheReady,
+    cacheUpdatedAtMs
+  });
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
@@ -326,6 +319,12 @@ export default function DirectoryMapper() {
                 <Group gap={6}>
                   <Loader size="xs" />
                   <Text size="xs" c="dimmed">Loading path mappings…</Text>
+                </Group>
+              )}
+              {!isSearchLoading && isArrEnrichmentLoading && (
+                <Group gap={6}>
+                  <Loader size="xs" />
+                  <Text size="xs" c="dimmed">Loading Arr state…</Text>
                 </Group>
               )}
               <Tooltip label="Force full rescan of shadow roots">

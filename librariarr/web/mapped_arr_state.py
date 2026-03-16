@@ -53,6 +53,7 @@ def enrich_mapped_directories_with_radarr_state(
     config: AppConfig,
     selected_roots: set[str],
     lowered_search: str,
+    include_missing_virtual_paths: bool = True,
 ) -> list[dict[str, Any]]:
     enriched = [dict(item) for item in items]
 
@@ -126,34 +127,36 @@ def enrich_mapped_directories_with_radarr_state(
             }
         )
 
-    for movie in movies:
-        if not isinstance(movie, dict):
-            continue
-        virtual_path = _normalize_media_path(str(movie.get("path") or ""))
-        if not virtual_path or virtual_path in mapped_virtual_paths:
-            continue
-        if not _is_in_any_root(virtual_path, list(selected_roots)):
-            continue
-        if lowered_search and lowered_search not in virtual_path.lower():
-            continue
+    if include_missing_virtual_paths:
+        selected_roots_list = list(selected_roots)
+        for movie in movies:
+            if not isinstance(movie, dict):
+                continue
+            virtual_path = _normalize_media_path(str(movie.get("path") or ""))
+            if not virtual_path or virtual_path in mapped_virtual_paths:
+                continue
+            if not _is_in_any_root(virtual_path, selected_roots_list):
+                continue
+            if lowered_search and lowered_search not in virtual_path.lower():
+                continue
 
-        matching_roots = [
-            root for root in selected_roots if _path_is_equal_or_child(virtual_path, root)
-        ]
-        shadow_root = (
-            max(matching_roots, key=len) if matching_roots else str(Path(virtual_path).parent)
-        )
-        enriched.append(
-            {
-                "shadow_root": shadow_root,
-                "virtual_path": virtual_path,
-                "real_path": "",
-                "target_exists": False,
-                "arr_state": "missing_virtual_path",
-                "arr_movie_id": movie.get("id"),
-                "arr_title": movie.get("title"),
-                "arr_monitored": movie.get("monitored"),
-            }
-        )
+            matching_roots = [
+                root for root in selected_roots if _path_is_equal_or_child(virtual_path, root)
+            ]
+            shadow_root = (
+                max(matching_roots, key=len) if matching_roots else str(Path(virtual_path).parent)
+            )
+            enriched.append(
+                {
+                    "shadow_root": shadow_root,
+                    "virtual_path": virtual_path,
+                    "real_path": "",
+                    "target_exists": False,
+                    "arr_state": "missing_virtual_path",
+                    "arr_movie_id": movie.get("id"),
+                    "arr_title": movie.get("title"),
+                    "arr_monitored": movie.get("monitored"),
+                }
+            )
 
     return enriched

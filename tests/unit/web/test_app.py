@@ -444,6 +444,11 @@ def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
     app = create_app(config_path=config_path)
     client = TestClient(app)
 
+    refresh_response = client.post("/api/fs/mapped-directories/refresh")
+    assert refresh_response.status_code == 200
+    refresh_job = _wait_for_job(client, refresh_response.json()["job_id"])
+    assert refresh_job["status"] == "succeeded"
+
     response = client.get("/api/fs/mapped-directories")
 
     assert response.status_code == 200

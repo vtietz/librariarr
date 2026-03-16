@@ -5,7 +5,7 @@ import json
 import time
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
@@ -31,16 +31,12 @@ def build_fs_router(  # noqa: C901
         shadow_root: str | None = Query(default=None),
         limit: int = Query(default=500, ge=1, le=5000),
         include_arr_state: bool = Query(default=False),
+        arr_virtual_path: Annotated[list[str] | None, Query()] = None,
     ) -> dict[str, Any]:
         config = load_config_or_http_fn(read_config_path_fn(request))
         all_roots = shadow_roots_fn(config)
 
-        mapped_cache.request_refresh(config)
-
         snapshot = mapped_cache.snapshot()
-        if not snapshot["ready"] and snapshot["building"]:
-            mapped_cache.wait_for_build(timeout=2.0)
-            snapshot = mapped_cache.snapshot()
 
         if shadow_root is None:
             selected_roots = {str(root) for root in all_roots}
@@ -67,12 +63,39 @@ def build_fs_router(  # noqa: C901
             items.append(entry)
 
         if include_arr_state:
-            items = enrich_mapped_directories_with_radarr_state_fn(
-                items,
-                config=config,
-                selected_roots=selected_roots,
-                lowered_search=lowered_search,
-            )
+            scoped_virtual_paths = {
+                value.strip()
+                for value in (arr_virtual_path or [])
+                if isinstance(value, str) and value.strip()
+            }
+            if scoped_virtual_paths:
+                scoped_items = [
+                    item
+                    for item in items
+                    if str(item.get("virtual_path", "")) in scoped_virtual_paths
+                ]
+                scoped_enriched = enrich_mapped_directories_with_radarr_state_fn(
+                    scoped_items,
+                    config=config,
+                    selected_roots=selected_roots,
+                    lowered_search=lowered_search,
+                    include_missing_virtual_paths=False,
+                )
+                enriched_by_virtual_path = {
+                    str(entry.get("virtual_path", "")): entry for entry in scoped_enriched
+                }
+                items = [
+                    enriched_by_virtual_path.get(str(item.get("virtual_path", "")), item)
+                    for item in items
+                ]
+            else:
+                items = enrich_mapped_directories_with_radarr_state_fn(
+                    items,
+                    config=config,
+                    selected_roots=selected_roots,
+                    lowered_search=lowered_search,
+                    include_missing_virtual_paths=True,
+                )
 
         items = apply_path_mapping_outcomes_fn(
             items,

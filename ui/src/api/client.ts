@@ -80,6 +80,7 @@ export const getMappedDirectories = async (params?: {
   limit?: number;
   timeoutMs?: number;
   includeArrState?: boolean;
+  arrVirtualPaths?: string[];
 }) => {
   const { data } = await api.get<{
     items: Array<{
@@ -113,7 +114,8 @@ export const getMappedDirectories = async (params?: {
       search: params?.search,
       shadow_root: params?.shadowRoot,
       limit: params?.limit,
-      include_arr_state: params?.includeArrState
+      include_arr_state: params?.includeArrState,
+      arr_virtual_path: params?.arrVirtualPaths
     },
     timeout: params?.timeoutMs ?? 90000
   });
