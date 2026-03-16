@@ -1,0 +1,5 @@
+- Use wrappers only: `./run.sh <command>` (Linux/macOS), `run.bat <command>` (Windows).
+- Common: `./run.sh setup`, `./run.sh up`, `./run.sh down`, `./run.sh logs`, `./run.sh once`.
+- Validation: `./run.sh test`, `./run.sh quality`, `./run.sh quality-autofix`.
+- Dev stack: `./run.sh dev-up`, `./run.sh dev-bootstrap`, `./run.sh dev-seed`, `./run.sh dev-down`, `./run.sh dev-logs`, `./run.sh dev-shell`.
+- E2E: `./run.sh e2e`, `./run.sh fs-e2e`.

@@ -1,0 +1,3 @@
+- Purpose: sync discovered movie/series folders into Radarr/Sonarr libraries via linking/reconciliation and expose runtime/web operations.
+- Stack: Python 3.12 backend, Docker Compose wrappers, pytest, Ruff, optional UI in ui/ (Vite/TS).
+- Main runtime packages: librariarr/service, librariarr/sync, librariarr/runtime, librariarr/web, librariarr/clients.

@@ -1,0 +1,4 @@
+- Keep modules focused by responsibility; prefer extracting cohesive units over cosmetic splitting.
+- Preserve behavior while refactoring; keep public import surfaces stable initially.
+- Backend style: Ruff line length 100, target Python 3.12, complexity checks enabled.
+- Avoid direct tool invocations (`python`, `pytest`, `npm`, docker commands) unless explicitly requested; route through wrappers.

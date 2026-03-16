@@ -1,0 +1,4 @@
+- After substantial code changes run `./run.sh test` and `./run.sh quality`.
+- Keep quality output in terminal (no custom redirected files).
+- In final handoff include a commit message proposal.
+- Do not create README files unless explicitly requested.
