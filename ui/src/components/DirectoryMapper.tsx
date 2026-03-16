@@ -21,12 +21,12 @@ import {
   getFsRoots,
   getMappedDirectories,
   getMappedDirectoriesStreamUrl,
-  refreshMappedDirectories,
-  runMaintenanceReconcile,
-  waitForJobCompletion
+  refreshMappedDirectories
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
+import { useReconcileActions } from "./useReconcileActions";
+import { useRadarrRefreshAction } from "./useRadarrRefreshAction";
 import { useDiscoveryWarningSets } from "./useDiscoveryWarningSets";
 
 export default function DirectoryMapper() {
@@ -41,6 +41,8 @@ export default function DirectoryMapper() {
   const [cacheEntriesTotal, setCacheEntriesTotal] = useState(0);
   const [isReloading, setIsReloading] = useState(false);
   const [isReconciling, setIsReconciling] = useState(false);
+  const [reconcilingPath, setReconcilingPath] = useState<string | null>(null);
+  const [refreshingMovieId, setRefreshingMovieId] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [cacheBuilding, setCacheBuilding] = useState(false);
   const [cacheReady, setCacheReady] = useState(false);
@@ -63,6 +65,7 @@ export default function DirectoryMapper() {
         search: debouncedMappedSearch.trim() || undefined,
         shadowRoot: mappedRootFilter === "all" ? undefined : mappedRootFilter,
         limit: 5000,
+        includeArrState: true,
         timeoutMs: 90000
       });
       const sortedItems = [...result.items].sort((left, right) => {
@@ -199,6 +202,9 @@ export default function DirectoryMapper() {
     useDiscoveryWarningSets(discoveryWarnings);
 
   const cacheStatusText = useMemo(() => {
+    if (reconcilingPath) {
+      return "Reconciling selected path...";
+    }
     if (isReconciling) {
       return "Reconciling whole library...";
     }
@@ -221,7 +227,7 @@ export default function DirectoryMapper() {
     }
     const elapsedHours = Math.floor(elapsedMin / 60);
     return `Index ready · updated ${elapsedHours}h ago`;
-  }, [cacheBuilding, cacheReady, cacheUpdatedAtMs, isReconciling]);
+  }, [cacheBuilding, cacheReady, cacheUpdatedAtMs, isReconciling, reconcilingPath]);
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
@@ -312,32 +318,23 @@ export default function DirectoryMapper() {
     }
   };
 
-  const queueReconcile = async () => {
-    setIsReconciling(true);
-    setLoadError(null);
-    try {
-      const scheduled = await runMaintenanceReconcile();
-      if (!scheduled.job_id) {
-        throw new Error("Reconcile job was not scheduled.");
-      }
-      await waitForJobCompletion(scheduled.job_id);
-      await loadMappedDirectories();
-      await loadDiscoveryWarnings();
-    } catch (error) {
-      setLoadError(
-        error instanceof Error
-          ? `Reconcile failed: ${error.message}`
-          : "Reconcile failed unexpectedly."
-      );
-    } finally {
-      setIsReconciling(false);
-    }
-  };
+  const { queueReconcile, reconcilePath, recentlyReconciledPath } = useReconcileActions({
+    setIsReconciling,
+    setReconcilingPath,
+    setLoadError,
+    loadMappedDirectories,
+    loadDiscoveryWarnings
+  });
+
+  const refreshMovieInRadarr = useRadarrRefreshAction({
+    setRefreshingMovieId,
+    setLoadError,
+    loadMappedDirectories
+  });
 
   return (
     <Stack>
       <Title order={3}>Directory Mapper</Title>
-
       <Card withBorder>
         <Stack>
           <Group justify="space-between">
@@ -364,6 +361,7 @@ export default function DirectoryMapper() {
                 leftSection={<IconArrowsShuffle size={14} />}
                 onClick={() => void queueReconcile()}
                 loading={isReconciling}
+                disabled={reconcilingPath !== null}
               >
                 Reconcile whole library
               </Button>
@@ -375,6 +373,10 @@ export default function DirectoryMapper() {
             The cache updates automatically after each reconcile. Use the refresh button to force a
             full rescan of shadow roots.
           </Text>
+          <Text size="xs" c="dimmed">
+            Virtual Path is the Arr-facing shadow path. Real Path is the source target and does not
+            need to match the virtual folder name.
+          </Text>
 
           {(discoveryWarnings?.summary.duplicate_movie_candidates ?? 0) > 0 && (
             <Text size="sm" c="yellow.8">
@@ -382,7 +384,6 @@ export default function DirectoryMapper() {
               movie keys detected in source folders
             </Text>
           )}
-
           {(discoveryWarnings?.summary.excluded_movie_candidates ?? 0) > 0 && (
             <Text size="sm" c="yellow.8">
               ⚠ {discoveryWarnings?.summary.excluded_movie_candidates ?? 0} movie folders ignored
@@ -408,9 +409,9 @@ export default function DirectoryMapper() {
           <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
-                <Table.Th style={{ width: "46%" }}>Virtual Path</Table.Th>
-                <Table.Th style={{ width: "46%" }}>Real Path</Table.Th>
-                <Table.Th style={{ width: "8%" }}>Status</Table.Th>
+                <Table.Th style={{ width: "42%" }}>Virtual Path</Table.Th>
+                <Table.Th style={{ width: "42%" }}>Real Path</Table.Th>
+                <Table.Th style={{ width: "16%" }}>Status</Table.Th>
               </Table.Tr>
             </Table.Thead>
           </Table>
@@ -458,8 +459,13 @@ export default function DirectoryMapper() {
                       excludedByDuplicate={excludedByDuplicate}
                       duplicatePathSet={duplicatePathSet}
                       excludedPathSet={excludedPathSet}
+                      refreshingMovieId={refreshingMovieId}
+                      reconcilingPath={reconcilingPath}
+                      recentlyReconciledPath={recentlyReconciledPath}
                       onCopy={copyToClipboard}
                       onOpen={openBrowsePath}
+                      onRefreshRadarr={refreshMovieInRadarr}
+                      onReconcilePath={reconcilePath}
                     />
                     {bottomSpacerHeight > 0 && (
                       <Table.Tr>

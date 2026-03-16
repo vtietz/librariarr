@@ -14,13 +14,15 @@ from pydantic import BaseModel, Field
 
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
-from ..config import AppConfig, load_config
+from ..config import AppConfig
 from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
 from .discovery_cache import get_discovery_warnings_cache
 from .log_buffer import LogRingBuffer, get_log_buffer
+from .mapped_arr_state import enrich_mapped_directories_with_radarr_state
 from .mapped_cache import get_mapped_directories_cache
 from .mapped_cache import shadow_roots as _shadow_roots
+from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 
 LOG = logging.getLogger(__name__)
 
@@ -127,24 +129,6 @@ async def _iter_logs_stream_events(
         if not has_new and (time.monotonic() - last_heartbeat >= LOGS_STREAM_HEARTBEAT_SECONDS):
             yield ": ping\n\n"
             last_heartbeat = time.monotonic()
-
-
-def _load_config_or_http(config_path: Path) -> AppConfig:
-    try:
-        return load_config(config_path)
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Unable to load config: {exc}") from exc
-
-
-def _read_config_path(request: Request) -> Path:
-    return Path(request.app.state.web.config_path)
-
-
-def _job_manager_or_http(request: Request):
-    manager = getattr(request.app.state.web, "job_manager", None)
-    if manager is None:
-        raise HTTPException(status_code=503, detail="Job manager is unavailable.")
-    return manager
 
 
 def run_radarr_diagnostics(config: AppConfig) -> dict[str, Any]:
@@ -388,6 +372,31 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             LOG.error("Radarr connection test failed for %s: %s", safe_url, exc)
             return {"ok": False, "message": str(exc)}
 
+    @router.post("/api/radarr/movies/{movie_id}/refresh")
+    def refresh_radarr_movie(movie_id: int, request: Request) -> dict[str, Any]:
+        config = load_config_or_http(read_config_path(request))
+        if not config.radarr.enabled:
+            raise HTTPException(status_code=400, detail="Radarr is disabled.")
+
+        client = RadarrClient(
+            config.radarr.url,
+            config.radarr.api_key,
+            refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
+        )
+
+        try:
+            started = client.refresh_movie(movie_id, force=True)
+            return {
+                "ok": True,
+                "movie_id": movie_id,
+                "started": bool(started),
+            }
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"Failed to refresh Radarr movie: {exc}",
+            ) from exc
+
     @router.post("/api/sonarr/test")
     def test_sonarr_connection(payload: ArrConnectionRequest) -> dict[str, Any]:
         safe_url = _safe_log_url(payload.url)
@@ -404,32 +413,44 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             return {"ok": False, "message": str(exc)}
 
     @router.post("/api/maintenance/reconcile")
-    def run_maintenance_reconcile(request: Request) -> dict[str, Any]:
+    def run_maintenance_reconcile(
+        request: Request,
+        path: str | None = Query(default=None),
+    ) -> dict[str, Any]:
         LOG.info("Manual reconcile queued via API")
-        manager = _job_manager_or_http(request)
-        config_path = _read_config_path(request)
+        manager = job_manager_or_http(request)
+        config_path = read_config_path(request)
+        path_value = path.strip() if isinstance(path, str) else ""
+        affected_paths: set[Path] | None = None
+        if path_value:
+            candidate_path = Path(path_value)
+            if not candidate_path.is_absolute():
+                raise HTTPException(status_code=400, detail="path must be an absolute path")
+            affected_paths = {candidate_path}
 
         def action() -> dict[str, Any]:
-            config = _load_config_or_http(config_path)
+            config = load_config_or_http(config_path)
             started = time.perf_counter()
             runtime_status.mark_reconcile_started(trigger_source="manual")
             try:
                 service = LibrariArrService(config)
-                ingest_pending = service.reconcile()
+                ingest_pending = service.reconcile(affected_paths=affected_paths)
                 duration_ms = int((time.perf_counter() - started) * 1000)
                 runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
                 mapped_cache.request_refresh(config, force=True)
                 discovery_cache.request_refresh(config, force=True)
                 LOG.info(
-                    "Manual reconcile completed in %d ms (ingest_pending=%s)",
+                    "Manual reconcile completed in %d ms (ingest_pending=%s, scoped=%s)",
                     duration_ms,
                     ingest_pending,
+                    bool(affected_paths),
                 )
                 return {
                     "ok": True,
                     "message": "Reconcile completed.",
                     "duration_ms": duration_ms,
                     "ingest_pending": ingest_pending,
+                    "scoped": bool(affected_paths),
                 }
             except Exception as exc:
                 runtime_status.mark_reconcile_finished(
@@ -441,11 +462,12 @@ def build_operations_router() -> APIRouter:  # noqa: C901
                 return {"ok": False, "message": str(exc)}
 
         job_id = manager.submit(
-            kind="reconcile-manual",
-            name="Manual Reconcile",
+            kind="reconcile-manual-scoped" if affected_paths else "reconcile-manual",
+            name="Manual Reconcile (Scoped)" if affected_paths else "Manual Reconcile",
             source="job-manager",
             detail="queued",
             func=action,
+            payload={"path": path_value} if path_value else None,
         )
         return {
             "ok": True,
@@ -456,7 +478,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
     @router.get("/api/jobs/summary")
     def jobs_summary(request: Request) -> dict[str, Any]:
-        manager = _job_manager_or_http(request)
+        manager = job_manager_or_http(request)
         return manager.summary()
 
     @router.get("/api/jobs")
@@ -465,13 +487,13 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         limit: int = Query(default=20, ge=1, le=200),
         status: str | None = Query(default=None),
     ) -> dict[str, Any]:
-        manager = _job_manager_or_http(request)
+        manager = job_manager_or_http(request)
         items = manager.list(limit=limit, status=status)
         return {"items": items}
 
     @router.get("/api/jobs/{job_id}")
     def jobs_get(job_id: str, request: Request) -> dict[str, Any]:
-        manager = _job_manager_or_http(request)
+        manager = job_manager_or_http(request)
         item = manager.get(job_id)
         if item is None:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -479,7 +501,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
     @router.post("/api/jobs/{job_id}/cancel")
     def jobs_cancel(job_id: str, request: Request) -> dict[str, Any]:
-        manager = _job_manager_or_http(request)
+        manager = job_manager_or_http(request)
         result = manager.cancel(job_id)
         if result is None:
             raise HTTPException(status_code=404, detail="Job not found")
@@ -507,8 +529,9 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         search: str = Query(default=""),
         shadow_root: str | None = Query(default=None),
         limit: int = Query(default=500, ge=1, le=5000),
+        include_arr_state: bool = Query(default=False),
     ) -> dict[str, Any]:
-        config = _load_config_or_http(_read_config_path(request))
+        config = load_config_or_http(read_config_path(request))
         all_roots = _shadow_roots(config)
 
         mapped_cache.request_refresh(config)
@@ -527,7 +550,6 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
         lowered_search = search.strip().lower()
         items: list[dict[str, Any]] = []
-        truncated = False
 
         for entry in snapshot["items"]:
             root_str = str(entry.get("shadow_root", ""))
@@ -542,9 +564,18 @@ def build_operations_router() -> APIRouter:  # noqa: C901
             ):
                 continue
             items.append(entry)
-            if len(items) >= limit:
-                truncated = True
-                break
+
+        if include_arr_state:
+            items = enrich_mapped_directories_with_radarr_state(
+                items,
+                config=config,
+                selected_roots=selected_roots,
+                lowered_search=lowered_search,
+            )
+
+        truncated = len(items) > limit
+        if truncated:
+            items = items[:limit]
 
         return {
             "items": items,
@@ -566,7 +597,7 @@ def build_operations_router() -> APIRouter:  # noqa: C901
         request: Request,
         limit: int = Query(default=200, ge=1, le=2000),
     ) -> dict[str, Any]:
-        config = _load_config_or_http(_read_config_path(request))
+        config = load_config_or_http(read_config_path(request))
         discovery_cache.request_refresh(config)
         snapshot = discovery_cache.snapshot(limit=limit)
         if not snapshot["cache"]["ready"] and snapshot["cache"]["building"]:
@@ -576,11 +607,11 @@ def build_operations_router() -> APIRouter:  # noqa: C901
 
     @router.post("/api/fs/mapped-directories/refresh")
     def refresh_mapped_directories(request: Request) -> dict[str, Any]:
-        manager = _job_manager_or_http(request)
-        config_path = _read_config_path(request)
+        manager = job_manager_or_http(request)
+        config_path = read_config_path(request)
 
         def action() -> dict[str, Any]:
-            config = _load_config_or_http(config_path)
+            config = load_config_or_http(config_path)
             started = mapped_cache.request_refresh(config, force=True)
             return {
                 "ok": True,

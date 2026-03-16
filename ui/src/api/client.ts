@@ -79,6 +79,7 @@ export const getMappedDirectories = async (params?: {
   shadowRoot?: string;
   limit?: number;
   timeoutMs?: number;
+  includeArrState?: boolean;
 }) => {
   const { data } = await api.get<{
     items: Array<{
@@ -86,6 +87,10 @@ export const getMappedDirectories = async (params?: {
       virtual_path: string;
       real_path: string;
       target_exists: boolean;
+      arr_state?: string;
+      arr_movie_id?: number | null;
+      arr_title?: string | null;
+      arr_monitored?: boolean | null;
     }>;
     shadow_roots: string[];
     truncated: boolean;
@@ -101,10 +106,18 @@ export const getMappedDirectories = async (params?: {
     params: {
       search: params?.search,
       shadow_root: params?.shadowRoot,
-      limit: params?.limit
+      limit: params?.limit,
+      include_arr_state: params?.includeArrState
     },
     timeout: params?.timeoutMs ?? 90000
   });
+  return data;
+};
+
+export const refreshRadarrMovie = async (movieId: number) => {
+  const { data } = await api.post<{ ok: boolean; movie_id: number; started: boolean }>(
+    `/radarr/movies/${movieId}/refresh`
+  );
   return data;
 };
 
@@ -247,13 +260,21 @@ export const testSonarrConnection = async (url: string, apiKey: string) => {
   return data;
 };
 
-export const runMaintenanceReconcile = async () => {
+export const runMaintenanceReconcile = async (params?: { path?: string }) => {
   const { data } = await api.post<{
     ok: boolean;
     queued: boolean;
     job_id: string;
     message: string;
-  }>("/maintenance/reconcile");
+  }>(
+    "/maintenance/reconcile",
+    undefined,
+    {
+      params: {
+        path: params?.path
+      }
+    }
+  );
   return data;
 };
 
