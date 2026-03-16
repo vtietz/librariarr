@@ -1,5 +1,6 @@
 import {
   ActionIcon,
+  Badge,
   Box,
   Button,
   Card,
@@ -25,6 +26,11 @@ import {
 } from "../api/client";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
+import {
+  MAPPER_STATUS_FILTER_OPTIONS,
+  type MapperStatusFilterValue,
+  useMapperRowsView
+} from "./useMapperRowsView";
 import { useReconcileActions } from "./useReconcileActions";
 import { useRadarrRefreshAction } from "./useRadarrRefreshAction";
 import { useDiscoveryWarningSets } from "./useDiscoveryWarningSets";
@@ -195,6 +201,16 @@ export default function DirectoryMapper() {
   const { duplicatePrimaryPaths, excludedByDuplicate, duplicatePathSet, excludedPathSet } =
     useDiscoveryWarningSets(discoveryWarnings);
 
+  const {
+    activeStatusFilters,
+    filteredDirectories,
+    visibleDirectories,
+    hasMoreRows,
+    loadMoreRef,
+    toggleStatusFilter,
+    clearStatusFilters
+  } = useMapperRowsView(mappedDirectories);
+
   const cacheStatusText = useMemo(() => {
     if (reconcilingPath) {
       return "Reconciling selected path...";
@@ -272,7 +288,10 @@ export default function DirectoryMapper() {
             <Text fw={600}>Path Mappings (Virtual vs Real)</Text>
             <Group gap="sm">
               <Text size="sm" c="dimmed">
-                Showing {mappedDirectories.length} of {cacheEntriesTotal}
+                Showing {visibleDirectories.length} of {filteredDirectories.length}
+                {activeStatusFilters.length > 0 ? " (status-filtered)" : ""}
+                {" · "}
+                Indexed {cacheEntriesTotal}
                 {mappedTruncated ? " (list truncated)" : ""}
               </Text>
               <Tooltip label="Force full rescan of shadow roots">
@@ -338,15 +357,37 @@ export default function DirectoryMapper() {
           </Group>
 
           <Group gap="xs" wrap="wrap">
+            <Text size="xs" c="dimmed">Status filter:</Text>
+            {MAPPER_STATUS_FILTER_OPTIONS.map((option) => {
+              const active = activeStatusFilters.includes(option.value);
+              return (
+                <Badge
+                  key={option.value}
+                  variant={active ? "filled" : "light"}
+                  style={{ cursor: "pointer" }}
+                  onClick={() => toggleStatusFilter(option.value as MapperStatusFilterValue)}
+                >
+                  {option.label}
+                </Badge>
+              );
+            })}
+            {activeStatusFilters.length > 0 && (
+              <Badge
+                variant="outline"
+                style={{ cursor: "pointer" }}
+                onClick={clearStatusFilters}
+              >
+                Clear
+              </Badge>
+            )}
+          </Group>
+
+          <Group gap="xs" wrap="wrap">
             <Text size="xs" c="dimmed">Status legend:</Text>
             <ThemeIcon size="sm" radius="xl" variant="light" color="green">
               <Text size="10px" fw={700}>A</Text>
             </ThemeIcon>
             <Text size="xs" c="dimmed">Arr ok</Text>
-            <ThemeIcon size="sm" radius="xl" variant="light" color="yellow">
-              <Text size="10px" fw={700}>P</Text>
-            </ThemeIcon>
-            <Text size="xs" c="dimmed">Path mismatch</Text>
             <ThemeIcon size="sm" radius="xl" variant="light" color="orange">
               <Text size="10px" fw={700}>N</Text>
             </ThemeIcon>
@@ -382,7 +423,7 @@ export default function DirectoryMapper() {
                       </Text>
                     </Table.Td>
                   </Table.Tr>
-                ) : mappedDirectories.length === 0 ? (
+                ) : filteredDirectories.length === 0 ? (
                   <Table.Tr>
                     <Table.Td colSpan={5}>
                       <Text size="sm" c="dimmed">
@@ -390,13 +431,13 @@ export default function DirectoryMapper() {
                           ? "Loading path mappings…"
                           : cacheBuilding && !cacheReady
                           ? "Building in-memory directory index… wait a few seconds."
-                          : "No mapped directories match the current search/filter."}
+                          : "No mapped directories match the current search/filter/status."}
                       </Text>
                     </Table.Td>
                   </Table.Tr>
                 ) : (
                   <MappedRows
-                    directories={mappedDirectories}
+                    directories={visibleDirectories}
                     cacheUpdatedAtMs={cacheUpdatedAtMs}
                     duplicatePrimaryPaths={duplicatePrimaryPaths}
                     excludedByDuplicate={excludedByDuplicate}
@@ -414,6 +455,8 @@ export default function DirectoryMapper() {
               </Table.Tbody>
             </Table>
           </Box>
+
+          {hasMoreRows && <Box ref={loadMoreRef} style={{ height: 1, width: "100%" }} />}
 
           <DirectoryPickerModal
             opened={browsePath !== null}

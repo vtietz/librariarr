@@ -99,7 +99,7 @@ function arrStateBadge(state: string | undefined): { label: string; color: strin
     case "missing_virtual_path":
       return { label: "Missing virtual", color: "red" };
     case "title_path_mismatch":
-      return { label: "Path mismatch", color: "yellow" };
+      return { label: "Arr ok", color: "green" };
     case "missing_in_arr":
       return { label: "Not in Arr", color: "orange" };
     case "arr_unreachable":
@@ -149,6 +149,7 @@ function formatAge(updatedAtMs: number | null | undefined): string {
 function fallbackOutcomeText(mapped: MappedDirectory): string {
   switch (mapped.arr_state) {
     case "ok":
+    case "title_path_mismatch":
       return "indexed";
     case "missing_in_arr":
       return "not found";
@@ -158,8 +159,6 @@ function fallbackOutcomeText(mapped: MappedDirectory): string {
       return "arr offline";
     case "missing_virtual_path":
       return "missing virtual";
-    case "title_path_mismatch":
-      return "mismatch";
     default:
       return "pending";
   }
@@ -168,10 +167,10 @@ function fallbackOutcomeText(mapped: MappedDirectory): string {
 function fallbackOutcomeColor(mapped: MappedDirectory): string {
   switch (mapped.arr_state) {
     case "ok":
+    case "title_path_mismatch":
       return "green.7";
     case "missing_in_arr":
     case "missing_virtual_path":
-    case "title_path_mismatch":
       return "yellow.7";
     case "missing_on_disk":
     case "arr_unreachable":
@@ -203,6 +202,9 @@ const MappedRows = memo(function MappedRows({
       {directories.map((mapped) => {
         const rowKey = `${mapped.shadow_root}:${mapped.virtual_path}`;
         const isHovered = hoveredRowKey === rowKey;
+        const arrBadge = arrStateBadge(mapped.arr_state);
+        const arrCode = arrBadge.label[0];
+        const arrTooltip = `${arrCode} → ${arrBadge.label}${mapped.arr_title ? ` · ${mapped.arr_title}` : ""}`;
         const hasStoredOutcome = Boolean(mapped.last_reconcile_status);
         const resultLabel = hasStoredOutcome
           ? lastOutcomeBadge(mapped.last_reconcile_status).label.replace("Last reconcile: ", "")
@@ -249,14 +251,14 @@ const MappedRows = memo(function MappedRows({
           </Table.Td>
           <Table.Td style={{ width: "12%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Group gap={6} wrap="nowrap" justify="flex-end">
-              <Tooltip label={mapped.arr_title || "Arr path state"}>
+              <Tooltip label={arrTooltip}>
                 <ThemeIcon
                   size="sm"
                   radius="xl"
                   variant="light"
-                  color={arrStateBadge(mapped.arr_state).color}
+                  color={arrBadge.color}
                 >
-                  <Text size="10px" fw={700}>{arrStateBadge(mapped.arr_state).label[0]}</Text>
+                  <Text size="10px" fw={700}>{arrCode}</Text>
                 </ThemeIcon>
               </Tooltip>
               <Tooltip label={mapped.target_exists ? "Target exists" : "Missing target"}>

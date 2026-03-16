@@ -41,8 +41,6 @@ def _arr_state_for_mapped_entry(
     if movie is not None:
         if not target_exists:
             return "missing_on_disk"
-        if real_path and Path(virtual_path).name.lower() != Path(real_path).name.lower():
-            return "title_path_mismatch"
         return "ok"
     if in_radarr_scope:
         return "missing_in_arr"
