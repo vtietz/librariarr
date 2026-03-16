@@ -296,6 +296,7 @@ export default function DirectoryMapper() {
     setIsReconciling,
     setReconcilingPath,
     setLoadError,
+    setMappedDirectories,
     loadMappedDirectories,
     loadDiscoveryWarnings
   });

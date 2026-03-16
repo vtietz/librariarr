@@ -46,9 +46,13 @@ def queue_maintenance_reconcile(
             )
             duration_ms = int((time.perf_counter() - started) * 1000)
             runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
-            mapped_cache.request_refresh(config, force=True)
-            mapped_cache.wait_for_build(timeout=5.0)
-            discovery_cache.request_refresh(config, force=True)
+            if affected_paths is None:
+                mapped_cache.request_refresh(config, force=True)
+                mapped_cache.wait_for_build(timeout=5.0)
+                discovery_cache.request_refresh(config, force=True)
+            else:
+                mapped_cache.request_refresh(config, force=False)
+                discovery_cache.request_refresh(config, force=False)
             path_outcome = None
             if path_value:
                 path_outcome = build_path_mapping_outcome(
