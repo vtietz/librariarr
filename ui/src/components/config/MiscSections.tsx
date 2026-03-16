@@ -203,7 +203,7 @@ export default function MiscSections({ draft, onSetSectionField, onSetCleanupAct
             label={
               <HelpLabel
                 label="Scan Video Extensions"
-                help="File extensions treated as video files while detecting media folders."
+                help="File extensions treated as video files while detecting media folders. Recommended defaults include mkv, mp4, avi, m2ts, mov, wmv, ts, m4v, mpg, and mpeg so trailer excludes do not accidentally hide valid folders."
               />
             }
             placeholder="Add extension and press Enter"

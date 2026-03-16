@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from librariarr.config import load_config
+from librariarr.config import DEFAULT_SCAN_VIDEO_EXTENSIONS, load_config
 
 CONFIG_CONTENT = (
     "paths:\n"
@@ -235,6 +235,50 @@ def test_load_config_normalizes_dotless_scan_video_extensions(tmp_path: Path) ->
     config = load_config(config_path)
 
     assert config.runtime.scan_video_extensions == [".mkv", ".mp4", ".avi"]
+
+
+def test_load_config_uses_default_scan_video_extensions_when_not_set(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.runtime.scan_video_extensions == DEFAULT_SCAN_VIDEO_EXTENSIONS
+
+
+def test_load_config_rejects_non_list_scan_video_extensions(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime:\n"
+            "  scan_video_extensions: .mkv\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="runtime.scan_video_extensions must be a list"):
+        load_config(config_path)
 
 
 def test_load_config_ingest_defaults(tmp_path: Path, monkeypatch) -> None:

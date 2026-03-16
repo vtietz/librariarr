@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig, load_config
+from ..quality import VIDEO_EXTENSIONS
 from ..sync.discovery import discover_movie_folders
 from ..sync.naming import parse_movie_ref
 from .jobs import JobManager
@@ -23,7 +24,7 @@ def _duplicate_group_ref(path: Path) -> tuple[str, int | None]:
 
 
 def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> dict[str, Any]:
-    video_exts = set(config.runtime.scan_video_extensions or [".mkv", ".mp4", ".avi", ".mov"])
+    video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
     exclude_paths = list(config.paths.exclude_paths)
 
     all_movie_paths: set[Path] = set()

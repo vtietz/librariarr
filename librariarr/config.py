@@ -7,6 +7,19 @@ from typing import Any
 
 import yaml
 
+DEFAULT_SCAN_VIDEO_EXTENSIONS = [
+    ".mkv",
+    ".mp4",
+    ".avi",
+    ".m2ts",
+    ".mov",
+    ".wmv",
+    ".ts",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+]
+
 
 @dataclass
 class QualityRule:
@@ -51,7 +64,9 @@ class RuntimeConfig:
     debounce_seconds: int = 8
     maintenance_interval_minutes: int = 1440
     arr_root_poll_interval_minutes: int = 1
-    scan_video_extensions: list[str] | None = None
+    scan_video_extensions: list[str] | None = field(
+        default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
+    )
 
 
 @dataclass
@@ -287,8 +302,10 @@ def load_config(path: str | Path) -> AppConfig:
             )
             if text
         ]
+    elif runtime_scan_video_extensions is None:
+        normalized_scan_video_extensions = list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
     else:
-        normalized_scan_video_extensions = runtime_scan_video_extensions
+        raise ValueError("runtime.scan_video_extensions must be a list of file extensions")
 
     runtime = RuntimeConfig(
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),

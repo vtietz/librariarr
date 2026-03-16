@@ -7,7 +7,18 @@ from pathlib import Path
 
 from .config import CustomFormatRule, ProfileRule, QualityRule
 
-VIDEO_EXTENSIONS = {".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts"}
+VIDEO_EXTENSIONS = {
+    ".mkv",
+    ".mp4",
+    ".avi",
+    ".m2ts",
+    ".mov",
+    ".wmv",
+    ".ts",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+}
 SAMPLE_HINTS = {"sample", "trailer", "extras", "featurette", "behindthescenes"}
 TOKEN_EQUIVALENTS = (
     frozenset({"x265", "h265", "hevc"}),

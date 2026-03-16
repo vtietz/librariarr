@@ -393,6 +393,7 @@ Note:
 `runtime.scan_video_extensions`:
 - Extensions that mark a directory as a media folder.
 - Leading dots are optional (`mkv` and `.mkv` are treated the same).
+- Default includes: `.mkv`, `.mp4`, `.avi`, `.m2ts`, `.mov`, `.wmv`, `.ts`, `.m4v`, `.mpg`, `.mpeg`.
 
 ## Env Overrides
 
