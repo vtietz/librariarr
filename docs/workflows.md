@@ -57,8 +57,6 @@ On every reconcile cycle, LibrariArr runs this sequence:
   - Reuse collision-qualified variants (`<base>--...`) for the same folder.
   - Do **not** keep a stale wrong-named link just because it points to the same folder.
 
-This prevents wrong-title persistence after NFO corrections.
-
 ## Scenario Flows
 
 ## 1) First Reconcile After Startup

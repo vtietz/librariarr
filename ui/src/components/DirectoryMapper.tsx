@@ -58,8 +58,12 @@ export default function DirectoryMapper() {
   const loadMappedDirectories = useCallback(async () => {
     setIsReloading(true);
     setLoadError(null);
+    const searchParam = debouncedMappedSearch.trim();
+    const shadowRootParam = mappedRootFilter !== "all" ? mappedRootFilter : undefined;
     try {
       const result = await getMappedDirectories({
+        search: searchParam || undefined,
+        shadowRoot: shadowRootParam,
         limit: 5000,
         includeArrState: true,
         timeoutMs: 90000
@@ -118,7 +122,7 @@ export default function DirectoryMapper() {
     } finally {
       setIsReloading(false);
     }
-  }, []);
+  }, [debouncedMappedSearch, mappedRootFilter]);
 
   useEffect(() => {
     if (mappedSearch === debouncedMappedSearch) {

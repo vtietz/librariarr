@@ -1,4 +1,5 @@
 import logging
+import time
 from pathlib import Path
 
 from librariarr.config import (
@@ -22,10 +23,15 @@ class FakeRadarr:
         quality_profiles: list[dict] | None = None,
         quality_definitions: list[dict] | None = None,
         parse_results: dict[str, dict] | None = None,
+        lookup_results: list[dict] | None = None,
+        add_movie_result: dict | None = None,
     ) -> None:
         self.quality_profiles = quality_profiles or []
         self.quality_definitions = quality_definitions or []
         self.parse_results = parse_results or {}
+        self.lookup_results = lookup_results or []
+        self.add_movie_result = add_movie_result or {}
+        self.lookup_terms: list[str] = []
 
     def get_quality_profiles(self) -> list[dict]:
         return self.quality_profiles
@@ -35,6 +41,27 @@ class FakeRadarr:
 
     def parse_title(self, title: str) -> dict:
         return self.parse_results.get(title, {})
+
+    def lookup_movies(self, term: str) -> list[dict]:
+        self.lookup_terms.append(term)
+        return self.lookup_results
+
+    def add_movie_from_lookup(
+        self,
+        lookup_movie: dict,
+        path: str,
+        root_folder_path: str,
+        quality_profile_id: int,
+        monitored: bool,
+        search_for_movie: bool,
+    ) -> dict:
+        del lookup_movie
+        del path
+        del root_folder_path
+        del quality_profile_id
+        del monitored
+        del search_for_movie
+        return self.add_movie_result
 
 
 def _make_config(
@@ -244,3 +271,67 @@ def test_canonical_name_from_movie_uses_folder_name(tmp_path: Path) -> None:
     )
 
     assert canonical_name == "Face Off Source (1997)"
+
+
+def test_auto_add_no_safe_lookup_logs_once_for_unchanged_folder(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    folder = nested_root / "Unknown Title (2020)"
+    folder.mkdir(parents=True)
+    (folder / "Unknown.Title.2020.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(tmp_path)
+    config.radarr.auto_add_quality_profile_id = 7
+
+    fake = FakeRadarr(lookup_results=[])
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger("librariarr.service"),
+        get_radarr_client=lambda: fake,
+    )
+    caplog.set_level("WARNING", logger="librariarr.service")
+
+    helper.auto_add_movie_for_folder(folder, shadow_root)
+    helper.auto_add_movie_for_folder(folder, shadow_root)
+
+    no_safe_matches = [
+        record
+        for record in caplog.records
+        if "No safe Radarr lookup match for folder" in record.getMessage()
+    ]
+    assert len(no_safe_matches) == 1
+    assert fake.lookup_terms == ["unknown title 2020"]
+
+
+def test_auto_add_retries_no_safe_lookup_when_folder_changes(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    folder = nested_root / "Unknown Title (2020)"
+    folder.mkdir(parents=True)
+    (folder / "Unknown.Title.2020.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(tmp_path)
+    config.radarr.auto_add_quality_profile_id = 7
+
+    fake = FakeRadarr(lookup_results=[])
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    helper.auto_add_movie_for_folder(folder, shadow_root)
+    helper.auto_add_movie_for_folder(folder, shadow_root)
+
+    time.sleep(0.01)
+    (folder / "new-file.nfo").write_text("changed", encoding="utf-8")
+
+    helper.auto_add_movie_for_folder(folder, shadow_root)
+
+    assert fake.lookup_terms == [
+        "unknown title 2020",
+        "unknown title 2020",
+    ]

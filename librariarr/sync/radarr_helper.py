@@ -42,6 +42,7 @@ class RadarrSyncHelper:
         ] = {}
         self._auto_add_profiles_cache: list[dict] | None = None
         self._quality_definition_rank_cache: dict[int, int] | None = None
+        self._auto_add_no_safe_lookup_signature_cache: dict[str, int | None] = {}
         self._cached_radarr_client_id: int | None = None
 
     def _radarr(self) -> RadarrClient:
@@ -54,7 +55,37 @@ class RadarrSyncHelper:
             self._auto_add_profile_by_custom_formats_cache = {}
             self._auto_add_profiles_cache = None
             self._quality_definition_rank_cache = None
+            self._auto_add_no_safe_lookup_signature_cache = {}
         return client
+
+    def _auto_add_cache_key_for_folder(self, folder: Path) -> str:
+        return str(folder.resolve(strict=False))
+
+    def _auto_add_signature_for_folder(self, folder: Path) -> int | None:
+        try:
+            return folder.stat().st_mtime_ns
+        except OSError:
+            return None
+
+    def _should_skip_no_safe_lookup_retry(self, folder: Path) -> bool:
+        cache_key = self._auto_add_cache_key_for_folder(folder)
+        cached_signature = self._auto_add_no_safe_lookup_signature_cache.get(cache_key)
+        if (
+            cached_signature is None
+            and cache_key not in self._auto_add_no_safe_lookup_signature_cache
+        ):
+            return False
+        current_signature = self._auto_add_signature_for_folder(folder)
+        return cached_signature == current_signature
+
+    def _remember_no_safe_lookup_for_folder(self, folder: Path) -> None:
+        cache_key = self._auto_add_cache_key_for_folder(folder)
+        folder_signature = self._auto_add_signature_for_folder(folder)
+        self._auto_add_no_safe_lookup_signature_cache[cache_key] = folder_signature
+
+    def _clear_no_safe_lookup_for_folder(self, folder: Path) -> None:
+        cache_key = self._auto_add_cache_key_for_folder(folder)
+        self._auto_add_no_safe_lookup_signature_cache.pop(cache_key, None)
 
     def log_quality_mapping_diagnostics(self, auto_add_unmatched: bool) -> None:
         log_quality_mapping_diagnostics(
@@ -325,6 +356,9 @@ class RadarrSyncHelper:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
 
+        if self._should_skip_no_safe_lookup_retry(folder):
+            return None
+
         try:
             candidates = self._radarr().lookup_movies(term)
         except requests.RequestException as exc:
@@ -333,12 +367,15 @@ class RadarrSyncHelper:
 
         candidate = pick_lookup_candidate(folder, candidates)
         if candidate is None:
+            self._remember_no_safe_lookup_for_folder(folder)
             self.log.warning(
                 "No safe Radarr lookup match for folder: %s (lookup_term=%s)",
                 folder,
                 term,
             )
             return None
+
+        self._clear_no_safe_lookup_for_folder(folder)
 
         quality_profile_id = self._resolve_auto_add_quality_profile_id(folder)
         if quality_profile_id is None:

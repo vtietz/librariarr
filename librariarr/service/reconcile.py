@@ -4,6 +4,8 @@ import time
 from collections.abc import Callable
 from pathlib import Path
 
+import requests
+
 from ..sync import (
     MovieRef,
     ShadowCleanupManager,
@@ -260,19 +262,28 @@ class ServiceReconcileMixin:
             if movie is not None:
                 movie_id = self._add_movie_id_if_present(matched_movie_ids, movie)
                 auto_added = movie_id is not None and movie_id in auto_added_movie_ids
-                self._sync_radarr_for_folder(
-                    folder,
-                    link_path,
-                    movie,
-                    force_refresh=auto_added,
-                    apply_quality_mapping=auto_added,
-                )
+                try:
+                    self._sync_radarr_for_folder(
+                        folder,
+                        link_path,
+                        movie,
+                        force_refresh=auto_added,
+                        apply_quality_mapping=auto_added,
+                    )
+                except requests.RequestException as exc:
+                    self._log_sync_config_hint(exc)
+                    LOG.warning(
+                        "Skipping Radarr sync for movie id=%s title=%s due to request failure: %s",
+                        movie_id,
+                        movie.get("title"),
+                        exc,
+                    )
                 matched_movies += 1
                 continue
 
             if self.auto_add_unmatched:
                 if attempted_auto_add:
-                    LOG.warning(
+                    LOG.debug(
                         "No Radarr match for folder after auto-add attempt: %s",
                         folder,
                     )

@@ -145,6 +145,13 @@ export default function Dashboard({
     duration: string;
   };
 
+  const toDashboardTaskStatus = (status: string): DashboardTaskStatus => {
+    if (status === "queued" || status === "running" || status === "error") {
+      return status;
+    }
+    return "idle";
+  };
+
   const pendingTasks = runtimeStatus?.pending_tasks ?? [];
   const consumedTaskIds = new Set<string>();
   const findPendingTask = (predicate: (task: (typeof pendingTasks)[number]) => boolean) => {
@@ -275,15 +282,28 @@ export default function Dashboard({
         : "-",
   };
 
+  const uncategorizedTaskSlots: TaskSlot[] = pendingTasks
+    .filter((task) => !consumedTaskIds.has(task.id))
+    .map((task) => ({
+      id: `uncategorized-${task.id}`,
+      name: task.name || "Background Task",
+      source: task.source || "task-manager",
+      status: toDashboardTaskStatus(task.status),
+      detail: task.detail || task.status,
+      queuedAt: formatTaskQueuedAt(task),
+      duration: formatTaskDuration(task),
+    }));
+
   const taskSlots: TaskSlot[] = [
     runtimeLoopSlot,
     filesystemDebounceSlot,
     manualReconcileSlot,
     mappedCacheRefreshSlot,
     discoveryCacheRefreshSlot,
+    ...uncategorizedTaskSlots,
   ];
 
-  const uncategorizedTaskCount = pendingTasks.filter((task) => !consumedTaskIds.has(task.id)).length;
+  const uncategorizedTaskCount = uncategorizedTaskSlots.length;
 
   return (
     <Stack gap="md">
@@ -386,7 +406,7 @@ export default function Dashboard({
           <Text fw={600}>Task Slots</Text>
           <Text size="xs" c="dimmed">
             {uncategorizedTaskCount > 0
-              ? `${uncategorizedTaskCount} additional queued/running task(s)`
+              ? `${uncategorizedTaskCount} additional queued/running task(s) shown below`
               : "all active tasks mapped to slots"}
           </Text>
         </Group>
