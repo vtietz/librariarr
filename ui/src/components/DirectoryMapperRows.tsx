@@ -75,7 +75,8 @@ const PathCell = memo(function PathCell({ value, onCopy, onOpen }: PathCellProps
 });
 
 type MappedRowsProps = {
-  visibleDirectories: MappedDirectory[];
+  directories: MappedDirectory[];
+  cacheUpdatedAtMs: number | null;
   duplicatePrimaryPaths: Set<string>;
   excludedByDuplicate: Map<string, number>;
   duplicatePathSet: Set<string>;
@@ -145,8 +146,44 @@ function formatAge(updatedAtMs: number | null | undefined): string {
   return `${elapsedDays}d`;
 }
 
+function fallbackOutcomeText(mapped: MappedDirectory): string {
+  switch (mapped.arr_state) {
+    case "ok":
+      return "indexed";
+    case "missing_in_arr":
+      return "not found";
+    case "missing_on_disk":
+      return "missing target";
+    case "arr_unreachable":
+      return "arr offline";
+    case "missing_virtual_path":
+      return "missing virtual";
+    case "title_path_mismatch":
+      return "mismatch";
+    default:
+      return "pending";
+  }
+}
+
+function fallbackOutcomeColor(mapped: MappedDirectory): string {
+  switch (mapped.arr_state) {
+    case "ok":
+      return "green.7";
+    case "missing_in_arr":
+    case "missing_virtual_path":
+    case "title_path_mismatch":
+      return "yellow.7";
+    case "missing_on_disk":
+    case "arr_unreachable":
+      return "red.7";
+    default:
+      return "dimmed";
+  }
+}
+
 const MappedRows = memo(function MappedRows({
-  visibleDirectories,
+  directories,
+  cacheUpdatedAtMs,
   duplicatePrimaryPaths,
   excludedByDuplicate,
   duplicatePathSet,
@@ -163,9 +200,17 @@ const MappedRows = memo(function MappedRows({
 
   return (
     <>
-      {visibleDirectories.map((mapped) => {
+      {directories.map((mapped) => {
         const rowKey = `${mapped.shadow_root}:${mapped.virtual_path}`;
         const isHovered = hoveredRowKey === rowKey;
+        const hasStoredOutcome = Boolean(mapped.last_reconcile_status);
+        const resultLabel = hasStoredOutcome
+          ? lastOutcomeBadge(mapped.last_reconcile_status).label.replace("Last reconcile: ", "")
+          : fallbackOutcomeText(mapped);
+        const resultColor = hasStoredOutcome
+          ? `${lastOutcomeBadge(mapped.last_reconcile_status).color}.7`
+          : fallbackOutcomeColor(mapped);
+        const updatedAtMs = mapped.last_reconcile_updated_at_ms ?? cacheUpdatedAtMs;
 
         return (
         <Table.Tr
@@ -185,25 +230,22 @@ const MappedRows = memo(function MappedRows({
           </Table.Td>
           <Table.Td style={{ width: "12%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Tooltip
-              label={`${lastOutcomeBadge(mapped.last_reconcile_status).label}${mapped.last_reconcile_movie_id ? ` · movie id ${mapped.last_reconcile_movie_id}` : ""}${mapped.last_reconcile_series_id ? ` · series id ${mapped.last_reconcile_series_id}` : ""}${mapped.last_reconcile_message ? ` · ${mapped.last_reconcile_message}` : ""}`}
+              label={hasStoredOutcome
+                ? `${lastOutcomeBadge(mapped.last_reconcile_status).label}${mapped.last_reconcile_movie_id ? ` · movie id ${mapped.last_reconcile_movie_id}` : ""}${mapped.last_reconcile_series_id ? ` · series id ${mapped.last_reconcile_series_id}` : ""}${mapped.last_reconcile_message ? ` · ${mapped.last_reconcile_message}` : ""}`
+                : "Derived from current Arr/index state (no scoped reconcile record yet)."}
             >
               <Text
                 size="xs"
                 fw={600}
-                c={`${lastOutcomeBadge(mapped.last_reconcile_status).color}.7`}
+                c={resultColor}
                 style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
               >
-                {mapped.last_reconcile_status
-                  ? lastOutcomeBadge(mapped.last_reconcile_status).label.replace(
-                      "Last reconcile: ",
-                      ""
-                    )
-                  : "—"}
+                {resultLabel}
               </Text>
             </Tooltip>
           </Table.Td>
           <Table.Td style={{ width: "10%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
-            <Text size="xs" c="dimmed">{formatAge(mapped.last_reconcile_updated_at_ms)}</Text>
+            <Text size="xs" c="dimmed">{formatAge(updatedAtMs)}</Text>
           </Table.Td>
           <Table.Td style={{ width: "12%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Group gap={6} wrap="nowrap" justify="flex-end">

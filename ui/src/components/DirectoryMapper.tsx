@@ -9,12 +9,12 @@ import {
   Table,
   Text,
   TextInput,
+  ThemeIcon,
   Tooltip,
   Title
 } from "@mantine/core";
-import { useViewportSize } from "@mantine/hooks";
 import { IconArrowsShuffle, IconRefresh } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   type DiscoveryWarningsResponse,
   getDiscoveryWarnings,
@@ -30,8 +30,6 @@ import { useRadarrRefreshAction } from "./useRadarrRefreshAction";
 import { useDiscoveryWarningSets } from "./useDiscoveryWarningSets";
 
 export default function DirectoryMapper() {
-  const ROW_HEIGHT = 44;
-
   const [mappedDirectories, setMappedDirectories] = useState<MappedDirectory[]>([]);
   const [mappedSearch, setMappedSearch] = useState("");
   const [debouncedMappedSearch, setDebouncedMappedSearch] = useState("");
@@ -49,13 +47,9 @@ export default function DirectoryMapper() {
   const [cacheUpdatedAtMs, setCacheUpdatedAtMs] = useState<number | null>(null);
   const [fsRoots, setFsRoots] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
   const [discoveryWarnings, setDiscoveryWarnings] = useState<DiscoveryWarningsResponse | null>(
     null
   );
-  const { height: viewportHeightPx } = useViewportSize();
-  const tableViewportRef = useRef<HTMLDivElement | null>(null);
-  const scrollFrameRef = useRef<number | null>(null);
 
   const loadMappedDirectories = useCallback(async () => {
     setIsReloading(true);
@@ -241,69 +235,6 @@ export default function DirectoryMapper() {
     setBrowsePath(value);
   }, []);
 
-  const virtualizedViewportHeight = useMemo(
-    () => Math.max(320, Math.min(760, viewportHeightPx - 360)),
-    [viewportHeightPx]
-  );
-
-  const overscanRows = useMemo(
-    () => Math.max(10, Math.ceil(virtualizedViewportHeight / ROW_HEIGHT)),
-    [virtualizedViewportHeight]
-  );
-
-  const virtualizationEnabled = mappedDirectories.length > 200;
-
-  const visibleRange = useMemo(() => {
-    if (!virtualizationEnabled) {
-      return { startIndex: 0, endIndex: mappedDirectories.length };
-    }
-    const startIndex = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - overscanRows);
-    const visibleRows = Math.ceil(virtualizedViewportHeight / ROW_HEIGHT) + overscanRows * 2;
-    const endIndex = Math.min(mappedDirectories.length, startIndex + visibleRows);
-    return { startIndex, endIndex };
-  }, [mappedDirectories.length, overscanRows, scrollTop, virtualizedViewportHeight, virtualizationEnabled]);
-
-  const visibleDirectories = useMemo(
-    () => mappedDirectories.slice(visibleRange.startIndex, visibleRange.endIndex),
-    [mappedDirectories, visibleRange.endIndex, visibleRange.startIndex]
-  );
-
-  const topSpacerHeight = virtualizationEnabled ? visibleRange.startIndex * ROW_HEIGHT : 0;
-  const bottomSpacerHeight = virtualizationEnabled
-    ? Math.max(0, (mappedDirectories.length - visibleRange.endIndex) * ROW_HEIGHT)
-    : 0;
-
-  useEffect(() => {
-    setScrollTop(0);
-    if (tableViewportRef.current) {
-      tableViewportRef.current.scrollTop = 0;
-    }
-  }, [mappedRootFilter, debouncedMappedSearch]);
-
-  useEffect(() => {
-    return () => {
-      if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
-      }
-    };
-  }, []);
-
-  const handleViewportScroll = useCallback(
-    (nextScrollTop: number) => {
-      if (!virtualizationEnabled) {
-        return;
-      }
-      if (scrollFrameRef.current !== null) {
-        window.cancelAnimationFrame(scrollFrameRef.current);
-      }
-      scrollFrameRef.current = window.requestAnimationFrame(() => {
-        setScrollTop(nextScrollTop);
-        scrollFrameRef.current = null;
-      });
-    },
-    [virtualizationEnabled]
-  );
-
   const forceRefreshCache = async () => {
     setIsReloading(true);
     setLoadError(null);
@@ -406,6 +337,26 @@ export default function DirectoryMapper() {
             />
           </Group>
 
+          <Group gap="xs" wrap="wrap">
+            <Text size="xs" c="dimmed">Status legend:</Text>
+            <ThemeIcon size="sm" radius="xl" variant="light" color="green">
+              <Text size="10px" fw={700}>A</Text>
+            </ThemeIcon>
+            <Text size="xs" c="dimmed">Arr ok</Text>
+            <ThemeIcon size="sm" radius="xl" variant="light" color="yellow">
+              <Text size="10px" fw={700}>P</Text>
+            </ThemeIcon>
+            <Text size="xs" c="dimmed">Path mismatch</Text>
+            <ThemeIcon size="sm" radius="xl" variant="light" color="orange">
+              <Text size="10px" fw={700}>N</Text>
+            </ThemeIcon>
+            <Text size="xs" c="dimmed">Not in Arr</Text>
+            <ThemeIcon size="sm" radius="xl" variant="light" color="red">
+              <Text size="10px" fw={700}>M</Text>
+            </ThemeIcon>
+            <Text size="xs" c="dimmed">Missing target</Text>
+          </Group>
+
           <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
             <Table.Thead>
               <Table.Tr>
@@ -419,14 +370,7 @@ export default function DirectoryMapper() {
           </Table>
 
           <Box
-            ref={tableViewportRef}
-            style={{
-              maxHeight: virtualizedViewportHeight,
-              overflowY: "auto"
-            }}
-            onScroll={(event) => {
-              handleViewportScroll(event.currentTarget.scrollTop);
-            }}
+            style={{ width: "100%" }}
           >
             <Table withRowBorders={false} style={{ tableLayout: "fixed", width: "100%" }}>
               <Table.Tbody>
@@ -442,39 +386,30 @@ export default function DirectoryMapper() {
                   <Table.Tr>
                     <Table.Td colSpan={5}>
                       <Text size="sm" c="dimmed">
-                        {cacheBuilding && !cacheReady
+                        {isReloading
+                          ? "Loading path mappings…"
+                          : cacheBuilding && !cacheReady
                           ? "Building in-memory directory index… wait a few seconds."
                           : "No mapped directories match the current search/filter."}
                       </Text>
                     </Table.Td>
                   </Table.Tr>
                 ) : (
-                  <>
-                    {topSpacerHeight > 0 && (
-                      <Table.Tr>
-                        <Table.Td colSpan={5} style={{ height: topSpacerHeight, padding: 0 }} />
-                      </Table.Tr>
-                    )}
-                    <MappedRows
-                      visibleDirectories={visibleDirectories}
-                      duplicatePrimaryPaths={duplicatePrimaryPaths}
-                      excludedByDuplicate={excludedByDuplicate}
-                      duplicatePathSet={duplicatePathSet}
-                      excludedPathSet={excludedPathSet}
-                      refreshingMovieId={refreshingMovieId}
-                      reconcilingPath={reconcilingPath}
-                      recentlyReconciledPath={recentlyReconciledPath}
-                      onCopy={copyToClipboard}
-                      onOpen={openBrowsePath}
-                      onRefreshRadarr={refreshMovieInRadarr}
-                      onReconcilePath={reconcilePath}
-                    />
-                    {bottomSpacerHeight > 0 && (
-                      <Table.Tr>
-                        <Table.Td colSpan={5} style={{ height: bottomSpacerHeight, padding: 0 }} />
-                      </Table.Tr>
-                    )}
-                  </>
+                  <MappedRows
+                    directories={mappedDirectories}
+                    cacheUpdatedAtMs={cacheUpdatedAtMs}
+                    duplicatePrimaryPaths={duplicatePrimaryPaths}
+                    excludedByDuplicate={excludedByDuplicate}
+                    duplicatePathSet={duplicatePathSet}
+                    excludedPathSet={excludedPathSet}
+                    refreshingMovieId={refreshingMovieId}
+                    reconcilingPath={reconcilingPath}
+                    recentlyReconciledPath={recentlyReconciledPath}
+                    onCopy={copyToClipboard}
+                    onOpen={openBrowsePath}
+                    onRefreshRadarr={refreshMovieInRadarr}
+                    onReconcilePath={reconcilePath}
+                  />
                 )}
               </Table.Tbody>
             </Table>
