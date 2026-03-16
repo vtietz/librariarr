@@ -1,5 +1,6 @@
 export const EXCLUDE_PATH_SUGGESTIONS = [
   ".deletedByTMM/",
+  ".actors/",
   ".trash/",
   ".librariarr/**",
   "specials/",

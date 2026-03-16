@@ -61,6 +61,34 @@ On reconcile, LibrariArr:
 3. Matches items in Radarr/Sonarr and updates managed paths.
 4. Applies optional quality/auto-add/cleanup behavior.
 
+## Common Sync Scenarios
+
+### When Radarr/Sonarr downloads or imports media
+
+- The download/import creates filesystem events under your nested roots.
+- LibrariArr debounces bursts (`runtime.debounce_seconds`) and runs an incremental reconcile.
+- Existing movie/series links are reused; paths are updated only when needed.
+- If `*.sync_enabled=true`, Radarr/Sonarr paths are kept aligned to shadow links.
+
+### When you rename/move a movie or series folder manually
+
+- Rename/move is detected via filesystem events and queued for incremental reconcile.
+- Old/stale symlink is removed as orphan; new symlink is created for the new folder path.
+- If the item already matches an Arr record, path is updated and refreshed.
+- If no Arr match is found and `radarr.auto_add_unmatched` / `sonarr.auto_add_unmatched` is enabled, LibrariArr attempts auto-add.
+
+### When you add files into an existing folder
+
+- Events are detected and reconciled, but the folder identity often remains unchanged.
+- In that case, no new Arr entry is created (existing mapping is preserved).
+- You may still see a reconcile run in logs even if resulting link/path changes are zero.
+
+### Why logs may show large `affected_paths`
+
+- `affected_paths` is the raw number of changed paths collected during debounce, not the number of movies/series.
+- Single large copy/move operations can generate many filesystem events.
+- Incremental scope resolution then narrows this to scan targets before link/match actions are applied.
+
 ## Quick Start (Users: Docker Compose)
 
 These steps are for regular Docker users (Docker CLI, Docker Desktop, or Portainer), not local repository development.

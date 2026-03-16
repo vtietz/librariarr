@@ -15,6 +15,7 @@ paths:
       shadow_root: "/data/radarr_library/age_06"
   exclude_paths:
     - ".deletedByTMM/"
+    - ".actors/"
     - ".librariarr/**"
 
 radarr:

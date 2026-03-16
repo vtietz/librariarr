@@ -12,6 +12,7 @@ paths:
   # Useful for trash/temp folders like TMM deletes.
   exclude_paths:
     - ".deletedByTMM/"
+    - ".actors/"
     - ".trash/"
     - ".librariarr/**"
     - "specials/"
