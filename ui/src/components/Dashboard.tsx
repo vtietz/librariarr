@@ -1,15 +1,14 @@
-import { Badge, Button, Card, Group, RingProgress, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { Badge, Button, Card, Group, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { getDiscoveryWarnings, runMaintenanceReconcile } from "../api/client";
 import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
 
-type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null; runtimePollLatencyMs: number | null };
+type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
 
 export default function Dashboard({
   hasUnsavedChanges,
   runtimeStatus,
-  jobsSummary,
-  runtimePollLatencyMs
+  jobsSummary
 }: Props) {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
@@ -134,14 +133,6 @@ export default function Dashboard({
       setRunningReconcile(false);
     }
   };
-
-  const latencyState = runtimePollLatencyMs == null
-    ? { label: "unknown", color: "gray", progress: 0 }
-    : runtimePollLatencyMs <= 300
-      ? { label: "good", color: "green", progress: Math.min(100, Math.round((runtimePollLatencyMs / 300) * 100)) }
-      : runtimePollLatencyMs <= 900
-        ? { label: "degraded", color: "yellow", progress: Math.min(100, Math.round((runtimePollLatencyMs / 900) * 100)) }
-        : { label: "high", color: "red", progress: 100 };
 
   type DashboardTaskStatus = "idle" | "queued" | "running" | "error";
   type TaskSlot = {
@@ -347,7 +338,7 @@ export default function Dashboard({
       </SimpleGrid>
 
       <Text fw={600} size="sm" c="dimmed">Pipeline & Caches</Text>
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
+      <SimpleGrid cols={{ base: 1, md: 3 }}>
         <Card withBorder h={146}>
           <Text fw={600}>Queue</Text>
           <Text size="sm" c="dimmed">
@@ -387,35 +378,6 @@ export default function Dashboard({
             {runtimeStatus?.last_reconcile?.series_folders_seen ?? 0} · created links
             {` ${runtimeStatus?.last_reconcile?.created_links ?? 0}`}
           </Text>
-        </Card>
-        <Card withBorder h={146}>
-          <Group justify="space-between" align="center">
-            <Text fw={600}>Operation Latency</Text>
-            <Badge color={latencyState.color}>{latencyState.label}</Badge>
-          </Group>
-          <Group mt="sm" justify="space-between" align="center" wrap="nowrap">
-            <RingProgress
-              size={84}
-              thickness={8}
-              sections={[{ value: latencyState.progress, color: latencyState.color }]}
-              label={
-                <Text size="xs" ta="center" c="dimmed">
-                  {runtimePollLatencyMs ?? "-"}ms
-                </Text>
-              }
-            />
-            <Stack gap={4}>
-              <Text size="sm" c="dimmed">
-                Poll: {runtimePollLatencyMs ?? "-"} ms
-              </Text>
-              <Text size="sm" c="dimmed">
-                Mapped: {runtimeStatus?.mapped_cache?.last_build_duration_ms ?? "-"} ms
-              </Text>
-              <Text size="sm" c="dimmed">
-                Discovery: {runtimeStatus?.discovery_cache?.last_build_duration_ms ?? "-"} ms
-              </Text>
-            </Stack>
-          </Group>
         </Card>
       </SimpleGrid>
 
