@@ -312,8 +312,9 @@ class ServicePreflightMixin:
             )
         if newly_missing:
             formatted = "\n  - ".join(newly_missing)
-            LOG.warning(
-                "%s root folders are not configured yet:\n  - %s",
+            LOG.info(
+                "%s root folders configured in LibrariArr but missing in %s:\n  - %s",
+                arr_name,
                 arr_name,
                 formatted,
             )
