@@ -30,11 +30,17 @@ class ServiceBootstrapMixin:
         self.radarr = RadarrClient(
             config.radarr.url,
             config.radarr.api_key,
+            timeout=config.radarr.request_timeout_seconds,
+            retry_attempts=config.radarr.request_retry_attempts,
+            retry_backoff_seconds=config.radarr.request_retry_backoff_seconds,
             refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
         )
         self.sonarr = SonarrClient(
             config.sonarr.url,
             config.sonarr.api_key,
+            timeout=config.sonarr.request_timeout_seconds,
+            retry_attempts=config.sonarr.request_retry_attempts,
+            retry_backoff_seconds=config.sonarr.request_retry_backoff_seconds,
             refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
         )
         self.radarr_sync = RadarrSyncHelper(

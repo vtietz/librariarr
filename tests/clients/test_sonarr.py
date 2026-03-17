@@ -1,3 +1,5 @@
+import requests
+
 from librariarr.clients.sonarr import SonarrClient
 
 
@@ -66,3 +68,64 @@ def test_update_series_path_skips_when_unchanged(monkeypatch) -> None:
 
     assert changed is False
     assert calls == []
+
+
+def test_request_retries_timeout_for_get(monkeypatch) -> None:
+    client = SonarrClient(
+        base_url="http://sonarr:8989",
+        api_key="test",
+        retry_attempts=1,
+        retry_backoff_seconds=0,
+    )
+    calls = {"count": 0}
+
+    class _Response:
+        content = b"[]"
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return []
+
+    def _fake_session_request(method: str, url: str, timeout: int, **kwargs):
+        del url, timeout, kwargs
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise requests.Timeout("timed out")
+        assert method == "GET"
+        return _Response()
+
+    monkeypatch.setattr(client.session, "request", _fake_session_request)
+
+    series = client.get_series()
+
+    assert series == []
+    assert calls["count"] == 2
+
+
+def test_request_does_not_retry_post_on_timeout(monkeypatch) -> None:
+    client = SonarrClient(
+        base_url="http://sonarr:8989",
+        api_key="test",
+        retry_attempts=2,
+        retry_backoff_seconds=0,
+    )
+    calls = {"count": 0}
+
+    def _fake_session_request(method: str, url: str, timeout: int, **kwargs):
+        del url, timeout, kwargs
+        calls["count"] += 1
+        assert method == "POST"
+        raise requests.Timeout("timed out")
+
+    monkeypatch.setattr(client.session, "request", _fake_session_request)
+
+    try:
+        client.refresh_series(42)
+    except requests.Timeout:
+        pass
+    else:
+        raise AssertionError("Expected timeout to be raised for non-retried POST")
+
+    assert calls["count"] == 1

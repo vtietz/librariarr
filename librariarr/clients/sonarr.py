@@ -14,11 +14,15 @@ class SonarrClient:
         self,
         base_url: str,
         api_key: str,
-        timeout: int = 20,
+        timeout: int = 30,
+        retry_attempts: int = 2,
+        retry_backoff_seconds: float = 0.5,
         refresh_debounce_seconds: int = 15,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self.timeout = timeout
+        self.timeout = max(1, int(timeout))
+        self.retry_attempts = max(0, int(retry_attempts))
+        self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
         self.refresh_debounce_seconds = max(0, int(refresh_debounce_seconds))
         self._last_refresh_by_series_id: dict[int, float] = {}
         self.session = requests.Session()
@@ -27,11 +31,63 @@ class SonarrClient:
     def _url(self, path: str) -> str:
         return f"{self.base_url}/api/v3{path}"
 
+    def _is_retriable_status_code(self, status_code: int | None) -> bool:
+        return status_code in {408, 429, 500, 502, 503, 504}
+
+    def _is_idempotent_method(self, method: str) -> bool:
+        return method.upper() in {"GET", "PUT", "DELETE", "HEAD", "OPTIONS"}
+
+    def _retry_delay_seconds(self, attempt: int) -> float:
+        return self.retry_backoff_seconds * (2**attempt)
+
+    def _can_retry_request(self, method: str, exc: requests.RequestException) -> bool:
+        if self.retry_attempts <= 0 or not self._is_idempotent_method(method):
+            return False
+
+        if isinstance(exc, requests.Timeout | requests.ConnectionError):
+            return True
+
+        if isinstance(exc, requests.HTTPError):
+            response = exc.response
+            status_code = response.status_code if response is not None else None
+            return self._is_retriable_status_code(status_code)
+
+        return False
+
+    def _log_retry_attempt(self, method: str, path: str, attempt: int, exc: Exception) -> None:
+        delay_seconds = self._retry_delay_seconds(attempt)
+        LOG.warning(
+            "Retrying Sonarr request: %s %s attempt=%s/%s delay=%.2fs reason=%s",
+            method,
+            path,
+            attempt + 1,
+            self.retry_attempts,
+            delay_seconds,
+            exc,
+        )
+
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
-        response = self.session.request(method, self._url(path), timeout=self.timeout, **kwargs)
-        response.raise_for_status()
-        if response.content:
-            return response.json()
+        method_name = method.upper()
+        total_attempts = self.retry_attempts + 1
+
+        for attempt in range(total_attempts):
+            try:
+                response = self.session.request(
+                    method_name,
+                    self._url(path),
+                    timeout=self.timeout,
+                    **kwargs,
+                )
+                response.raise_for_status()
+                if response.content:
+                    return response.json()
+                return None
+            except requests.RequestException as exc:
+                if attempt >= self.retry_attempts or not self._can_retry_request(method_name, exc):
+                    raise
+                self._log_retry_attempt(method_name, path, attempt, exc)
+                time.sleep(self._retry_delay_seconds(attempt))
+
         return None
 
     def get_series(self) -> list[dict[str, Any]]:

@@ -1,3 +1,5 @@
+import requests
+
 from librariarr.clients.radarr import RadarrClient
 
 
@@ -128,3 +130,64 @@ def test_refresh_movie_force_bypasses_debounce(monkeypatch) -> None:
     assert client.refresh_movie(7, force=True) is True
 
     assert len(calls) == 2
+
+
+def test_request_retries_timeout_for_get(monkeypatch) -> None:
+    client = RadarrClient(
+        base_url="http://radarr:7878",
+        api_key="test",
+        retry_attempts=1,
+        retry_backoff_seconds=0,
+    )
+    calls = {"count": 0}
+
+    class _Response:
+        content = b"[]"
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self):
+            return []
+
+    def _fake_session_request(method: str, url: str, timeout: int, **kwargs):
+        del url, timeout, kwargs
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise requests.Timeout("timed out")
+        assert method == "GET"
+        return _Response()
+
+    monkeypatch.setattr(client.session, "request", _fake_session_request)
+
+    movies = client.get_movies()
+
+    assert movies == []
+    assert calls["count"] == 2
+
+
+def test_request_does_not_retry_post_on_timeout(monkeypatch) -> None:
+    client = RadarrClient(
+        base_url="http://radarr:7878",
+        api_key="test",
+        retry_attempts=2,
+        retry_backoff_seconds=0,
+    )
+    calls = {"count": 0}
+
+    def _fake_session_request(method: str, url: str, timeout: int, **kwargs):
+        del url, timeout, kwargs
+        calls["count"] += 1
+        assert method == "POST"
+        raise requests.Timeout("timed out")
+
+    monkeypatch.setattr(client.session, "request", _fake_session_request)
+
+    try:
+        client.refresh_movie(42)
+    except requests.Timeout:
+        pass
+    else:
+        raise AssertionError("Expected timeout to be raised for non-retried POST")
+
+    assert calls["count"] == 1

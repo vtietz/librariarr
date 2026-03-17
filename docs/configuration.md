@@ -26,6 +26,9 @@ radarr:
   api_key: "YOUR_API_KEY"
   sync_enabled: true
   refresh_debounce_seconds: 15
+  request_timeout_seconds: 30
+  request_retry_attempts: 2
+  request_retry_backoff_seconds: 0.5
   auto_add_unmatched: true
   path_update_match_policy: default
   auto_add_search_on_add: false
@@ -51,6 +54,9 @@ sonarr:
   api_key: "YOUR_API_KEY"
   sync_enabled: true
   refresh_debounce_seconds: 15
+  request_timeout_seconds: 30
+  request_retry_attempts: 2
+  request_retry_backoff_seconds: 0.5
   auto_add_unmatched: false
   auto_add_search_on_add: false
   mapping:
@@ -205,6 +211,20 @@ Notes:
 - Default is `15` seconds.
 - Set `0` to disable debounce.
 
+`radarr.request_timeout_seconds`:
+- Per-request timeout in seconds for Radarr API calls.
+- Default is `30`.
+
+`radarr.request_retry_attempts`:
+- Number of retries for transient request failures.
+- Default is `2`.
+- Applies only to idempotent methods (`GET`, `PUT`, `DELETE`, `HEAD`, `OPTIONS`).
+
+`radarr.request_retry_backoff_seconds`:
+- Exponential backoff base delay between retries.
+- Delay pattern: `base * 2^attempt`.
+- Default is `0.5`.
+
 `radarr.auto_add_unmatched`:
 - If true, unmatched folders can be auto-added to Radarr.
 - Recommended for normal automation.
@@ -255,6 +275,20 @@ Notes:
 - Debounce window for `RefreshSeries` commands per series id.
 - Default is `15` seconds.
 - Set `0` to disable debounce.
+
+`sonarr.request_timeout_seconds`:
+- Per-request timeout in seconds for Sonarr API calls.
+- Default is `30`.
+
+`sonarr.request_retry_attempts`:
+- Number of retries for transient request failures.
+- Default is `2`.
+- Applies only to idempotent methods (`GET`, `PUT`, `DELETE`, `HEAD`, `OPTIONS`).
+
+`sonarr.request_retry_backoff_seconds`:
+- Exponential backoff base delay between retries.
+- Delay pattern: `base * 2^attempt`.
+- Default is `0.5`.
 
 `sonarr.auto_add_unmatched`:
 - If true, unmatched series folders can be auto-added to Sonarr.

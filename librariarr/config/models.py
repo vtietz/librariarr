@@ -79,6 +79,9 @@ class RadarrConfig:
     auto_add_quality_profile_id: int | None = None
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
+    request_timeout_seconds: int = 30
+    request_retry_attempts: int = 2
+    request_retry_backoff_seconds: float = 0.5
     path_update_match_policy: str = "default"
     mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 
@@ -96,6 +99,9 @@ class SonarrConfig:
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
     auto_add_season_folder: bool = True
+    request_timeout_seconds: int = 30
+    request_retry_attempts: int = 2
+    request_retry_backoff_seconds: float = 0.5
     mapping: SonarrMappingConfig = field(default_factory=SonarrMappingConfig)
 
 

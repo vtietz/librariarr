@@ -43,6 +43,12 @@ radarr:
   auto_add_search_on_add: false
   # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
+  # HTTP request timeout (seconds) for Radarr API calls.
+  request_timeout_seconds: 30
+  # Retries for transient failures on idempotent methods (GET/PUT/DELETE/HEAD/OPTIONS).
+  request_retry_attempts: 2
+  # Exponential backoff base delay (seconds): delay = base * 2^attempt.
+  request_retry_backoff_seconds: 0.5
   # Path update policy:
   #   default            -> allow external IDs, exact title/year, existing link/name, fuzzy
   #   external_ids_only  -> only allow external-ID matches (plus auto-added movies)
@@ -93,6 +99,12 @@ sonarr:
   auto_add_monitored: true
   # Whether newly added series should use season folders in Sonarr.
   auto_add_season_folder: true
+  # HTTP request timeout (seconds) for Sonarr API calls.
+  request_timeout_seconds: 30
+  # Retries for transient failures on idempotent methods (GET/PUT/DELETE/HEAD/OPTIONS).
+  request_retry_attempts: 2
+  # Exponential backoff base delay (seconds): delay = base * 2^attempt.
+  request_retry_backoff_seconds: 0.5
 
   mapping:
     # Optional: token-based quality profile selection for Sonarr auto-add.

@@ -94,6 +94,12 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     auto_add_quality_profile_id = (
         int(auto_add_quality_profile_raw) if auto_add_quality_profile_raw is not None else None
     )
+    request_timeout_seconds = max(1, int(radarr.get("request_timeout_seconds", 30)))
+    request_retry_attempts = max(0, int(radarr.get("request_retry_attempts", 2)))
+    request_retry_backoff_seconds = max(
+        0.0,
+        float(radarr.get("request_retry_backoff_seconds", 0.5)),
+    )
     path_update_match_policy = str(radarr.get("path_update_match_policy", "default")).strip()
     if path_update_match_policy not in {"default", "external_ids_only"}:
         raise ValueError(
@@ -125,6 +131,12 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     sonarr_auto_add_search_on_add = bool(sonarr.get("auto_add_search_on_add", False))
     sonarr_auto_add_monitored = bool(sonarr.get("auto_add_monitored", True))
     sonarr_auto_add_season_folder = bool(sonarr.get("auto_add_season_folder", True))
+    sonarr_request_timeout_seconds = max(1, int(sonarr.get("request_timeout_seconds", 30)))
+    sonarr_request_retry_attempts = max(0, int(sonarr.get("request_retry_attempts", 2)))
+    sonarr_request_retry_backoff_seconds = max(
+        0.0,
+        float(sonarr.get("request_retry_backoff_seconds", 0.5)),
+    )
     sonarr_refresh_debounce_seconds = max(0, int(sonarr.get("refresh_debounce_seconds", 15)))
 
     quality_map_raw = radarr_mapping_raw.get("quality_map", [])
@@ -258,6 +270,9 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             auto_add_quality_profile_id=auto_add_quality_profile_id,
             auto_add_search_on_add=auto_add_search_on_add,
             auto_add_monitored=auto_add_monitored,
+            request_timeout_seconds=request_timeout_seconds,
+            request_retry_attempts=request_retry_attempts,
+            request_retry_backoff_seconds=request_retry_backoff_seconds,
             path_update_match_policy=path_update_match_policy,
             mapping=RadarrMappingConfig(
                 quality_map=quality_map,
@@ -276,6 +291,9 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             auto_add_search_on_add=sonarr_auto_add_search_on_add,
             auto_add_monitored=sonarr_auto_add_monitored,
             auto_add_season_folder=sonarr_auto_add_season_folder,
+            request_timeout_seconds=sonarr_request_timeout_seconds,
+            request_retry_attempts=sonarr_request_retry_attempts,
+            request_retry_backoff_seconds=sonarr_request_retry_backoff_seconds,
             mapping=SonarrMappingConfig(
                 quality_profile_map=sonarr_quality_profile_map,
                 language_profile_map=sonarr_language_profile_map,
