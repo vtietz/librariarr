@@ -91,13 +91,19 @@ class RadarrClient:
         return added if isinstance(added, dict) else {}
 
     def update_movie_path(self, movie: dict[str, Any], new_path: str) -> bool:
-        if movie.get("path") == new_path:
+        previous_path = movie.get("path")
+        if previous_path == new_path:
             return False
 
         payload = dict(movie)
         payload["path"] = new_path
         self._request("PUT", f"/movie/{movie['id']}", json=payload)
-        LOG.info("Updated movie path: %s -> %s", movie.get("title"), new_path)
+        LOG.info(
+            "Updated Radarr movie path in Arr DB (no file move): %s | %s -> %s",
+            movie.get("title"),
+            previous_path,
+            new_path,
+        )
         return True
 
     def unmonitor_movie(self, movie: dict[str, Any]) -> None:

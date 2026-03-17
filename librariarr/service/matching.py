@@ -404,7 +404,8 @@ class ServiceMatchingMixin:
 
         quality_updated = False
         quality_map = self.config.effective_radarr_quality_map()
-        if apply_quality_mapping and quality_map:
+        movie_file = movie.get("movieFile")
+        if apply_quality_mapping and quality_map and movie_file:
             quality_id = map_quality_id(
                 folder,
                 quality_map,

@@ -90,13 +90,19 @@ class SonarrClient:
         return added if isinstance(added, dict) else {}
 
     def update_series_path(self, series: dict[str, Any], new_path: str) -> bool:
-        if series.get("path") == new_path:
+        previous_path = series.get("path")
+        if previous_path == new_path:
             return False
 
         payload = dict(series)
         payload["path"] = new_path
         self._request("PUT", f"/series/{series['id']}", json=payload)
-        LOG.info("Updated series path: %s -> %s", series.get("title"), new_path)
+        LOG.info(
+            "Updated Sonarr series path in Arr DB (no file move): %s | %s -> %s",
+            series.get("title"),
+            previous_path,
+            new_path,
+        )
         return True
 
     def unmonitor_series(self, series: dict[str, Any]) -> None:

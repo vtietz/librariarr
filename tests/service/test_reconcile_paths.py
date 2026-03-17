@@ -231,6 +231,41 @@ def test_reconcile_skips_refresh_when_movie_state_unchanged(tmp_path: Path) -> N
     assert fake.refreshed == []
 
 
+def test_reconcile_auto_add_skips_quality_mapping_without_movie_file(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Fixture Catalog B (2009)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Fixture.Catalog.B.2009.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+        auto_add_quality_profile_id=7,
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[],
+        lookup_results=[{"title": "Fixture Catalog B", "year": 2009, "tmdbId": 9009}],
+        add_movie_result={
+            "id": 99,
+            "title": "Fixture Catalog B",
+            "year": 2009,
+            "path": str(shadow_root / "Fixture Catalog B (2009)"),
+        },
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    assert fake.added_movies
+    assert fake.updated_qualities == []
+    assert fake.refreshed == [99]
+
+
 def test_reconcile_preserves_existing_valid_local_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"
