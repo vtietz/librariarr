@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import requests
 
 from ..quality import map_quality_id
 from ..sync import MovieRef, parse_movie_ref
-from .common import (
-    IMDB_ID_RE,
-    IMDB_NEAR_TOKEN_RE,
-    IMDB_UNIQUE_ID_RE,
-    LOG,
-    TITLE_TOKEN_RE,
-    TMDB_ID_RE,
-    TMDB_UNIQUE_ID_RE,
-    TVDB_ID_RE,
-    TVDB_UNIQUE_ID_RE,
+from .common import LOG, TITLE_TOKEN_RE
+from .external_id_parsing import (
+    extract_external_ids_from_nfo,
+    extract_external_ids_from_text,
+    extract_tvdb_id_from_text,
 )
 
 
@@ -35,13 +29,25 @@ class ServiceMatchingMixin:
     ) -> dict | None:
         external_id_match = self._match_movie_for_external_ids(folder, movies_by_external_id)
         if external_id_match is not None:
+            self._log_movie_match(
+                folder,
+                "external_ids",
+                f"tmdb={external_id_match.get('tmdbId')} imdb={external_id_match.get('imdbId')}",
+                external_id_match,
+            )
             return external_id_match
 
         ref = parse_movie_ref(folder.name)
-        exact_match = movies_by_ref.get(ref) or movies_by_ref.get(
-            MovieRef(title=ref.title, year=None)
-        )
+        exact_match = movies_by_ref.get(ref)
+        if exact_match is None and ref.year is None:
+            exact_match = movies_by_ref.get(MovieRef(title=ref.title, year=None))
         if exact_match is not None:
+            self._log_movie_match(
+                folder,
+                "exact_title_year",
+                f"title={ref.title} year={ref.year}",
+                exact_match,
+            )
             return exact_match
 
         link_match = self._match_movie_for_existing_links(
@@ -50,9 +56,35 @@ class ServiceMatchingMixin:
             movies_by_path,
         )
         if link_match is not None:
+            self._log_movie_match(
+                folder,
+                "existing_link_path_or_name",
+                f"existing_links={len(existing_links)}",
+                link_match,
+            )
             return link_match
 
-        return self._fuzzy_match_movie_for_folder(ref, movies_by_ref)
+        fuzzy_match = self._fuzzy_match_movie_for_folder(ref, movies_by_ref)
+        if fuzzy_match is None:
+            return None
+
+        self._log_movie_match(
+            folder,
+            "fuzzy_fallback",
+            f"title={ref.title} year={ref.year}",
+            fuzzy_match,
+        )
+        return fuzzy_match
+
+    def _log_movie_match(self, folder: Path, strategy: str, value: str, movie: dict) -> None:
+        LOG.info(
+            "Matched Radarr movie: folder=%s strategy=%s value=%s movie=%s (%s)",
+            folder,
+            strategy,
+            value,
+            movie.get("title"),
+            movie.get("year"),
+        )
 
     def _normalize_fs_path(self, value: str) -> str:
         return value.rstrip("/")
@@ -69,9 +101,9 @@ class ServiceMatchingMixin:
                 return linked_movie
 
             ref = parse_movie_ref(link.name.split("--", 1)[0])
-            named_movie = movies_by_ref.get(ref) or movies_by_ref.get(
-                MovieRef(title=ref.title, year=None)
-            )
+            named_movie = movies_by_ref.get(ref)
+            if named_movie is None and ref.year is None:
+                named_movie = movies_by_ref.get(MovieRef(title=ref.title, year=None))
             if named_movie is not None:
                 return named_movie
 
@@ -223,73 +255,6 @@ class ServiceMatchingMixin:
 
         return " ".join(parts).lower()
 
-    def _parse_int_id(self, value: str | None) -> int | None:
-        if value is None:
-            return None
-        text = str(value).strip()
-        if not text:
-            return None
-        try:
-            return int(text)
-        except (TypeError, ValueError):
-            return None
-
-    def _extract_external_ids_from_nfo_xml(
-        self,
-        root: ET.Element,
-    ) -> tuple[int | None, str | None, int | None]:
-        tmdb_id = self._parse_int_id(root.findtext("tmdbid", default=""))
-        tvdb_id = self._parse_int_id(root.findtext("tvdbid", default=""))
-
-        imdb_text = str(root.findtext("imdbid", default="")).strip().lower()
-        imdb_id = imdb_text if imdb_text.startswith("tt") else None
-
-        for uniqueid_node in root.findall("uniqueid"):
-            kind = str(uniqueid_node.attrib.get("type") or "").strip().lower()
-            uniqueid_value = (uniqueid_node.text or "").strip()
-
-            if kind == "tmdb" and tmdb_id is None:
-                tmdb_id = self._parse_int_id(uniqueid_value)
-                continue
-
-            if kind == "imdb" and imdb_id is None:
-                normalized_imdb = uniqueid_value.lower()
-                if normalized_imdb.startswith("tt"):
-                    imdb_id = normalized_imdb
-                continue
-
-            if kind == "tvdb" and tvdb_id is None:
-                tvdb_id = self._parse_int_id(uniqueid_value)
-
-        return tmdb_id, imdb_id, tvdb_id
-
-    def _extract_external_ids_from_nfo(
-        self,
-        nfo_path: Path,
-    ) -> tuple[int | None, str | None, int | None]:
-        try:
-            text = nfo_path.read_text(encoding="utf-8", errors="ignore")
-        except OSError:
-            return None, None, None
-
-        fallback_tmdb_id, fallback_imdb_id = self._extract_external_ids_from_text(text)
-        fallback_tvdb_id = self._extract_tvdb_id_from_text(text)
-
-        try:
-            root = ET.fromstring(text)
-        except ET.ParseError:
-            return fallback_tmdb_id, fallback_imdb_id, fallback_tvdb_id
-
-        tmdb_id, imdb_id, tvdb_id = self._extract_external_ids_from_nfo_xml(root)
-        if tmdb_id is None:
-            tmdb_id = fallback_tmdb_id
-        if imdb_id is None:
-            imdb_id = fallback_imdb_id
-        if tvdb_id is None:
-            tvdb_id = fallback_tvdb_id
-
-        return tmdb_id, imdb_id, tvdb_id
-
     def _find_external_id_match(
         self,
         index: dict[str, dict],
@@ -321,7 +286,7 @@ class ServiceMatchingMixin:
                 if not child.is_file() or child.suffix.lower() != ".nfo":
                     continue
 
-                tmdb_id, imdb_id, tvdb_id = self._extract_external_ids_from_nfo(child)
+                tmdb_id, imdb_id, tvdb_id = extract_external_ids_from_nfo(child)
                 _add_unique(tmdb_ids, tmdb_id)
                 _add_unique(imdb_ids, imdb_id)
                 _add_unique(tvdb_ids, tvdb_id)
@@ -329,29 +294,6 @@ class ServiceMatchingMixin:
             pass
 
         return tmdb_ids, imdb_ids, tvdb_ids
-
-    def _extract_external_ids_from_text(self, text: str) -> tuple[int | None, str | None]:
-        tmdb_id: int | None = None
-        imdb_id: str | None = None
-
-        tmdb_match = TMDB_UNIQUE_ID_RE.search(text) or TMDB_ID_RE.search(text)
-        if tmdb_match is not None:
-            try:
-                tmdb_id = int(tmdb_match.group(1))
-            except (TypeError, ValueError):
-                tmdb_id = None
-
-        imdb_match = (
-            IMDB_UNIQUE_ID_RE.search(text)
-            or IMDB_NEAR_TOKEN_RE.search(text)
-            or IMDB_ID_RE.search(text)
-        )
-        if imdb_match is not None:
-            imdb_id = (
-                imdb_match.group(1).lower() if imdb_match.lastindex else imdb_match.group(0).lower()
-            )
-
-        return tmdb_id, imdb_id
 
     def _match_movie_for_external_ids(
         self,
@@ -371,7 +313,7 @@ class ServiceMatchingMixin:
             return nfo_match
 
         identity_text = self._collect_folder_identity_text(folder)
-        tmdb_id, imdb_id = self._extract_external_ids_from_text(identity_text)
+        tmdb_id, imdb_id = extract_external_ids_from_text(identity_text)
         text_candidates: list[tuple[str, int | str]] = []
         if tmdb_id is not None:
             text_candidates.append(("tmdb", tmdb_id))
@@ -437,13 +379,7 @@ class ServiceMatchingMixin:
         return movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
 
     def _extract_tvdb_id_from_text(self, text: str) -> int | None:
-        tvdb_match = TVDB_UNIQUE_ID_RE.search(text) or TVDB_ID_RE.search(text)
-        if tvdb_match is None:
-            return None
-        try:
-            return int(tvdb_match.group(1))
-        except (TypeError, ValueError):
-            return None
+        return extract_tvdb_id_from_text(text)
 
     def _build_series_index(self) -> dict[MovieRef, dict]:
         index: dict[MovieRef, dict] = {}
@@ -560,7 +496,7 @@ class ServiceMatchingMixin:
 
         identity_text = self._collect_folder_identity_text(folder)
         tvdb_id = self._extract_tvdb_id_from_text(identity_text)
-        tmdb_id, imdb_id = self._extract_external_ids_from_text(identity_text)
+        tmdb_id, imdb_id = extract_external_ids_from_text(identity_text)
         text_candidates: list[tuple[str, int | str]] = []
         if tvdb_id is not None:
             text_candidates.append(("tvdb", tvdb_id))
