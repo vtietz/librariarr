@@ -94,6 +94,76 @@ def test_runtime_sync_loop_mark_dirty_accepts_file_modified_event() -> None:
     assert schedule.last_event > 0.0
 
 
+def test_runtime_sync_loop_mark_dirty_ignores_non_video_file_event(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        tracked_video_extensions={".mkv"},
+    )
+
+    non_video = tmp_path / "nested" / "Movie (2024)" / "poster.jpg"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="modified",
+            is_directory=False,
+            src_path=str(non_video),
+        )
+    )
+    assert schedule.last_event == 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_accepts_configured_video_file_event(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        tracked_video_extensions={".mkv"},
+    )
+
+    video = tmp_path / "nested" / "Movie (2024)" / "movie.mkv"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="modified",
+            is_directory=False,
+            src_path=str(video),
+        )
+    )
+    assert schedule.last_event > 0.0
+    assert loop._consume_dirty_paths() == {video}
+
+
+def test_runtime_sync_loop_mark_dirty_accepts_directory_event_with_video_filter(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        tracked_video_extensions={".mkv"},
+    )
+
+    parent_folder = tmp_path / "nested" / "Movie (2024)"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=True,
+            src_path=str(parent_folder),
+        )
+    )
+    assert schedule.last_event > 0.0
+
+
 def test_runtime_sync_loop_mark_dirty_accepts_shadow_nested_event_for_real_dir(tmp_path) -> None:
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
     shadow_root = tmp_path / "shadow"

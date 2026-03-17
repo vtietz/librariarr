@@ -214,5 +214,6 @@ class ServiceBootstrapMixin:
             poll_reconcile_trigger=self._poll_arr_root_reconcile_trigger,
             status_tracker=self.runtime_status_tracker,
             on_reconcile_complete=_on_reconcile_complete,
+            tracked_video_extensions=self.video_exts,
         )
         runtime_loop.run(stop_event=stop_event)

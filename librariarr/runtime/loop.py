@@ -79,6 +79,7 @@ class RuntimeSyncLoop:
         poll_reconcile_trigger: Callable[[], bool] | None = None,
         status_tracker: RuntimeStatusTracker | None = None,
         on_reconcile_complete: Callable[[], None] | None = None,
+        tracked_video_extensions: set[str] | None = None,
     ) -> None:
         self.nested_roots = nested_roots
         self.shadow_roots = shadow_roots
@@ -89,6 +90,11 @@ class RuntimeSyncLoop:
         self.on_reconcile_complete = on_reconcile_complete
         self.log = logger
         self.status_tracker = status_tracker
+        self.tracked_video_extensions = {
+            self._normalize_extension(ext)
+            for ext in (tracked_video_extensions or set())
+            if self._normalize_extension(ext)
+        }
         self._dirty_paths: set[Path] = set()
         self._dirty_paths_lock = threading.Lock()
         if self.status_tracker is not None:
@@ -290,6 +296,12 @@ class RuntimeSyncLoop:
             return False
 
         event_paths = self._extract_event_paths(event)
+        if event_paths and not any(
+            self._path_matches_event_filter(path, is_directory=event.is_directory)
+            for path in event_paths
+        ):
+            return False
+
         if event_paths and self._is_shadow_event(event_paths):
             if event.event_type not in self._SHADOW_TRIGGER_EVENT_TYPES:
                 return False
@@ -305,6 +317,17 @@ class RuntimeSyncLoop:
                 continue
             paths.append(Path(raw))
         return paths
+
+    def _path_matches_event_filter(self, path: Path, is_directory: bool) -> bool:
+        if not self.tracked_video_extensions or is_directory:
+            return True
+        return path.suffix.lower() in self.tracked_video_extensions
+
+    def _normalize_extension(self, ext: str) -> str:
+        normalized = str(ext).strip().lower().lstrip(".")
+        if not normalized:
+            return ""
+        return f".{normalized}"
 
     def _is_shadow_event(self, paths: list[Path]) -> bool:
         for path in paths:
