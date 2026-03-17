@@ -94,6 +94,11 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     auto_add_quality_profile_id = (
         int(auto_add_quality_profile_raw) if auto_add_quality_profile_raw is not None else None
     )
+    path_update_match_policy = str(radarr.get("path_update_match_policy", "default")).strip()
+    if path_update_match_policy not in {"default", "external_ids_only"}:
+        raise ValueError(
+            "radarr.path_update_match_policy must be one of: default, external_ids_only"
+        )
     auto_add_search_on_add = bool(radarr.get("auto_add_search_on_add", False))
     auto_add_monitored = bool(radarr.get("auto_add_monitored", True))
     refresh_debounce_seconds = max(0, int(radarr.get("refresh_debounce_seconds", 15)))
@@ -253,6 +258,7 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             auto_add_quality_profile_id=auto_add_quality_profile_id,
             auto_add_search_on_add=auto_add_search_on_add,
             auto_add_monitored=auto_add_monitored,
+            path_update_match_policy=path_update_match_policy,
             mapping=RadarrMappingConfig(
                 quality_map=quality_map,
                 custom_format_map=custom_format_map,

@@ -79,6 +79,7 @@ class RadarrConfig:
     auto_add_quality_profile_id: int | None = None
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
+    path_update_match_policy: str = "default"
     mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 
 

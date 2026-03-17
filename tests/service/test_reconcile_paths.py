@@ -199,6 +199,82 @@ def test_reconcile_updates_path_when_movie_moves_between_mapped_roots(tmp_path: 
     assert fake.updated_paths[-1] == (1, str(new_link))
 
 
+def test_reconcile_strict_policy_blocks_title_year_path_update(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        path_update_match_policy="external_ids_only",
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Fixture Catalog A",
+                "year": 2008,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    expected_link = shadow_root / "Fixture Catalog A (2008)"
+    assert expected_link.is_symlink()
+    assert fake.updated_paths == []
+    assert fake.refreshed == []
+
+
+def test_reconcile_strict_policy_allows_external_id_path_update(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "radarr_library"
+    movie_dir = nested_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "movie.nfo").write_text("<movie><tmdbid>9008</tmdbid></movie>", encoding="utf-8")
+
+    config = make_config(
+        nested_root,
+        shadow_root,
+        sync_enabled=True,
+        path_update_match_policy="external_ids_only",
+    )
+    service = LibrariArrService(config)
+
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Different Title",
+                "year": 2008,
+                "tmdbId": 9008,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    expected_link = shadow_root / "Fixture Catalog A (2008)"
+    assert expected_link.is_symlink()
+    assert fake.updated_paths[-1] == (1, str(expected_link))
+    assert fake.refreshed == [1]
+
+
 def test_reconcile_uses_folder_name_for_link(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "radarr_library"

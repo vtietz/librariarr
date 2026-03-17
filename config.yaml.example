@@ -43,6 +43,10 @@ radarr:
   auto_add_search_on_add: false
   # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
+  # Path update policy:
+  #   default            -> allow external IDs, exact title/year, existing link/name, fuzzy
+  #   external_ids_only  -> only allow external-ID matches (plus auto-added movies)
+  path_update_match_policy: default
 
   mapping:
     # Optional fallback map for quality-definition IDs.

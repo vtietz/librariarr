@@ -27,6 +27,7 @@ radarr:
   sync_enabled: true
   refresh_debounce_seconds: 15
   auto_add_unmatched: true
+  path_update_match_policy: default
   auto_add_search_on_add: false
   mapping:
     quality_map:
@@ -79,6 +80,7 @@ analysis:
 - `sonarr.enabled=true` enables series-folder discovery and Sonarr path synchronization.
 - `sonarr.auto_add_unmatched=true` enables Sonarr auto-creation for unmatched series folders.
 - `radarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshMovie` bursts for the same movie during noisy event windows; set `0` to disable.
+- `radarr.path_update_match_policy=external_ids_only` is the safest option when you want to prevent title/year or fuzzy remaps from changing Radarr paths.
 - `sonarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshSeries` bursts during noisy rename windows.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
 - Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
@@ -102,6 +104,17 @@ Configuration interaction for auto-add/profile behavior:
 5. If neither mapping path yields a profile, LibrariArr falls back to the lowest available Radarr profile id.
 6. `analysis.use_nfo` and `analysis.use_media_probe` feed token extraction for both `radarr.mapping.custom_format_map` and `radarr.mapping.quality_map` matching.
 7. `radarr.mapping.quality_map` is optional and can be short (or empty) when you primarily rely on custom-format-based mapping.
+
+Matching strategy order for folder-to-Arr identity:
+1. External IDs (`tvdb`/`tmdb`/`imdb`) from NFO and folder text.
+2. Exact title/year parsed from folder name.
+3. Existing link/path based match.
+4. Fuzzy title/year fallback.
+
+Path update policy interaction:
+- Sonarr currently applies path updates whenever a series match is found.
+- Radarr applies path updates for all match strategies by default.
+- Set `radarr.path_update_match_policy=external_ids_only` to only allow external-ID and auto-add updates.
 
 Why Radarr parse is title-based:
 - Radarr `/api/v3/parse` accepts a `title` parameter, so parse-based custom format detection is driven by folder/file title strings.
@@ -216,6 +229,12 @@ Notes:
 
 `radarr.auto_add_monitored`:
 - Initial Radarr monitored flag for newly auto-added entries.
+
+`radarr.path_update_match_policy`:
+- Controls which movie-match strategies are allowed to update Radarr paths.
+- `default`: all strategies can update paths (`external_ids`, `exact_title_year`, existing-link/name, fuzzy fallback).
+- `external_ids_only`: only `external_ids` matches (and newly auto-added movies) can update paths.
+- Useful hardening switch when your library has ambiguous folder names.
 
 ## Sonarr
 

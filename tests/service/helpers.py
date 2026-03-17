@@ -144,6 +144,7 @@ def make_config(
     radarr_action_on_missing: str = "unmonitor",
     auto_add_unmatched: bool = False,
     auto_add_quality_profile_id: int | None = None,
+    path_update_match_policy: str = "default",
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
@@ -156,6 +157,7 @@ def make_config(
             sync_enabled=sync_enabled,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
+            path_update_match_policy=path_update_match_policy,
             mapping=RadarrMappingConfig(
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),

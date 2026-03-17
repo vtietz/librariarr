@@ -15,6 +15,28 @@ from .external_id_parsing import (
 
 
 class ServiceMatchingMixin:
+    def _record_movie_match_strategy(self, folder: Path, strategy: str | None) -> None:
+        if not hasattr(self, "_movie_match_strategy_by_folder"):
+            self._movie_match_strategy_by_folder: dict[str, str] = {}
+        key = str(folder)
+        if strategy is None:
+            self._movie_match_strategy_by_folder.pop(key, None)
+            return
+        self._movie_match_strategy_by_folder[key] = strategy
+
+    def _consume_movie_match_strategy(self, folder: Path, auto_added: bool) -> str | None:
+        if auto_added:
+            return "auto_add"
+        if not hasattr(self, "_movie_match_strategy_by_folder"):
+            return None
+        return self._movie_match_strategy_by_folder.pop(str(folder), None)
+
+    def _is_radarr_path_update_allowed(self, match_strategy: str | None) -> bool:
+        policy = self.config.radarr.path_update_match_policy
+        if policy == "external_ids_only":
+            return match_strategy in {"external_ids", "auto_add"}
+        return True
+
     def _is_http_not_found(self, exc: requests.HTTPError) -> bool:
         response = exc.response
         return response is not None and response.status_code == 404
@@ -27,8 +49,11 @@ class ServiceMatchingMixin:
         movies_by_external_id: dict[str, dict],
         existing_links: set[Path],
     ) -> dict | None:
+        self._record_movie_match_strategy(folder, None)
+
         external_id_match = self._match_movie_for_external_ids(folder, movies_by_external_id)
         if external_id_match is not None:
+            self._record_movie_match_strategy(folder, "external_ids")
             self._log_movie_match(
                 folder,
                 "external_ids",
@@ -42,6 +67,7 @@ class ServiceMatchingMixin:
         if exact_match is None and ref.year is None:
             exact_match = movies_by_ref.get(MovieRef(title=ref.title, year=None))
         if exact_match is not None:
+            self._record_movie_match_strategy(folder, "exact_title_year")
             self._log_movie_match(
                 folder,
                 "exact_title_year",
@@ -56,6 +82,7 @@ class ServiceMatchingMixin:
             movies_by_path,
         )
         if link_match is not None:
+            self._record_movie_match_strategy(folder, "existing_link_path_or_name")
             self._log_movie_match(
                 folder,
                 "existing_link_path_or_name",
@@ -74,6 +101,7 @@ class ServiceMatchingMixin:
             f"title={ref.title} year={ref.year}",
             fuzzy_match,
         )
+        self._record_movie_match_strategy(folder, "fuzzy_fallback")
         return fuzzy_match
 
     def _log_movie_match(self, folder: Path, strategy: str, value: str, movie: dict) -> None:
@@ -329,20 +357,33 @@ class ServiceMatchingMixin:
         movie: dict,
         force_refresh: bool = False,
         apply_quality_mapping: bool = False,
+        match_strategy: str | None = None,
     ) -> None:
         movie_id = movie.get("id")
         movie_title = movie.get("title")
-        try:
-            path_updated = self.radarr.update_movie_path(movie, str(link))
-        except requests.HTTPError as exc:
-            if self._is_http_not_found(exc):
-                LOG.warning(
-                    "Skipping Radarr sync for missing movie id=%s title=%s while updating path",
-                    movie_id,
-                    movie_title,
-                )
-                return
-            raise
+        path_updated = False
+        if self._is_radarr_path_update_allowed(match_strategy):
+            try:
+                path_updated = self.radarr.update_movie_path(movie, str(link))
+            except requests.HTTPError as exc:
+                if self._is_http_not_found(exc):
+                    LOG.warning(
+                        "Skipping Radarr sync for missing movie id=%s title=%s while updating path",
+                        movie_id,
+                        movie_title,
+                    )
+                    return
+                raise
+        else:
+            LOG.warning(
+                "Skipped Radarr path update by policy: "
+                "folder=%s strategy=%s policy=%s movie=%s (%s)",
+                folder,
+                match_strategy or "none",
+                self.config.radarr.path_update_match_policy,
+                movie_title,
+                movie_id,
+            )
 
         quality_updated = False
         quality_map = self.config.effective_radarr_quality_map()

@@ -334,12 +334,14 @@ class ServiceReconcileMixin:
         def _sync_movie(folder: Path, link_path: Path, movie: dict, auto_added: bool) -> None:
             movie_id = movie.get("id")
             try:
+                match_strategy = self._consume_movie_match_strategy(folder, auto_added)
                 self._sync_radarr_for_folder(
                     folder,
                     link_path,
                     movie,
                     force_refresh=auto_added,
                     apply_quality_mapping=auto_added,
+                    match_strategy=match_strategy,
                 )
             except requests.RequestException as exc:
                 self._log_sync_config_hint(exc)

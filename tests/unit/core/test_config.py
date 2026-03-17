@@ -52,6 +52,7 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.auto_add_quality_profile_id is None
     assert config.radarr.auto_add_search_on_add is False
     assert config.radarr.auto_add_monitored is True
+    assert config.radarr.path_update_match_policy == "default"
     assert config.sonarr.enabled is False
     assert config.sonarr.sync_enabled is False
     assert config.sonarr.url == ""
