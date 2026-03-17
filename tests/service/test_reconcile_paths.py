@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 from librariarr.config import (
@@ -134,6 +135,68 @@ def test_reconcile_routes_links_to_mapped_shadow_roots(tmp_path: Path) -> None:
     assert not (age16_shadow / "Movie A (2020)").exists()
     assert (age16_shadow / "Movie B (2021)").is_symlink()
     assert not (age12_shadow / "Movie B (2021)").exists()
+
+
+def test_reconcile_updates_path_when_movie_moves_between_mapped_roots(tmp_path: Path) -> None:
+    age12_root = tmp_path / "movies" / "age_12"
+    age16_root = tmp_path / "movies" / "age_16"
+    age12_shadow = tmp_path / "radarr_library" / "age_12"
+    age16_shadow = tmp_path / "radarr_library" / "age_16"
+
+    movie_old = age12_root / "Studio" / "Movie A (2020)"
+    movie_old.mkdir(parents=True)
+    (movie_old / "Movie.A.2020.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            root_mappings=[
+                RootMapping(nested_root=str(age12_root), shadow_root=str(age12_shadow)),
+                RootMapping(nested_root=str(age16_root), shadow_root=str(age16_shadow)),
+            ]
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            sync_enabled=True,
+            mapping=RadarrMappingConfig(
+                quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
+            ),
+        ),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    service = LibrariArrService(config)
+    fake = FakeRadarr(
+        movies=[
+            {
+                "id": 1,
+                "title": "Movie A",
+                "year": 2020,
+                "path": "/old/path",
+                "movieFile": {"id": 11},
+                "monitored": True,
+            }
+        ]
+    )
+    service.radarr = fake
+
+    service.reconcile()
+
+    old_link = age12_shadow / "Movie A (2020)"
+    assert old_link.is_symlink()
+    assert fake.updated_paths[-1] == (1, str(old_link))
+
+    movie_new = age16_root / "Studio" / "Movie A (2020)"
+    movie_new.parent.mkdir(parents=True, exist_ok=True)
+    shutil.move(str(movie_old), str(movie_new))
+
+    service.reconcile({movie_old, movie_new})
+
+    new_link = age16_shadow / "Movie A (2020)"
+    assert new_link.is_symlink()
+    assert not old_link.exists()
+    assert fake.updated_paths[-1] == (1, str(new_link))
 
 
 def test_reconcile_uses_folder_name_for_link(tmp_path: Path) -> None:

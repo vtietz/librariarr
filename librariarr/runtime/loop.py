@@ -53,6 +53,21 @@ class RuntimeSyncLoop:
     _NOISY_EVENT_TYPES = frozenset({"opened", "closed", "closed_no_write"})
     _SHADOW_TRIGGER_EVENT_TYPES = frozenset({"created", "deleted", "moved"})
 
+    def _summarize_paths(self, paths: set[Path] | list[Path], limit: int = 1) -> str:
+        if not paths:
+            return "-"
+
+        unique_paths = sorted({str(path) for path in paths})
+        shown = unique_paths[:limit]
+        remaining = len(unique_paths) - len(shown)
+        suffix = f" (+{remaining} more)" if remaining > 0 else ""
+        return ", ".join(shown) + suffix
+
+    def _first_path(self, paths: set[Path] | list[Path]) -> str:
+        if not paths:
+            return "-"
+        return sorted({str(path) for path in paths})[0]
+
     def __init__(
         self,
         nested_roots: list[Path],
@@ -185,21 +200,23 @@ class RuntimeSyncLoop:
             self._clear_dirty_paths()
         if should_event_sync:
             if should_maintenance:
-                self.log.info("Running event-triggered reconcile (covered by maintenance)")
+                self.log.debug("Running event-triggered reconcile (covered by maintenance)")
             else:
                 reconcile_paths = self._consume_dirty_paths()
-                self.log.info(
-                    "Running event-triggered reconcile (affected_paths=%s)",
+                self.log.debug(
+                    "Event-triggered reconcile queued (affected_paths=%s, first_path=%s)",
                     len(reconcile_paths),
+                    self._first_path(reconcile_paths),
                 )
         if poll_triggered and not should_maintenance and not should_event_sync:
             self.log.info("Running poll-triggered reconcile")
 
         reconcile_mode = "incremental" if reconcile_paths is not None else "full"
         self.log.info(
-            "Starting reconcile cycle (mode=%s, trigger=%s)",
+            "Starting reconcile cycle (mode=%s, trigger=%s) first_path=%s",
             reconcile_mode,
             trigger_source,
+            self._first_path(reconcile_paths or set()),
         )
 
         if self.status_tracker is not None:
@@ -231,8 +248,13 @@ class RuntimeSyncLoop:
                     self._dirty_paths.update(event_paths)
 
         if self.schedule.last_event == 0.0:
+            event_source = "filesystem:unknown"
+            if event is not None:
+                event_source = f"filesystem:{event.event_type}"
             self.log.info(
-                "Filesystem change detected; reconciling in ~%ss after debounce",
+                "Filesystem event queued: source=%s path=%s debounce_seconds=%s",
+                event_source,
+                self._first_path(event_paths),
                 self.schedule.debounce_seconds,
             )
         self.schedule.mark_event()

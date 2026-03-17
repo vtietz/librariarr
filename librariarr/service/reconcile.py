@@ -25,6 +25,23 @@ from ..sync import (
 from .common import LOG
 
 
+def _summarize_path_set(paths: set[Path] | None, limit: int = 4) -> str:
+    if not paths:
+        return "-"
+
+    unique_paths = sorted({str(path) for path in paths})
+    shown = unique_paths[:limit]
+    remaining = len(unique_paths) - len(shown)
+    suffix = f" (+{remaining} more)" if remaining > 0 else ""
+    return ", ".join(shown) + suffix
+
+
+def _first_path(paths: set[Path] | None) -> str:
+    if not paths:
+        return "-"
+    return sorted(str(path) for path in paths)[0]
+
+
 @dataclass(frozen=True)
 class _MediaReconcileSpec:
     sync_enabled: bool
@@ -55,10 +72,14 @@ class ServiceReconcileMixin:
         with self._lock:
             started = time.time()
             reconcile_mode, affected_paths_count = resolve_reconcile_mode(affected_paths)
+            trigger_source = self._current_reconcile_source()
+            trigger_path = _first_path(affected_paths)
             LOG.info(
-                "Reconciling shadow links and Arr state (mode=%s, affected_paths=%s)...",
+                "Reconcile started: source=%s mode=%s affected_paths=%s trigger_path=%s",
+                trigger_source,
                 reconcile_mode,
                 affected_paths_count,
+                trigger_path,
             )
             for shadow_root in self.shadow_roots:
                 shadow_root.mkdir(parents=True, exist_ok=True)
@@ -81,9 +102,10 @@ class ServiceReconcileMixin:
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
 
-            LOG.info(
-                "Reconcile scope resolved: mode=%s affected_paths=%s "
+            LOG.debug(
+                "Reconcile scope: source=%s mode=%s affected_paths=%s "
                 "considered_movie_folders=%s considered_series_folders=%s",
+                trigger_source,
                 plan.mode,
                 plan.affected_paths_count,
                 len(plan.movie_scope.folders),
@@ -154,6 +176,17 @@ class ServiceReconcileMixin:
                 self.runtime_status_tracker.update_reconcile_phase("cleaned")
 
             duration_seconds = round(time.time() - started, 2)
+            outcome = "updated"
+            if (
+                created_links == 0
+                and orphaned_links_removed == 0
+                and matched_movies == 0
+                and unmatched_movies == 0
+                and matched_series == 0
+                and unmatched_series == 0
+                and ingested_count == 0
+            ):
+                outcome = "pending_ingest" if ingest_pending else "no_changes"
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_active_reconcile_metrics(
                     {
@@ -178,30 +211,50 @@ class ServiceReconcileMixin:
                     }
                 )
             LOG.info(
-                "Reconcile complete: mode=%s movie_folders=%s existing_links=%s "
-                "created_links=%s matched_movies=%s unmatched_movies=%s "
-                "series_folders=%s matched_series=%s unmatched_series=%s "
-                "removed_orphans=%s ingested_dirs=%s ingest_pending=%s "
-                "sync_enabled=%s sonarr_sync_enabled=%s duration_seconds=%s",
+                "Reconcile finished: source=%s mode=%s affected_paths=%s trigger_path=%s "
+                "outcome=%s movie_folders=%s series_folders=%s "
+                "created_links=%s matched_movies=%s matched_series=%s "
+                "removed_orphans=%s ingest_pending=%s duration_seconds=%s",
+                trigger_source,
                 plan.mode,
+                plan.affected_paths_count,
+                trigger_path,
+                outcome,
                 len(plan.movie_scope.folders),
-                sum(len(links) for links in target_to_links.values()),
+                len(plan.series_scope.folders),
                 created_links,
                 matched_movies,
-                unmatched_movies,
-                len(plan.series_scope.folders),
                 matched_series,
-                unmatched_series,
                 orphaned_links_removed,
-                ingested_count,
                 ingest_pending,
-                self.sync_enabled,
-                self.sonarr_sync_enabled,
                 duration_seconds,
             )
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("completed")
             return ingest_pending
+
+    def _current_reconcile_source(self) -> str:
+        runtime_status_tracker = getattr(self, "runtime_status_tracker", None)
+        if runtime_status_tracker is None:
+            return "direct"
+
+        try:
+            snapshot = runtime_status_tracker.snapshot()
+        except Exception:
+            return "direct"
+
+        if not isinstance(snapshot, dict):
+            return "direct"
+
+        current_task = snapshot.get("current_task")
+        if not isinstance(current_task, dict):
+            return "direct"
+
+        trigger_source = current_task.get("trigger_source")
+        if isinstance(trigger_source, str) and trigger_source.strip():
+            return trigger_source
+
+        return "direct"
 
     def _build_reconcile_plan(
         self,
