@@ -14,6 +14,15 @@ set DEV_SONARR_SERVICE=sonarr-dev
 set E2E_SERVICE=librariarr-radarr-e2e
 set FS_E2E_SERVICE=librariarr-e2e
 
+if not defined PUID (
+  for /f %%i in ('wsl.exe sh -lc "id -u" 2^>nul') do set PUID=%%i
+)
+if not defined PGID (
+  for /f %%i in ('wsl.exe sh -lc "id -g" 2^>nul') do set PGID=%%i
+)
+if not defined PUID set PUID=1000
+if not defined PGID set PGID=1000
+
 if "%~1"=="" goto :usage
 
 if /I "%~1"=="setup" goto :setup

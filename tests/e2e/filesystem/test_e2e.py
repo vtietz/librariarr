@@ -22,13 +22,23 @@ def _make_roots(tmp_path: Path, case_name: str) -> tuple[Path, Path]:
         return tmp_path / "movies", tmp_path / "radarr_library"
 
     case_root = Path(persist_root) / case_name
-    if case_root.exists():
-        shutil.rmtree(case_root)
-    movies_root = case_root / "movies"
-    shadow_root = case_root / "radarr_library"
-    movies_root.mkdir(parents=True, exist_ok=True)
-    shadow_root.mkdir(parents=True, exist_ok=True)
-    return movies_root, shadow_root
+    try:
+        if case_root.exists():
+            shutil.rmtree(case_root)
+        movies_root = case_root / "movies"
+        shadow_root = case_root / "radarr_library"
+        movies_root.mkdir(parents=True, exist_ok=True)
+        shadow_root.mkdir(parents=True, exist_ok=True)
+        return movies_root, shadow_root
+    except OSError:
+        fallback_root = tmp_path / case_name
+        if fallback_root.exists():
+            shutil.rmtree(fallback_root)
+        movies_root = fallback_root / "movies"
+        shadow_root = fallback_root / "radarr_library"
+        movies_root.mkdir(parents=True, exist_ok=True)
+        shadow_root.mkdir(parents=True, exist_ok=True)
+        return movies_root, shadow_root
 
 
 def _relativize_links_for_host_view(shadow_root: Path) -> None:

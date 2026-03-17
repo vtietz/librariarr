@@ -22,6 +22,20 @@ from librariarr.config import (
 from librariarr.service import LibrariArrService
 
 
+def _resolve_case_root(case_name: str) -> Path:
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / case_name
+    try:
+        case_root.mkdir(parents=True, exist_ok=True)
+        return case_root
+    except OSError:
+        fallback_root = Path("/tmp") / "librariarr-e2e"
+        fallback_root.mkdir(parents=True, exist_ok=True)
+        fallback_case_root = fallback_root / case_name
+        fallback_case_root.mkdir(parents=True, exist_ok=True)
+        return fallback_case_root
+
+
 def _wait_for_api_key(config_xml_path: Path, timeout_seconds: int = 180) -> str:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -166,8 +180,7 @@ def _canonical_name_from_seeded_series(series: dict) -> str:
 
 @pytest.mark.e2e
 def test_sonarr_e2e_reconcile_updates_existing_series_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_sync_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_sync_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series"
     shadow_root = case_root / "sonarr_library"
@@ -233,8 +246,7 @@ def test_sonarr_e2e_reconcile_updates_existing_series_path() -> None:
 
 @pytest.mark.e2e
 def test_sonarr_e2e_reconcile_uses_root_level_nfo_tvdbid_with_nested_noise() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_nfo_noise_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_nfo_noise_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series"
     shadow_root = case_root / "sonarr_library"
@@ -312,8 +324,7 @@ def test_sonarr_e2e_reconcile_uses_root_level_nfo_tvdbid_with_nested_noise() -> 
 
 @pytest.mark.e2e
 def test_sonarr_e2e_incremental_cleanup_unmonitors_missing_series() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_missing_action_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_missing_action_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series"
     shadow_root = case_root / "sonarr_library"
@@ -380,8 +391,7 @@ def test_sonarr_e2e_incremental_cleanup_unmonitors_missing_series() -> None:
 
 @pytest.mark.e2e
 def test_sonarr_e2e_runtime_reconcile_handles_nested_shadow_file_create() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_runtime_shadow_nested_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_runtime_shadow_nested_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series"
     shadow_root = case_root / "sonarr_library"
@@ -463,8 +473,7 @@ def test_sonarr_e2e_runtime_reconcile_handles_nested_shadow_file_create() -> Non
 
 @pytest.mark.e2e
 def test_sonarr_e2e_ingest_moves_series_folder_and_updates_series_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_ingest_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_ingest_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series" / "age_12"
     shadow_root = case_root / "sonarr_library"
@@ -528,8 +537,7 @@ def test_sonarr_e2e_ingest_moves_series_folder_and_updates_series_path() -> None
 
 @pytest.mark.e2e
 def test_sonarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_ingest_skip_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_ingest_skip_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series" / "age_12"
     shadow_root = case_root / "sonarr_library"
@@ -594,8 +602,7 @@ def test_sonarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
 
 @pytest.mark.e2e
 def test_sonarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"sonarr_ingest_qualify_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"sonarr_ingest_qualify_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "series" / "age_12"
     shadow_root = case_root / "sonarr_library"

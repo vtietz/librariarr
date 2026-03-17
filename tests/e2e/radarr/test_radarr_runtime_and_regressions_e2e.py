@@ -19,6 +19,7 @@ from librariarr.config import (
 from librariarr.service import LibrariArrService
 from tests.e2e.radarr.test_radarr_e2e import (
     _canonical_name_from_seeded_movie,
+    _resolve_case_root,
     _seed_movie_or_skip,
     _wait_for_api_key,
     _wait_for_radarr,
@@ -42,8 +43,7 @@ def _wait_for_condition(
 
 @pytest.mark.e2e
 def test_radarr_e2e_reconcile_uses_root_level_nfo_tmdbid_with_nested_noise() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_nfo_noise_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_nfo_noise_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"
@@ -111,8 +111,7 @@ def test_radarr_e2e_reconcile_uses_root_level_nfo_tmdbid_with_nested_noise() -> 
 
 @pytest.mark.e2e
 def test_radarr_e2e_incremental_cleanup_unmonitors_missing_movie() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_missing_action_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_missing_action_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"
@@ -178,8 +177,7 @@ def test_radarr_e2e_incremental_cleanup_unmonitors_missing_movie() -> None:
 
 @pytest.mark.e2e
 def test_radarr_e2e_runtime_reconcile_handles_nested_shadow_file_create() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_runtime_shadow_nested_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_runtime_shadow_nested_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"

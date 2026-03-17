@@ -23,6 +23,14 @@ else
   exit 1
 fi
 
+if [[ -z "${PUID:-}" ]]; then
+  PUID="$(id -u)"
+fi
+if [[ -z "${PGID:-}" ]]; then
+  PGID="$(id -g)"
+fi
+export PUID PGID
+
 usage() {
   cat <<'EOF'
 Usage: ./run.sh <command>

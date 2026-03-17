@@ -20,6 +20,20 @@ from librariarr.service import LibrariArrService
 from librariarr.sync.naming import safe_path_component
 
 
+def _resolve_case_root(case_name: str) -> Path:
+    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
+    case_root = persist_root / case_name
+    try:
+        case_root.mkdir(parents=True, exist_ok=True)
+        return case_root
+    except OSError:
+        fallback_root = Path("/tmp") / "librariarr-e2e"
+        fallback_root.mkdir(parents=True, exist_ok=True)
+        fallback_case_root = fallback_root / case_name
+        fallback_case_root.mkdir(parents=True, exist_ok=True)
+        return fallback_case_root
+
+
 def _wait_for_api_key(config_xml_path: Path, timeout_seconds: int = 180) -> str:
     deadline = time.time() + timeout_seconds
     while time.time() < deadline:
@@ -184,8 +198,7 @@ def _seed_slash_title_movie_or_skip(
 
 @pytest.mark.e2e
 def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_slash_title_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_slash_title_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"
@@ -244,8 +257,7 @@ def test_radarr_e2e_reconcile_corrects_path_after_nfo_fix() -> None:
     (a) produce a link whose name comes from the folder, not the old wrong-movie title,
     and (b) correctly update the matched movie's Radarr path to that link.
     """
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_nfo_fix_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_nfo_fix_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"
@@ -356,8 +368,7 @@ def test_radarr_e2e_reconcile_corrects_path_after_nfo_fix() -> None:
 
 @pytest.mark.e2e
 def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_sync_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_sync_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies"
     shadow_root = case_root / "radarr_library"
@@ -368,7 +379,15 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
-    seeded_movie = _seed_movie_or_skip(session, radarr_url, shadow_root)
+    seeded_movie = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        shadow_root,
+        title="Fixture Sync Path Movie",
+        title_slug="fixture-sync-path-movie-2006",
+        tmdb_id=1891,
+        year=2006,
+    )
     canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
     movie_folder = nested_root / canonical_name
     movie_folder.mkdir(parents=True, exist_ok=True)
@@ -408,8 +427,7 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
 
 @pytest.mark.e2e
 def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_ingest_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_ingest_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies" / "age_12"
     shadow_root = case_root / "radarr_library"
@@ -420,7 +438,15 @@ def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
-    seeded_movie = _seed_movie_or_skip(session, radarr_url, mapped_shadow_root)
+    seeded_movie = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        mapped_shadow_root,
+        title="Fixture Ingest Move Movie",
+        title_slug="fixture-ingest-move-movie-2010",
+        tmdb_id=27205,
+        year=2010,
+    )
     canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
     imported_folder = mapped_shadow_root / canonical_name
     imported_folder.mkdir(parents=True, exist_ok=True)
@@ -464,8 +490,7 @@ def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
 
 @pytest.mark.e2e
 def test_radarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_ingest_skip_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_ingest_skip_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies" / "age_12"
     shadow_root = case_root / "radarr_library"
@@ -475,7 +500,15 @@ def test_radarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
-    seeded_movie = _seed_movie_or_skip(session, radarr_url, mapped_shadow_root)
+    seeded_movie = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        mapped_shadow_root,
+        title="Fixture Ingest Skip Movie",
+        title_slug="fixture-ingest-skip-movie-2011",
+        tmdb_id=157336,
+        year=2011,
+    )
     canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
     movie_id = int(seeded_movie["id"])
     baseline_path = str(seeded_movie.get("path") or "")
@@ -524,8 +557,7 @@ def test_radarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
 
 @pytest.mark.e2e
 def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path() -> None:
-    persist_root = Path(os.getenv("LIBRARIARR_E2E_PERSIST_ROOT", "/e2e"))
-    case_root = persist_root / f"radarr_ingest_qualify_{uuid.uuid4().hex[:8]}"
+    case_root = _resolve_case_root(f"radarr_ingest_qualify_{uuid.uuid4().hex[:8]}")
 
     nested_root = case_root / "movies" / "age_12"
     shadow_root = case_root / "radarr_library"
@@ -535,7 +567,15 @@ def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path(
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
-    seeded_movie = _seed_movie_or_skip(session, radarr_url, mapped_shadow_root)
+    seeded_movie = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        mapped_shadow_root,
+        title="Fixture Ingest Qualify Movie",
+        title_slug="fixture-ingest-qualify-movie-2013",
+        tmdb_id=168259,
+        year=2013,
+    )
     canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
 
     # Force an ingest destination collision.
