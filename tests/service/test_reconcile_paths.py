@@ -1,6 +1,8 @@
 import shutil
 from pathlib import Path
 
+import pytest
+
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
@@ -13,6 +15,10 @@ from librariarr.config import (
 )
 from librariarr.service import LibrariArrService
 from tests.service.helpers import FakeRadarr, make_config
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy Radarr link/matching flow removed in projection-only mode"
+)
 
 
 def test_reconcile_uses_qualified_name_on_collision(tmp_path: Path) -> None:

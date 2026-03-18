@@ -1,9 +1,14 @@
 from pathlib import Path
 
+import pytest
 import requests
 
 from librariarr.service import LibrariArrService
 from tests.service.helpers import FakeRadarr, make_config
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy Radarr link/matching flow removed in projection-only mode"
+)
 
 
 def test_reconcile_continues_when_radarr_update_returns_400(tmp_path: Path, caplog) -> None:

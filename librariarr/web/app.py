@@ -37,6 +37,7 @@ from .routers import (
     build_config_router,
     build_diagnostics_router,
     build_dry_run_router,
+    build_hooks_router,
     build_metadata_router,
 )
 from .runtime_supervisor import RuntimeSupervisor
@@ -165,6 +166,9 @@ def _allowed_roots(config: AppConfig) -> list[Path]:
     for mapping in config.paths.root_mappings:
         roots.add(Path(mapping.nested_root))
         roots.add(Path(mapping.shadow_root))
+    for mapping in config.paths.movie_root_mappings:
+        roots.add(Path(mapping.managed_root))
+        roots.add(Path(mapping.library_root))
     return sorted(roots)
 
 
@@ -253,6 +257,7 @@ def create_app(  # noqa: C901
     )
     app.state.web = state
     app.include_router(build_operations_router())
+    app.include_router(build_hooks_router())
 
     if ui_dist_path is None:
         ui_dist_path = os.getenv("LIBRARIARR_UI_DIST", "/app/ui/dist")

@@ -1,0 +1,107 @@
+from __future__ import annotations
+
+import sqlite3
+import threading
+from pathlib import Path
+
+from .models import ProjectedFileState
+
+
+class ProjectionStateStore:
+    def __init__(self, db_path: Path) -> None:
+        self.db_path = db_path
+        self._lock = threading.RLock()
+        self._initialize()
+
+    def _connect(self) -> sqlite3.Connection:
+        connection = sqlite3.connect(self.db_path)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        return connection
+
+    def _initialize(self) -> None:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            with self._connect() as connection:
+                connection.executescript(
+                    """
+                    CREATE TABLE IF NOT EXISTS projected_files (
+                        movie_id INTEGER NOT NULL,
+                        dest_path TEXT NOT NULL,
+                        source_path TEXT NOT NULL,
+                        kind TEXT NOT NULL,
+                        managed INTEGER NOT NULL,
+                        source_dev INTEGER,
+                        source_inode INTEGER,
+                        size INTEGER NOT NULL,
+                        mtime REAL NOT NULL,
+                        file_hash TEXT,
+                        updated_at REAL NOT NULL DEFAULT (strftime('%s', 'now')),
+                        PRIMARY KEY (movie_id, dest_path)
+                    );
+
+                    CREATE INDEX IF NOT EXISTS idx_projected_files_movie_id
+                        ON projected_files (movie_id);
+                    """
+                )
+
+    def get_managed_paths_for_movie(self, movie_id: int) -> set[str]:
+        with self._lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    """
+                    SELECT dest_path
+                    FROM projected_files
+                    WHERE movie_id = ? AND managed = 1
+                    """,
+                    (movie_id,),
+                )
+                return {str(row[0]) for row in cursor.fetchall()}
+
+    def upsert_projected_files(self, records: list[ProjectedFileState]) -> None:
+        if not records:
+            return
+        with self._lock:
+            with self._connect() as connection:
+                connection.executemany(
+                    """
+                    INSERT INTO projected_files (
+                        movie_id,
+                        dest_path,
+                        source_path,
+                        kind,
+                        managed,
+                        source_dev,
+                        source_inode,
+                        size,
+                        mtime,
+                        file_hash,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))
+                    ON CONFLICT(movie_id, dest_path) DO UPDATE SET
+                        source_path = excluded.source_path,
+                        kind = excluded.kind,
+                        managed = excluded.managed,
+                        source_dev = excluded.source_dev,
+                        source_inode = excluded.source_inode,
+                        size = excluded.size,
+                        mtime = excluded.mtime,
+                        file_hash = excluded.file_hash,
+                        updated_at = excluded.updated_at
+                    """,
+                    [
+                        (
+                            record.movie_id,
+                            record.dest_path,
+                            record.source_path,
+                            record.kind,
+                            1 if record.managed else 0,
+                            record.source_dev,
+                            record.source_inode,
+                            record.size,
+                            record.mtime,
+                            record.file_hash,
+                        )
+                        for record in records
+                    ],
+                )

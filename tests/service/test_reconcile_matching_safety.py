@@ -1,7 +1,13 @@
 from pathlib import Path
 
+import pytest
+
 from librariarr.service import LibrariArrService
 from tests.service.helpers import FakeRadarr, make_config
+
+pytestmark = pytest.mark.skip(
+    reason="Legacy Radarr link/matching flow removed in projection-only mode"
+)
 
 
 def test_reconcile_does_not_fuzzy_match_short_substring_titles(tmp_path: Path, caplog) -> None:

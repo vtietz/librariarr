@@ -83,6 +83,7 @@ class RadarrConfig:
     request_retry_attempts: int = 2
     request_retry_backoff_seconds: float = 0.5
     path_update_match_policy: str = "default"
+    projection: RadarrProjectionConfig = field(default_factory=lambda: RadarrProjectionConfig())
     mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 
 
@@ -112,8 +113,30 @@ class RootMapping:
 
 
 @dataclass
+class MovieRootMapping:
+    managed_root: str
+    library_root: str
+
+
+@dataclass
+class RadarrProjectionConfig:
+    managed_video_extensions: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
+    )
+    managed_extras_allowlist: list[str] = field(
+        default_factory=lambda: ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
+    )
+    preserve_unknown_files: bool = True
+    delete_managed_files: bool = True
+    provenance_file: str = ".librariarr-provenance.json"
+    hash_max_file_size_mb: int = 256
+    movie_folder_name_source: str = "managed"
+
+
+@dataclass
 class PathsConfig:
     root_mappings: list[RootMapping] = field(default_factory=list)
+    movie_root_mappings: list[MovieRootMapping] = field(default_factory=list)
     exclude_paths: list[str] = field(default_factory=list)
 
 

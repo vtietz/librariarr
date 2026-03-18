@@ -13,11 +13,13 @@ from .models import (
     CleanupConfig,
     CustomFormatRule,
     IngestConfig,
+    MovieRootMapping,
     PathsConfig,
     ProfileRule,
     QualityRule,
     RadarrConfig,
     RadarrMappingConfig,
+    RadarrProjectionConfig,
     RootMapping,
     RuntimeConfig,
     SonarrConfig,
@@ -40,6 +42,61 @@ def _env_or_default(name: str, default: str) -> str:
     return value
 
 
+def _normalize_extensions(
+    raw_value: Any,
+    *,
+    key_name: str,
+    default_values: list[str],
+) -> list[str]:
+    if raw_value is None:
+        return list(default_values)
+    if not isinstance(raw_value, list):
+        raise ValueError(f"{key_name} must be a list of file extensions")
+    return [
+        f".{text}" for text in (str(item).strip().lower().lstrip(".") for item in raw_value) if text
+    ]
+
+
+def _paths_overlap(left: Path, right: Path) -> bool:
+    if left == right:
+        return True
+    try:
+        left.relative_to(right)
+        return True
+    except ValueError:
+        pass
+    try:
+        right.relative_to(left)
+        return True
+    except ValueError:
+        return False
+
+
+def _validate_movie_root_mappings(mappings: list[MovieRootMapping]) -> None:
+    managed_to_library: dict[str, str] = {}
+    for mapping in mappings:
+        managed_root = Path(mapping.managed_root)
+        library_root = Path(mapping.library_root)
+        if not managed_root.is_absolute():
+            raise ValueError("paths.movie_root_mappings[].managed_root must be an absolute path")
+        if not library_root.is_absolute():
+            raise ValueError("paths.movie_root_mappings[].library_root must be an absolute path")
+        if _paths_overlap(managed_root, library_root):
+            raise ValueError(
+                "paths.movie_root_mappings entries must not overlap: managed_root and "
+                "library_root must be distinct, non-nested paths"
+            )
+
+        managed_key = str(managed_root)
+        library_value = str(library_root)
+        existing_library = managed_to_library.get(managed_key)
+        if existing_library is not None and existing_library != library_value:
+            raise ValueError(
+                "Each managed_root may map to exactly one library_root in paths.movie_root_mappings"
+            )
+        managed_to_library[managed_key] = library_value
+
+
 def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     with Path(path).open("r", encoding="utf-8") as fh:
         raw = yaml.safe_load(fh) or {}
@@ -52,8 +109,11 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
 
     radarr = raw.get("radarr") or {}
     sonarr = raw.get("sonarr") or {}
+    radarr_enabled = bool(radarr.get("enabled", True if has_radarr else False))
+    sonarr_enabled = bool(sonarr.get("enabled", False if has_sonarr else False))
     radarr_mapping_raw = radarr.get("mapping") if isinstance(radarr.get("mapping"), dict) else {}
     sonarr_mapping_raw = sonarr.get("mapping") if isinstance(sonarr.get("mapping"), dict) else {}
+    projection_raw = radarr.get("projection") if isinstance(radarr.get("projection"), dict) else {}
 
     if "quality_map" in raw or "custom_format_map" in raw:
         raise ValueError(
@@ -61,12 +121,9 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             "Use radarr.mapping.quality_map and radarr.mapping.custom_format_map."
         )
 
-    root_mappings_raw = paths.get("root_mappings")
-    if not root_mappings_raw:
-        raise ValueError(
-            "paths.root_mappings is required. The legacy paths.nested_roots mode "
-            "has been removed; use paths.root_mappings with per-root shadow_root values."
-        )
+    root_mappings_raw = paths.get("root_mappings") or []
+    if not isinstance(root_mappings_raw, list):
+        raise ValueError("paths.root_mappings must be a list")
     root_mappings = [
         RootMapping(
             nested_root=str(_require(item, "nested_root")),
@@ -74,6 +131,24 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         )
         for item in root_mappings_raw
     ]
+
+    movie_root_mappings_raw = paths.get("movie_root_mappings") or []
+    if not isinstance(movie_root_mappings_raw, list):
+        raise ValueError("paths.movie_root_mappings must be a list")
+    movie_root_mappings = [
+        MovieRootMapping(
+            managed_root=str(_require(item, "managed_root")),
+            library_root=str(_require(item, "library_root")),
+        )
+        for item in movie_root_mappings_raw
+    ]
+    if radarr_enabled and not movie_root_mappings:
+        raise ValueError("paths.movie_root_mappings is required when Radarr is enabled")
+
+    _validate_movie_root_mappings(movie_root_mappings)
+
+    if sonarr_enabled and not root_mappings:
+        raise ValueError("paths.root_mappings is required when Sonarr is enabled")
     exclude_paths_raw = paths.get("exclude_paths", [])
     if exclude_paths_raw is None:
         exclude_paths_raw = []
@@ -85,7 +160,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     radarr_default_api_key = str(_require(radarr, "api_key")) if has_radarr else ""
     radarr_url = _env_or_default("LIBRARIARR_RADARR_URL", radarr_default_url)
     radarr_api_key = _env_or_default("LIBRARIARR_RADARR_API_KEY", radarr_default_api_key)
-    radarr_enabled = bool(radarr.get("enabled", True if has_radarr else False))
     sync_enabled = radarr_enabled and bool(
         radarr.get("sync_enabled", True if has_radarr else False)
     )
@@ -113,7 +187,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     sonarr_default_api_key = str(_require(sonarr, "api_key")) if has_sonarr else ""
     sonarr_url = _env_or_default("LIBRARIARR_SONARR_URL", sonarr_default_url)
     sonarr_api_key = _env_or_default("LIBRARIARR_SONARR_API_KEY", sonarr_default_api_key)
-    sonarr_enabled = bool(sonarr.get("enabled", False if has_sonarr else False))
     sonarr_sync_enabled = bool(sonarr.get("sync_enabled", True if has_sonarr else False))
     sonarr_auto_add_unmatched = bool(sonarr.get("auto_add_unmatched", False))
     sonarr_auto_add_quality_profile_raw = sonarr.get("auto_add_quality_profile_id")
@@ -212,23 +285,47 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
 
     missing_grace_seconds = max(0, int(cleanup_raw.get("missing_grace_seconds", 3600)))
     runtime_raw = raw.get("runtime", {})
-    runtime_scan_video_extensions = runtime_raw.get("scan_video_extensions")
-    if isinstance(runtime_scan_video_extensions, list):
-        normalized_scan_video_extensions = [
-            f".{text}"
-            for text in (
-                str(item).strip().lower().lstrip(".") for item in runtime_scan_video_extensions
-            )
-            if text
+    normalized_scan_video_extensions = _normalize_extensions(
+        runtime_raw.get("scan_video_extensions"),
+        key_name="runtime.scan_video_extensions",
+        default_values=list(DEFAULT_SCAN_VIDEO_EXTENSIONS),
+    )
+
+    managed_video_extensions = _normalize_extensions(
+        projection_raw.get("managed_video_extensions"),
+        key_name="radarr.projection.managed_video_extensions",
+        default_values=list(DEFAULT_SCAN_VIDEO_EXTENSIONS),
+    )
+    managed_extras_allowlist_raw = projection_raw.get("managed_extras_allowlist")
+    if managed_extras_allowlist_raw is None:
+        managed_extras_allowlist = ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
+    elif isinstance(managed_extras_allowlist_raw, list):
+        managed_extras_allowlist = [
+            str(item).strip() for item in managed_extras_allowlist_raw if str(item).strip()
         ]
-    elif runtime_scan_video_extensions is None:
-        normalized_scan_video_extensions = list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
     else:
-        raise ValueError("runtime.scan_video_extensions must be a list of file extensions")
+        raise ValueError("radarr.projection.managed_extras_allowlist must be a list")
+
+    movie_folder_name_source = str(
+        projection_raw.get("movie_folder_name_source", "managed")
+    ).strip()
+    if movie_folder_name_source not in {"managed", "radarr"}:
+        raise ValueError(
+            "radarr.projection.movie_folder_name_source must be one of: managed, radarr"
+        )
+
+    preserve_unknown_files = bool(projection_raw.get("preserve_unknown_files", True))
+    if not preserve_unknown_files:
+        preserve_unknown_files = True
+
+    periodic_reconcile_minutes = runtime_raw.get(
+        "periodic_reconcile_minutes",
+        runtime_raw.get("maintenance_interval_minutes", 1440),
+    )
 
     runtime = RuntimeConfig(
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),
-        maintenance_interval_minutes=int(runtime_raw.get("maintenance_interval_minutes", 1440)),
+        maintenance_interval_minutes=int(periodic_reconcile_minutes),
         arr_root_poll_interval_minutes=int(runtime_raw.get("arr_root_poll_interval_minutes", 1)),
         scan_video_extensions=normalized_scan_video_extensions,
     )
@@ -259,7 +356,11 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     )
 
     return AppConfig(
-        paths=PathsConfig(root_mappings=root_mappings, exclude_paths=exclude_paths),
+        paths=PathsConfig(
+            root_mappings=root_mappings,
+            movie_root_mappings=movie_root_mappings,
+            exclude_paths=exclude_paths,
+        ),
         radarr=RadarrConfig(
             enabled=radarr_enabled,
             url=radarr_url,
@@ -274,6 +375,21 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             request_retry_attempts=request_retry_attempts,
             request_retry_backoff_seconds=request_retry_backoff_seconds,
             path_update_match_policy=path_update_match_policy,
+            projection=RadarrProjectionConfig(
+                managed_video_extensions=managed_video_extensions,
+                managed_extras_allowlist=managed_extras_allowlist,
+                preserve_unknown_files=preserve_unknown_files,
+                delete_managed_files=bool(projection_raw.get("delete_managed_files", True)),
+                provenance_file=str(
+                    projection_raw.get("provenance_file", ".librariarr-provenance.json")
+                ).strip()
+                or ".librariarr-provenance.json",
+                hash_max_file_size_mb=max(
+                    1,
+                    int(projection_raw.get("hash_max_file_size_mb", 256)),
+                ),
+                movie_folder_name_source=movie_folder_name_source,
+            ),
             mapping=RadarrMappingConfig(
                 quality_map=quality_map,
                 custom_format_map=custom_format_map,

@@ -23,6 +23,10 @@ from tests.e2e.radarr.test_radarr_e2e import (
     _wait_for_radarr,
 )
 
+pytestmark = pytest.mark.skip(
+    reason="Legacy Radarr path-matching strategy flow removed in projection-only mode"
+)
+
 
 def _movie_path_by_id(session: requests.Session, base_url: str, movie_id: int) -> str:
     response = session.get(f"{base_url}/api/v3/movie/{movie_id}", timeout=20)

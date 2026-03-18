@@ -6,6 +6,7 @@ from pathlib import Path
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
+from ..projection import MovieProjectionOrchestrator
 from ..quality import VIDEO_EXTENSIONS
 from ..runtime import ReconcileSchedule, RuntimeSyncLoop, get_runtime_status_tracker
 from ..sync import (
@@ -53,6 +54,7 @@ class ServiceBootstrapMixin:
             logger=LOG,
             get_sonarr_client=lambda: self.sonarr,
         )
+        self.movie_root_mappings = self._build_movie_root_mappings(config)
         self.root_mappings = self._build_root_mappings(config)
         self.nested_roots = [nested for nested, _ in self.root_mappings]
         self.shadow_roots = self._unique_paths([shadow for _, shadow in self.root_mappings])
@@ -92,6 +94,15 @@ class ServiceBootstrapMixin:
             refresh_item=lambda client, item_id: client.refresh_series(item_id),
             logger=LOG,
         )
+        self.movie_projection = (
+            MovieProjectionOrchestrator(
+                config=config,
+                radarr=self.radarr,
+                logger=LOG,
+            )
+            if self.radarr_enabled
+            else None
+        )
 
         self._debounce_seconds = max(1, config.runtime.debounce_seconds)
         maintenance_minutes = config.runtime.maintenance_interval_minutes
@@ -115,6 +126,12 @@ class ServiceBootstrapMixin:
     def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
         return [
             (Path(item.nested_root), Path(item.shadow_root)) for item in config.paths.root_mappings
+        ]
+
+    def _build_movie_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
+        return [
+            (Path(item.managed_root), Path(item.library_root))
+            for item in config.paths.movie_root_mappings
         ]
 
     def _unique_paths(self, paths: list[Path]) -> list[Path]:
@@ -160,12 +177,17 @@ class ServiceBootstrapMixin:
     def run(self, stop_event: threading.Event | None = None) -> None:
         shadow_roots = "\n    - ".join(str(root) for root in self.shadow_roots)
         nested_roots = "\n    - ".join(str(root) for root in self.nested_roots)
+        managed_roots = "\n    - ".join(str(root) for root, _ in self.movie_root_mappings)
+        library_roots = "\n    - ".join(str(root) for _, root in self.movie_root_mappings)
         LOG.info("")
         LOG.info("================ LibrariArr Startup ================")
         LOG.info("Startup configuration:")
-        LOG.info("  Paths:")
-        LOG.info("    shadow_roots:\n    - %s", shadow_roots)
-        LOG.info("    nested_roots:\n    - %s", nested_roots)
+        LOG.info("  Movie projection paths:")
+        LOG.info("    managed_roots:\n    - %s", managed_roots or "-")
+        LOG.info("    library_roots:\n    - %s", library_roots or "-")
+        LOG.info("  Sonarr shadow-link paths:")
+        LOG.info("    shadow_roots:\n    - %s", shadow_roots or "-")
+        LOG.info("    nested_roots:\n    - %s", nested_roots or "-")
         LOG.info(
             "  Radarr: enabled=%s sync_enabled=%s auto_add_unmatched=%s",
             self.radarr_enabled,
@@ -190,6 +212,9 @@ class ServiceBootstrapMixin:
             ),
         )
         LOG.info("====================================================")
+        for managed_root, library_root in self.movie_root_mappings:
+            managed_root.mkdir(parents=True, exist_ok=True)
+            library_root.mkdir(parents=True, exist_ok=True)
         for shadow_root in self.shadow_roots:
             shadow_root.mkdir(parents=True, exist_ok=True)
         self._run_sync_preflight_checks()

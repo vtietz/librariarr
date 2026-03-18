@@ -4,6 +4,7 @@ from librariarr.config import (
     AppConfig,
     CleanupConfig,
     IngestConfig,
+    MovieRootMapping,
     PathsConfig,
     QualityRule,
     RadarrConfig,
@@ -22,7 +23,10 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))]
+            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(nested_root), library_root=str(shadow_root))
+            ],
         ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
@@ -48,7 +52,7 @@ def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path
     incoming.mkdir(parents=True)
     (incoming / "Incoming.Movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
 
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    config = make_config(nested_root, shadow_root, sync_enabled=False, radarr_enabled=False)
     config.ingest = IngestConfig(enabled=True, min_age_seconds=0)
     service = LibrariArrService(config)
 
@@ -77,7 +81,7 @@ def test_ingest_collision_skip_policy_leaves_source_untouched(tmp_path: Path) ->
     incoming.mkdir(parents=True)
     (incoming / "Collision.Movie.2024.2160p.mkv").write_text("x", encoding="utf-8")
 
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    config = make_config(nested_root, shadow_root, sync_enabled=False, radarr_enabled=False)
     config.ingest = IngestConfig(enabled=True, min_age_seconds=0, collision_policy="skip")
     service = LibrariArrService(config)
 
@@ -100,7 +104,7 @@ def test_ingest_collision_qualify_policy_uses_suffix(tmp_path: Path) -> None:
     incoming.mkdir(parents=True)
     (incoming / "incoming.mkv").write_text("x", encoding="utf-8")
 
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
+    config = make_config(nested_root, shadow_root, sync_enabled=False, radarr_enabled=False)
     config.ingest = IngestConfig(enabled=True, min_age_seconds=0, collision_policy="qualify")
     service = LibrariArrService(config)
 
@@ -123,7 +127,11 @@ def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None
             root_mappings=[
                 RootMapping(nested_root=str(nested_a), shadow_root=str(shadow_root)),
                 RootMapping(nested_root=str(nested_b), shadow_root=str(shadow_root)),
-            ]
+            ],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(nested_a), library_root=str(shadow_root)),
+                MovieRootMapping(managed_root=str(nested_b), library_root=str(shadow_root)),
+            ],
         ),
         radarr=RadarrConfig(
             url="http://radarr:7878",

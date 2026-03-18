@@ -210,6 +210,7 @@ def test_sonarr_e2e_reconcile_updates_existing_series_path() -> None:
         radarr=RadarrConfig(
             url="http://radarr:7878",
             api_key="test",
+            enabled=False,
             sync_enabled=False,
         ),
         sonarr=SonarrConfig(

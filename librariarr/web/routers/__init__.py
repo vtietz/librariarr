@@ -4,6 +4,7 @@ from .config_router import ConfigPayload, ValidateRequest, build_config_router
 from .diagnostics_router import build_diagnostics_router
 from .dry_run_router import DryRunRequest, build_dry_run_router
 from .fs_router import build_fs_router
+from .hooks_router import build_hooks_router
 from .jobs_router import build_jobs_router
 from .logs_router import build_logs_router
 from .maintenance_router import build_maintenance_router
@@ -21,6 +22,7 @@ __all__ = [
     "build_diagnostics_router",
     "build_dry_run_router",
     "build_fs_router",
+    "build_hooks_router",
     "build_jobs_router",
     "build_logs_router",
     "build_maintenance_router",

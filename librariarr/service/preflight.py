@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from ..projection import get_radarr_webhook_queue
 from .common import LOG
 
 
@@ -269,13 +270,22 @@ class ServicePreflightMixin:
             )
 
     def _poll_arr_root_reconcile_trigger(self) -> bool:
-        return self._update_arr_root_folder_availability(force=False)
+        queue = get_radarr_webhook_queue()
+        queue_pending = queue.has_pending()
+        root_poll_triggered = self._update_arr_root_folder_availability(force=False)
+        return queue_pending or root_poll_triggered
 
     def _normalize_arr_root_path(self, value: str) -> str:
         return str(value).strip().rstrip("/\\")
 
     def _configured_shadow_root_paths(self) -> set[str]:
         return {self._normalize_arr_root_path(str(root)) for root in self.shadow_roots}
+
+    def _configured_radarr_root_paths(self) -> set[str]:
+        return {
+            self._normalize_arr_root_path(str(managed_root))
+            for managed_root, _ in self.movie_root_mappings
+        }
 
     def _extract_arr_root_paths(self, payload: list[dict]) -> set[str]:
         out: set[str] = set()
@@ -328,7 +338,7 @@ class ServicePreflightMixin:
             return False
 
         try:
-            configured = self._configured_shadow_root_paths()
+            configured = self._configured_radarr_root_paths()
             available = self._extract_arr_root_paths(self.radarr.get_root_folders())
         except Exception as exc:
             self._log_sync_config_hint(exc)

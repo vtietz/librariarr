@@ -197,6 +197,7 @@ def _seed_slash_title_movie_or_skip(
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="Legacy Radarr path-update flow removed in projection-only mode")
 def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
     case_root = _resolve_case_root(f"radarr_slash_title_{uuid.uuid4().hex[:8]}")
 
@@ -250,6 +251,7 @@ def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="Legacy Radarr path-update flow removed in projection-only mode")
 def test_radarr_e2e_reconcile_corrects_path_after_nfo_fix() -> None:
     """
     Regression test for: folder named 'EO (2022)' had an NFO with the wrong tmdbId
@@ -367,6 +369,7 @@ def test_radarr_e2e_reconcile_corrects_path_after_nfo_fix() -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="Legacy Radarr path-update flow removed in projection-only mode")
 def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     case_root = _resolve_case_root(f"radarr_sync_{uuid.uuid4().hex[:8]}")
 
@@ -426,6 +429,7 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="Legacy Radarr path-update flow removed in projection-only mode")
 def test_radarr_e2e_ingest_moves_folder_and_updates_movie_path() -> None:
     case_root = _resolve_case_root(f"radarr_ingest_{uuid.uuid4().hex[:8]}")
 
@@ -556,6 +560,7 @@ def test_radarr_e2e_ingest_collision_skip_keeps_source_and_path() -> None:
 
 
 @pytest.mark.e2e
+@pytest.mark.skip(reason="Legacy Radarr path-update flow removed in projection-only mode")
 def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path() -> None:
     case_root = _resolve_case_root(f"radarr_ingest_qualify_{uuid.uuid4().hex[:8]}")
 

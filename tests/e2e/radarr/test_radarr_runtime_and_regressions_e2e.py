@@ -25,6 +25,10 @@ from tests.e2e.radarr.test_radarr_e2e import (
     _wait_for_radarr,
 )
 
+pytestmark = pytest.mark.skip(
+    reason="Legacy Radarr path-update runtime regressions removed in projection-only mode"
+)
+
 
 def _wait_for_condition(
     predicate,

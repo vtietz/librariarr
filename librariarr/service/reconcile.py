@@ -5,8 +5,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
-import requests
-
 from ..core import (
     MediaReconcileOutcome,
     MediaScope,
@@ -15,11 +13,11 @@ from ..core import (
     create_reconcile_plan,
     resolve_reconcile_mode,
 )
+from ..projection import get_radarr_webhook_queue
 from ..sync import (
     MovieRef,
     ShadowCleanupManager,
     collect_current_links,
-    discover_movie_folders,
     discover_series_folders,
 )
 from .common import LOG
@@ -89,13 +87,23 @@ class ServiceReconcileMixin:
                     force=self._arr_root_poll_interval is None,
                 )
 
+            scoped_movie_ids: set[int] | None = None
+            if self.radarr_enabled:
+                queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
+                if queued_movie_ids:
+                    scoped_movie_ids = queued_movie_ids
+
             ingested_count = self.ingestor.run() if self.config.ingest.enabled else 0
             ingest_pending = False
             if self.config.ingest.enabled:
                 ingest_pending = self.ingestor.last_pending_quiescent_count > 0
 
+            scoped_affected_paths = affected_paths
+            if scoped_movie_ids is not None and affected_paths is None:
+                scoped_affected_paths = set()
+
             plan = self._build_reconcile_plan(
-                affected_paths=affected_paths,
+                affected_paths=scoped_affected_paths,
                 reconcile_mode=reconcile_mode,
                 affected_paths_count=affected_paths_count,
             )
@@ -114,9 +122,9 @@ class ServiceReconcileMixin:
 
             target_to_links = collect_current_links(self.shadow_roots)
             if plan.fetch_movie_index:
-                movies_by_ref, movies_by_path, movies_by_external_id = self._build_movie_indices()
+                movies_by_ref, _, _ = self._build_movie_indices()
             else:
-                movies_by_ref, movies_by_path, movies_by_external_id = {}, {}, {}
+                movies_by_ref = {}
             if plan.fetch_series_index:
                 series_by_ref, series_by_path, series_by_external_id = self._build_series_indices()
             else:
@@ -129,19 +137,19 @@ class ServiceReconcileMixin:
             unmatched_movies = 0
             matched_movie_ids: set[int] = set()
             if self.radarr_enabled:
-                (
-                    movie_created_links,
-                    matched_movies,
-                    unmatched_movies,
-                    matched_movie_ids,
-                ) = self._reconcile_movie_links(
-                    movie_folders=plan.movie_scope.folders,
-                    target_to_links=target_to_links,
-                    expected_links=expected_links,
-                    movies_by_ref=movies_by_ref,
-                    movies_by_path=movies_by_path,
-                    movies_by_external_id=movies_by_external_id,
+                if self.movie_projection is None:
+                    raise RuntimeError(
+                        "MovieProjectionOrchestrator is required when Radarr is enabled"
+                    )
+                self.movie_projection.radarr = self.radarr
+                projection_metrics = self.movie_projection.reconcile(scoped_movie_ids)
+                movie_created_links = int(projection_metrics.get("projected_files") or 0)
+                matched_movies = max(
+                    0,
+                    int(projection_metrics.get("planned_movies") or 0)
+                    - int(projection_metrics.get("skipped_movies") or 0),
                 )
+                unmatched_movies = int(projection_metrics.get("skipped_movies") or 0)
             (
                 series_created_links,
                 matched_series,
@@ -269,24 +277,6 @@ class ServiceReconcileMixin:
             affected_targets=set(),
             incremental_mode=False,
         )
-        if self.radarr_enabled:
-            (
-                movie_folders,
-                all_movie_folders,
-                movie_affected_targets,
-                movie_incremental_mode,
-            ) = self._resolve_reconcile_scope(
-                affected_paths,
-                known_folders=self._known_movie_folders,
-                discover=discover_movie_folders,
-            )
-            self._known_movie_folders = all_movie_folders
-            movie_scope = MediaScope(
-                folders=movie_folders,
-                all_folders=all_movie_folders,
-                affected_targets=movie_affected_targets,
-                incremental_mode=movie_incremental_mode,
-            )
 
         series_scope = MediaScope(
             folders={},
@@ -318,76 +308,8 @@ class ServiceReconcileMixin:
             affected_paths_count=affected_paths_count,
             movie_scope=movie_scope,
             series_scope=series_scope,
-            movie_sync_enabled=self.sync_enabled,
+            movie_sync_enabled=False,
             series_sync_enabled=self.sonarr_sync_enabled,
-        )
-
-    def _reconcile_movie_links(
-        self,
-        movie_folders: dict[Path, Path],
-        target_to_links: dict[Path, set[Path]],
-        expected_links: set[Path],
-        movies_by_ref: dict[MovieRef, dict],
-        movies_by_path: dict[str, dict],
-        movies_by_external_id: dict[str, dict],
-    ) -> tuple[int, int, int, set[int]]:
-        def _sync_movie(folder: Path, link_path: Path, movie: dict, auto_added: bool) -> None:
-            movie_id = movie.get("id")
-            try:
-                match_strategy = self._consume_movie_match_strategy(folder, auto_added)
-                self._sync_radarr_for_folder(
-                    folder,
-                    link_path,
-                    movie,
-                    force_refresh=auto_added,
-                    apply_quality_mapping=auto_added,
-                    match_strategy=match_strategy,
-                )
-            except requests.RequestException as exc:
-                self._log_sync_config_hint(exc)
-                LOG.warning(
-                    "Skipping Radarr sync for movie id=%s title=%s due to request failure: %s",
-                    movie_id,
-                    movie.get("title"),
-                    exc,
-                )
-
-        outcome = self._reconcile_links_for_kind(
-            folders=movie_folders,
-            target_to_links=target_to_links,
-            expected_links=expected_links,
-            items_by_ref=movies_by_ref,
-            items_by_path=movies_by_path,
-            items_by_external_id=movies_by_external_id,
-            spec=_MediaReconcileSpec(
-                sync_enabled=self.sync_enabled,
-                auto_add_unmatched=self.auto_add_unmatched,
-                is_root_available=self._is_radarr_root_available,
-                skip_log_message=(
-                    "Skipping Radarr matching/sync for shadow root not configured in Radarr: %s"
-                ),
-                post_auto_add_no_match_log_message=(
-                    "No Radarr match for folder after auto-add attempt: %s"
-                ),
-                post_auto_add_no_match_log_level="debug",
-                no_match_message_when_auto_add_disabled=(
-                    "No Radarr match for folder: %s "
-                    "(enable radarr.auto_add_unmatched=true to auto-create, "
-                    "or add/import in Radarr first)"
-                ),
-                match_item_for_folder=self._match_movie_for_folder,
-                auto_add_item_for_folder=self.radarr_sync.auto_add_movie_for_folder,
-                sync_item_for_folder=_sync_movie,
-                index_item=self._index_movie,
-                index_item_path=self._index_movie_path,
-                index_item_external_ids=self._index_movie_external_ids,
-            ),
-        )
-        return (
-            outcome.created_links,
-            outcome.matched_items,
-            outcome.unmatched_items,
-            outcome.matched_item_ids,
         )
 
     def _reconcile_series_links(
@@ -605,7 +527,7 @@ class ServiceReconcileMixin:
     ) -> int:
         cleanup_tasks = build_cleanup_tasks(
             remove_orphaned_links=self.config.cleanup.remove_orphaned_links,
-            radarr_enabled=self.radarr_enabled,
+            radarr_enabled=False,
             sonarr_enabled=self.sonarr_enabled,
             movie_incremental_mode=movie_incremental_mode,
             series_incremental_mode=series_incremental_mode,
