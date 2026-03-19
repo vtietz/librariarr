@@ -1,12 +1,21 @@
 paths:
-  # Map nested source roots to shadow roots used by Radarr and/or Sonarr.
+  # Radarr movie projection mappings (managed_root -> curated library_root).
+  movie_root_mappings:
+    - managed_root: "/data/radarr_library/age_06"
+      library_root: "/data/movies/age_06"
+    - managed_root: "/data/radarr_library/age_12"
+      library_root: "/data/movies/age_12"
+    - managed_root: "/data/radarr_library/age_16"
+      library_root: "/data/movies/age_16"
+
+  # Sonarr legacy mappings (optional; required only when sonarr.enabled=true).
   root_mappings:
-    - nested_root: "/data/movies/age_06"
-      shadow_root: "/data/radarr_library/age_06"
-    - nested_root: "/data/movies/age_12"
-      shadow_root: "/data/radarr_library/age_12"
-    - nested_root: "/data/movies/age_16"
-      shadow_root: "/data/radarr_library/age_16"
+    - nested_root: "/data/series/age_06"
+      shadow_root: "/data/sonarr_library/age_06"
+    - nested_root: "/data/series/age_12"
+      shadow_root: "/data/sonarr_library/age_12"
+    - nested_root: "/data/series/age_16"
+      shadow_root: "/data/sonarr_library/age_16"
   # Optional gitignore-style patterns (relative to each nested_root) to skip
   # during movie/series discovery. Matching is case-insensitive.
   # Useful for trash/temp folders like TMM deletes.
@@ -53,6 +62,20 @@ radarr:
   #   default            -> allow external IDs, exact title/year, existing link/name, fuzzy
   #   external_ids_only  -> only allow external-ID matches (plus auto-added movies)
   path_update_match_policy: default
+
+  projection:
+    managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
+    managed_extras_allowlist:
+      - "*.srt"
+      - "*.sub"
+      - "movie.nfo"
+      - "poster.jpg"
+      - "fanart.jpg"
+    preserve_unknown_files: true
+    delete_managed_files: true
+    provenance_file: ".librariarr-provenance.json"
+    hash_max_file_size_mb: 256
+    movie_folder_name_source: "managed"
 
   mapping:
     # Optional fallback map for quality-definition IDs.

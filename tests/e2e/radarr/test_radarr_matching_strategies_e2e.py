@@ -3,106 +3,66 @@ import uuid
 from pathlib import Path
 
 import pytest
-import requests
 
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
+    MovieRootMapping,
     PathsConfig,
     RadarrConfig,
-    RootMapping,
+    RadarrProjectionConfig,
     RuntimeConfig,
 )
+from librariarr.projection import get_radarr_webhook_queue
 from librariarr.service import LibrariArrService
 from librariarr.sync.naming import safe_path_component
 from tests.e2e.radarr.test_radarr_e2e import (
-    _canonical_name_from_seeded_movie,
+    _ensure_movie_path_under_managed_root,
     _resolve_case_root,
     _seed_movie_or_skip,
+    _seed_slash_title_movie_or_skip,
     _wait_for_api_key,
     _wait_for_radarr,
 )
 
-pytestmark = pytest.mark.skip(
-    reason="Legacy Radarr path-matching strategy flow removed in projection-only mode"
-)
 
-
-def _movie_path_by_id(session: requests.Session, base_url: str, movie_id: int) -> str:
-    response = session.get(f"{base_url}/api/v3/movie/{movie_id}", timeout=20)
-    response.raise_for_status()
-    return str(response.json().get("path") or "")
-
-
-@pytest.mark.e2e
-def test_radarr_e2e_reconcile_matches_by_existing_link_name() -> None:
-    case_root = _resolve_case_root(f"radarr_match_existing_link_{uuid.uuid4().hex[:8]}")
-
-    nested_root = case_root / "movies"
-    shadow_root = case_root / "radarr_library"
-    nested_root.mkdir(parents=True, exist_ok=True)
-    shadow_root.mkdir(parents=True, exist_ok=True)
-
-    radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
-    api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
-    session = _wait_for_radarr(radarr_url, api_key)
-
-    seeded_movie = _seed_movie_or_skip(
-        session,
-        radarr_url,
-        shadow_root,
-        title="Fixture Existing Link Strategy Movie",
-        title_slug="fixture-existing-link-strategy-movie-2014",
-        tmdb_id=266856,
-        year=2014,
-    )
-
-    folder_name = f"Alias Folder {uuid.uuid4().hex[:6]}"
-    movie_folder = nested_root / folder_name
-    movie_folder.mkdir(parents=True, exist_ok=True)
-    (movie_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
-
-    # Force match via existing-link strategy: this link name matches the Radarr item,
-    # while the folder name does not.
-    existing_link = shadow_root / _canonical_name_from_seeded_movie(seeded_movie)
-    existing_link.symlink_to(movie_folder, target_is_directory=True)
-
-    config = AppConfig(
+def _projection_config(
+    *,
+    managed_root: Path,
+    library_root: Path,
+    radarr_url: str,
+    api_key: str,
+    folder_name_source: str = "managed",
+) -> AppConfig:
+    return AppConfig(
         paths=PathsConfig(
-            root_mappings=[
-                RootMapping(
-                    nested_root=str(nested_root),
-                    shadow_root=str(shadow_root),
+            root_mappings=[],
+            movie_root_mappings=[
+                MovieRootMapping(
+                    managed_root=str(managed_root),
+                    library_root=str(library_root),
                 )
-            ]
+            ],
         ),
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
             sync_enabled=True,
+            projection=RadarrProjectionConfig(movie_folder_name_source=folder_name_source),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
-    service = LibrariArrService(config)
-    service.reconcile()
-
-    expected_link = shadow_root / folder_name
-    assert expected_link.is_symlink()
-
-    movie_id = int(seeded_movie["id"])
-    assert _movie_path_by_id(session, radarr_url, movie_id) == str(expected_link)
-
 
 @pytest.mark.e2e
-def test_radarr_e2e_reconcile_matches_by_fuzzy_fallback() -> None:
-    case_root = _resolve_case_root(f"radarr_match_fuzzy_{uuid.uuid4().hex[:8]}")
+def test_radarr_e2e_projection_uses_managed_folder_naming_by_default() -> None:
+    case_root = _resolve_case_root(f"radarr_projection_managed_name_{uuid.uuid4().hex[:8]}")
 
-    nested_root = case_root / "movies"
-    shadow_root = case_root / "radarr_library"
-    nested_root.mkdir(parents=True, exist_ok=True)
-    shadow_root.mkdir(parents=True, exist_ok=True)
+    managed_root = case_root / "managed_movies"
+    library_root = case_root / "library_movies"
+    managed_root.mkdir(parents=True, exist_ok=True)
+    library_root.mkdir(parents=True, exist_ok=True)
 
     radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
@@ -111,104 +71,168 @@ def test_radarr_e2e_reconcile_matches_by_fuzzy_fallback() -> None:
     seeded_movie = _seed_movie_or_skip(
         session,
         radarr_url,
-        shadow_root,
-        title="Fixture Fuzzy Match Example Movie",
-        title_slug="fixture-fuzzy-match-example-movie-2012",
-        tmdb_id=68718,
-        year=2012,
+        managed_root,
+        title="Fixture Projection Managed Name",
+        title_slug="fixture-projection-managed-name-2020",
+        tmdb_id=502356,
+        year=2020,
+    )
+    seeded_movie = _ensure_movie_path_under_managed_root(
+        session,
+        radarr_url,
+        seeded_movie,
+        managed_root,
+        "managed-name",
     )
 
-    seeded_title = safe_path_component(
-        str(seeded_movie.get("title") or "Fixture Fuzzy Match Example")
-    )
-    seeded_year = int(seeded_movie.get("year") or 2012)
-    folder_name = f"{seeded_title} Extended ({seeded_year})"
+    managed_folder = Path(str(seeded_movie["path"]))
+    managed_folder.mkdir(parents=True, exist_ok=True)
+    source_file = managed_folder / "Fixture.Projection.Managed.Name.2020.1080p.x265.mkv"
+    source_file.write_text("stub", encoding="utf-8")
 
-    movie_folder = nested_root / folder_name
-    movie_folder.mkdir(parents=True, exist_ok=True)
-    (movie_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
-
-    config = AppConfig(
-        paths=PathsConfig(
-            root_mappings=[
-                RootMapping(
-                    nested_root=str(nested_root),
-                    shadow_root=str(shadow_root),
-                )
-            ]
-        ),
-        radarr=RadarrConfig(
-            url=radarr_url,
+    service = LibrariArrService(
+        _projection_config(
+            managed_root=managed_root,
+            library_root=library_root,
+            radarr_url=radarr_url,
             api_key=api_key,
-            sync_enabled=True,
-        ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
-        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+        )
     )
-
-    service = LibrariArrService(config)
     service.reconcile()
 
-    expected_link = shadow_root / folder_name
-    assert expected_link.is_symlink()
-
-    movie_id = int(seeded_movie["id"])
-    assert _movie_path_by_id(session, radarr_url, movie_id) == str(expected_link)
+    projected_file = library_root / managed_folder.relative_to(managed_root) / source_file.name
+    assert projected_file.exists()
+    assert projected_file.samefile(source_file)
 
 
 @pytest.mark.e2e
-def test_radarr_e2e_strict_policy_blocks_exact_title_year_path_update() -> None:
-    case_root = _resolve_case_root(f"radarr_match_policy_strict_{uuid.uuid4().hex[:8]}")
+def test_radarr_e2e_projection_can_use_radarr_title_year_folder_naming() -> None:
+    case_root = _resolve_case_root(f"radarr_projection_radarr_name_{uuid.uuid4().hex[:8]}")
 
-    nested_root = case_root / "movies"
-    shadow_root = case_root / "radarr_library"
-    nested_root.mkdir(parents=True, exist_ok=True)
-    shadow_root.mkdir(parents=True, exist_ok=True)
+    managed_root = case_root / "managed_movies"
+    library_root = case_root / "library_movies"
+    managed_root.mkdir(parents=True, exist_ok=True)
+    library_root.mkdir(parents=True, exist_ok=True)
 
     radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
     api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
     session = _wait_for_radarr(radarr_url, api_key)
 
-    seeded_movie = _seed_movie_or_skip(
+    seeded_movie = _seed_slash_title_movie_or_skip(session, radarr_url, managed_root)
+    seeded_movie = _ensure_movie_path_under_managed_root(
         session,
         radarr_url,
-        shadow_root,
-        title="Fixture Strict Policy Movie",
-        title_slug="fixture-strict-policy-movie-2019",
-        tmdb_id=539972,
+        seeded_movie,
+        managed_root,
+        "radarr-name",
+    )
+    managed_folder = Path(str(seeded_movie["path"]))
+    managed_folder.mkdir(parents=True, exist_ok=True)
+    source_file = managed_folder / "Fixture.Projection.Radarr.Name.1080p.x265.mkv"
+    source_file.write_text("stub", encoding="utf-8")
+
+    service = LibrariArrService(
+        _projection_config(
+            managed_root=managed_root,
+            library_root=library_root,
+            radarr_url=radarr_url,
+            api_key=api_key,
+            folder_name_source="radarr",
+        )
+    )
+    service.reconcile()
+
+    title = str(seeded_movie.get("title") or "")
+    year = seeded_movie.get("year")
+    if isinstance(year, int):
+        expected_folder_name = safe_path_component(f"{title} ({year})")
+    else:
+        expected_folder_name = safe_path_component(title)
+
+    projected_file = library_root / expected_folder_name / source_file.name
+    assert projected_file.exists()
+    assert projected_file.samefile(source_file)
+    assert "/" not in expected_folder_name
+
+
+@pytest.mark.e2e
+def test_radarr_e2e_projection_scopes_to_webhook_movie_ids() -> None:
+    case_root = _resolve_case_root(f"radarr_projection_scoped_webhook_{uuid.uuid4().hex[:8]}")
+
+    managed_root = case_root / "managed_movies"
+    library_root = case_root / "library_movies"
+    managed_root.mkdir(parents=True, exist_ok=True)
+    library_root.mkdir(parents=True, exist_ok=True)
+
+    radarr_url = os.getenv("LIBRARIARR_RADARR_E2E_URL", "http://radarr-test:7878").rstrip("/")
+    api_key = _wait_for_api_key(Path("/radarr-config/config.xml"))
+    session = _wait_for_radarr(radarr_url, api_key)
+
+    movie_a = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        managed_root,
+        title="Fixture Projection Scoped A",
+        title_slug="fixture-projection-scoped-a-2018",
+        tmdb_id=338970,
+        year=2018,
+    )
+    movie_b = _seed_movie_or_skip(
+        session,
+        radarr_url,
+        managed_root,
+        title="Fixture Projection Scoped B",
+        title_slug="fixture-projection-scoped-b-2019",
+        tmdb_id=502356,
         year=2019,
     )
-
-    canonical_name = _canonical_name_from_seeded_movie(seeded_movie)
-    movie_folder = nested_root / canonical_name
-    movie_folder.mkdir(parents=True, exist_ok=True)
-    (movie_folder / "Fixture.Video.1080p.x265.mkv").write_text("stub", encoding="utf-8")
-
-    movie_id = int(seeded_movie["id"])
-    baseline_path = _movie_path_by_id(session, radarr_url, movie_id)
-
-    config = AppConfig(
-        paths=PathsConfig(
-            root_mappings=[
-                RootMapping(
-                    nested_root=str(nested_root),
-                    shadow_root=str(shadow_root),
-                )
-            ]
-        ),
-        radarr=RadarrConfig(
-            url=radarr_url,
-            api_key=api_key,
-            sync_enabled=True,
-            path_update_match_policy="external_ids_only",
-        ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
-        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    movie_a = _ensure_movie_path_under_managed_root(
+        session,
+        radarr_url,
+        movie_a,
+        managed_root,
+        "scoped-a",
+    )
+    movie_b = _ensure_movie_path_under_managed_root(
+        session,
+        radarr_url,
+        movie_b,
+        managed_root,
+        "scoped-b",
     )
 
-    service = LibrariArrService(config)
-    service.reconcile()
+    folder_a = Path(str(movie_a["path"]))
+    folder_b = Path(str(movie_b["path"]))
+    folder_a.mkdir(parents=True, exist_ok=True)
+    folder_b.mkdir(parents=True, exist_ok=True)
+    source_a = folder_a / "Fixture.Projection.Scoped.A.2018.1080p.x265.mkv"
+    source_b = folder_b / "Fixture.Projection.Scoped.B.2019.1080p.x265.mkv"
+    source_a.write_text("a", encoding="utf-8")
+    source_b.write_text("b", encoding="utf-8")
 
-    expected_link = shadow_root / canonical_name
-    assert expected_link.is_symlink()
-    assert _movie_path_by_id(session, radarr_url, movie_id) == baseline_path
+    service = LibrariArrService(
+        _projection_config(
+            managed_root=managed_root,
+            library_root=library_root,
+            radarr_url=radarr_url,
+            api_key=api_key,
+        )
+    )
+
+    queue = get_radarr_webhook_queue()
+    queue.consume_movie_ids()
+    try:
+        queue.enqueue(
+            movie_id=int(movie_b["id"]),
+            event_type="MovieFileDelete",
+            normalized_path=str(folder_b),
+        )
+        service.reconcile()
+    finally:
+        queue.consume_movie_ids()
+
+    projected_a = library_root / folder_a.relative_to(managed_root) / source_a.name
+    projected_b = library_root / folder_b.relative_to(managed_root) / source_b.name
+    assert not projected_a.exists()
+    assert projected_b.exists()
+    assert projected_b.samefile(source_b)
