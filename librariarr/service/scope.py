@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from pathlib import Path
 
-from ..sync import discover_movie_folders, discover_series_folders
+from ..sync import discover_series_folders
 
 
 class ServiceScopeMixin:
@@ -114,9 +114,6 @@ class ServiceScopeMixin:
         except ValueError:
             return False
 
-    def _all_movie_folders(self) -> dict[Path, Path]:
-        return self._all_folders(discover_movie_folders)
-
     def _all_series_folders(self) -> dict[Path, Path]:
         return self._all_folders(discover_series_folders)
 
@@ -133,10 +130,6 @@ class ServiceScopeMixin:
             for folder in discover(nested_root, self.video_exts, self.scan_exclude_paths):
                 all_folders.setdefault(folder, shadow_root)
         return all_folders
-
-    def _is_radarr_root_available(self, shadow_root: Path) -> bool:
-        normalized = self._normalize_arr_root_path(str(shadow_root))
-        return normalized not in self._radarr_missing_shadow_roots
 
     def _is_sonarr_root_available(self, shadow_root: Path) -> bool:
         normalized = self._normalize_arr_root_path(str(shadow_root))

@@ -85,19 +85,14 @@ export default function ConfigEditor({
     return "none";
   };
 
-  const setCleanupAction = (target: "radarr" | "sonarr", value: string | null) => {
+  const setCleanupAction = (value: string | null) => {
     const nextAction = normalizeCleanupAction(value);
-    const nextRadarrAction =
-      target === "radarr" ? nextAction : normalizeCleanupAction(draft.cleanup.radarr_action_on_missing);
-    const nextSonarrAction =
-      target === "sonarr" ? nextAction : normalizeCleanupAction(draft.cleanup.sonarr_action_on_missing);
 
     onChange({
       ...draft,
       cleanup: {
         ...draft.cleanup,
-        radarr_action_on_missing: nextRadarrAction,
-        sonarr_action_on_missing: nextSonarrAction
+        sonarr_action_on_missing: nextAction
       }
     });
   };

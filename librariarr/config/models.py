@@ -38,7 +38,6 @@ class SonarrMappingConfig:
 @dataclass
 class CleanupConfig:
     remove_orphaned_links: bool = True
-    radarr_action_on_missing: str = "unmonitor"
     sonarr_action_on_missing: str = "unmonitor"
     missing_grace_seconds: int = 3600
 
@@ -82,7 +81,6 @@ class RadarrConfig:
     request_timeout_seconds: int = 30
     request_retry_attempts: int = 2
     request_retry_backoff_seconds: float = 0.5
-    path_update_match_policy: str = "default"
     projection: RadarrProjectionConfig = field(default_factory=lambda: RadarrProjectionConfig())
     mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 

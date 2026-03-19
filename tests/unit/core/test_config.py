@@ -55,13 +55,11 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.auto_add_quality_profile_id is None
     assert config.radarr.auto_add_search_on_add is False
     assert config.radarr.auto_add_monitored is True
-    assert config.radarr.path_update_match_policy == "default"
     assert config.sonarr.enabled is False
     assert config.sonarr.sync_enabled is False
     assert config.sonarr.url == ""
     assert config.sonarr.api_key == ""
     assert config.radarr.mapping.quality_map[0].target_id == 7
-    assert config.cleanup.radarr_action_on_missing == "unmonitor"
     assert config.cleanup.sonarr_action_on_missing == "unmonitor"
     assert config.cleanup.missing_grace_seconds == 3600
     assert config.runtime.arr_root_poll_interval_minutes == 1
@@ -451,7 +449,7 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     assert config.radarr.mapping.custom_format_map[0].format_id == 42
 
 
-def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
+def test_load_config_reads_cleanup_grace(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
@@ -466,7 +464,6 @@ def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
             "cleanup:\n"
-            "  radarr_action_on_missing: none\n"
             "  missing_grace_seconds: 7200\n"
             "runtime: {}\n"
         ),
@@ -475,7 +472,6 @@ def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
 
     config = load_config(config_path)
 
-    assert config.cleanup.radarr_action_on_missing == "none"
     assert config.cleanup.missing_grace_seconds == 7200
 
 
@@ -550,31 +546,6 @@ def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> No
     )
 
     with pytest.raises(ValueError, match="cleanup.sonarr_action_on_missing"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_invalid_cleanup_action(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/movies/one\n"
-            "      shadow_root: /data/radarr_library/one\n"
-            "  movie_root_mappings:\n"
-            "    - managed_root: /data/movies/one\n"
-            "      library_root: /data/radarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "cleanup:\n"
-            "  radarr_action_on_missing: pause\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="cleanup.radarr_action_on_missing"):
         load_config(config_path)
 
 

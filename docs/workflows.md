@@ -28,8 +28,6 @@ On every reconcile cycle, LibrariArr runs this sequence:
    - Auto-add if enabled and still unmatched.
    - Ensure a link exists.
     - Update Arr item path to that link when matched.
-       - Radarr can optionally restrict path updates to external-ID matches only
-          via `radarr.path_update_match_policy=external_ids_only`.
 8. Cleanup stale/orphan links.
 
 ## Trigger Sources
@@ -92,7 +90,6 @@ Expected flow:
    - Existing link/path based match
    - Fuzzy title/year fallback
 5. If matched, Arr path is updated to folder-derived link path.
-   - For Radarr, this update can be policy-gated to external-ID matches only.
 6. If unmatched and auto-add enabled, item is added in Arr and then synced to link path.
 7. Orphan/stale links in affected scope are cleaned.
 

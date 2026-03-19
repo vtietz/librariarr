@@ -44,7 +44,7 @@ type Props = {
     field: keyof ConfigModel[T],
     value: unknown
   ) => void;
-  onSetCleanupAction: (target: "radarr" | "sonarr", value: string | null) => void;
+  onSetCleanupAction: (value: string | null) => void;
 };
 
 export default function MiscSections({ draft, onSetSectionField, onSetCleanupAction }: Props) {
@@ -121,24 +121,13 @@ export default function MiscSections({ draft, onSetSectionField, onSetCleanupAct
             <Select
               label={
                 <HelpLabel
-                  label="Radarr Action On Missing"
-                  help="Action to apply in Radarr when a source folder stays missing after grace period."
-                />
-              }
-              data={["none", "unmonitor", "delete"]}
-              value={draft.cleanup.radarr_action_on_missing}
-              onChange={(value) => onSetCleanupAction("radarr", value)}
-            />
-            <Select
-              label={
-                <HelpLabel
                   label="Sonarr Action On Missing"
                   help="Action to apply in Sonarr when a source folder stays missing after grace period."
                 />
               }
               data={["none", "unmonitor", "delete"]}
               value={draft.cleanup.sonarr_action_on_missing}
-              onChange={(value) => onSetCleanupAction("sonarr", value)}
+              onChange={(value) => onSetCleanupAction(value)}
             />
             <NumberInput
               label={

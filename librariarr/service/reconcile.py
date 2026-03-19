@@ -121,10 +121,6 @@ class ServiceReconcileMixin:
             )
 
             target_to_links = collect_current_links(self.shadow_roots)
-            if plan.fetch_movie_index:
-                movies_by_ref, _, _ = self._build_movie_indices()
-            else:
-                movies_by_ref = {}
             if plan.fetch_series_index:
                 series_by_ref, series_by_path, series_by_external_id = self._build_series_indices()
             else:
@@ -135,7 +131,6 @@ class ServiceReconcileMixin:
             movie_created_links = 0
             matched_movies = 0
             unmatched_movies = 0
-            matched_movie_ids: set[int] = set()
             if self.radarr_enabled:
                 if self.movie_projection is None:
                     raise RuntimeError(
@@ -168,16 +163,11 @@ class ServiceReconcileMixin:
                 self.runtime_status_tracker.update_reconcile_phase("applied")
 
             orphaned_links_removed = self._cleanup_orphans(
-                all_movie_folders=plan.movie_scope.all_folders,
                 all_series_folders=plan.series_scope.all_folders,
                 expected_links=expected_links,
-                movies_by_ref=movies_by_ref,
                 series_by_ref=series_by_ref,
-                movie_incremental_mode=plan.movie_scope.incremental_mode,
                 series_incremental_mode=plan.series_scope.incremental_mode,
-                movie_affected_targets=plan.movie_scope.affected_targets,
                 series_affected_targets=plan.series_scope.affected_targets,
-                matched_movie_ids=matched_movie_ids,
                 matched_series_ids=matched_series_ids,
             )
             if getattr(self, "runtime_status_tracker", None) is not None:
@@ -513,41 +503,34 @@ class ServiceReconcileMixin:
 
     def _cleanup_orphans(
         self,
-        all_movie_folders: dict[Path, Path],
         all_series_folders: dict[Path, Path],
         expected_links: set[Path],
-        movies_by_ref: dict[MovieRef, dict],
         series_by_ref: dict[MovieRef, dict],
-        movie_incremental_mode: bool,
         series_incremental_mode: bool,
-        movie_affected_targets: set[Path],
         series_affected_targets: set[Path],
-        matched_movie_ids: set[int],
         matched_series_ids: set[int],
     ) -> int:
         cleanup_tasks = build_cleanup_tasks(
             remove_orphaned_links=self.config.cleanup.remove_orphaned_links,
             radarr_enabled=False,
             sonarr_enabled=self.sonarr_enabled,
-            movie_incremental_mode=movie_incremental_mode,
+            movie_incremental_mode=False,
             series_incremental_mode=series_incremental_mode,
-            movie_affected_targets=movie_affected_targets,
+            movie_affected_targets=set(),
             series_affected_targets=series_affected_targets,
-            matched_movie_ids=matched_movie_ids,
+            matched_movie_ids=set(),
             matched_series_ids=matched_series_ids,
         )
         if not cleanup_tasks:
             return 0
 
-        existing_folders = set(all_movie_folders.keys()) | set(all_series_folders.keys())
+        existing_folders = set(all_series_folders.keys())
         removed_orphans = 0
         for task in cleanup_tasks:
-            manager = self.cleanup_manager if task.kind == "radarr" else self.sonarr_cleanup_manager
-            items_by_ref = movies_by_ref if task.kind == "radarr" else series_by_ref
             removed_orphans += self._cleanup_with_manager(
-                manager=manager,
+                manager=self.sonarr_cleanup_manager,
                 existing_folders=existing_folders,
-                items_by_ref=items_by_ref,
+                items_by_ref=series_by_ref,
                 expected_links=expected_links,
                 incremental_mode=task.incremental_mode,
                 affected_targets=task.affected_targets,

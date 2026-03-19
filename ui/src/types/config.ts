@@ -47,7 +47,6 @@ export type ConfigModel = {
   };
   cleanup: {
     remove_orphaned_links: boolean;
-    radarr_action_on_missing: string;
     sonarr_action_on_missing: string;
     missing_grace_seconds: number;
   };

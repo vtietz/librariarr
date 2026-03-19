@@ -76,7 +76,6 @@ def test_reconcile_deletes_radarr_entry_when_configured(tmp_path: Path) -> None:
         nested_root,
         shadow_root,
         sync_enabled=True,
-        radarr_action_on_missing="delete",
     )
     service = LibrariArrService(config)
 
@@ -216,7 +215,6 @@ def test_reconcile_strict_policy_blocks_title_year_path_update(tmp_path: Path) -
         nested_root,
         shadow_root,
         sync_enabled=True,
-        path_update_match_policy="external_ids_only",
     )
     service = LibrariArrService(config)
 
@@ -254,7 +252,6 @@ def test_reconcile_strict_policy_allows_external_id_path_update(tmp_path: Path) 
         nested_root,
         shadow_root,
         sync_enabled=True,
-        path_update_match_policy="external_ids_only",
     )
     service = LibrariArrService(config)
 

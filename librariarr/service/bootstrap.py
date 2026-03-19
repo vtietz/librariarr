@@ -70,18 +70,6 @@ class ServiceBootstrapMixin:
             shadow_to_nested_roots=self.shadow_to_nested_roots,
             logger=LOG,
         )
-        self.cleanup_manager = ShadowCleanupManager(
-            shadow_roots=self.shadow_roots,
-            sync_enabled=self.sync_enabled,
-            on_missing_action=config.cleanup.radarr_action_on_missing,
-            missing_grace_seconds=config.cleanup.missing_grace_seconds,
-            get_arr_client=lambda: self.radarr,
-            resolve_item_for_link_name=self._resolve_movie_for_link_name,
-            unmonitor_item=lambda client, item: client.unmonitor_movie(item),
-            delete_item=lambda client, item_id: client.delete_movie(item_id, delete_files=False),
-            refresh_item=lambda client, item_id: client.refresh_movie(item_id),
-            logger=LOG,
-        )
         self.sonarr_cleanup_manager = ShadowCleanupManager(
             shadow_roots=self.shadow_roots,
             sync_enabled=self.sonarr_sync_enabled,
@@ -117,9 +105,8 @@ class ServiceBootstrapMixin:
         self._sync_hint_logged = False
         self._sonarr_sync_hint_logged = False
         self._next_arr_root_poll_at = 0.0
-        self._radarr_missing_shadow_roots: set[str] = set()
+        self._radarr_missing_managed_roots: set[str] = set()
         self._sonarr_missing_shadow_roots: set[str] = set()
-        self._known_movie_folders: dict[Path, Path] | None = None
         self._known_series_folders: dict[Path, Path] | None = None
         self.runtime_status_tracker = get_runtime_status_tracker()
 

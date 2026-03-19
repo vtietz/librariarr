@@ -174,11 +174,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         0.0,
         float(radarr.get("request_retry_backoff_seconds", 0.5)),
     )
-    path_update_match_policy = str(radarr.get("path_update_match_policy", "default")).strip()
-    if path_update_match_policy not in {"default", "external_ids_only"}:
-        raise ValueError(
-            "radarr.path_update_match_policy must be one of: default, external_ids_only"
-        )
     auto_add_search_on_add = bool(radarr.get("auto_add_search_on_add", False))
     auto_add_monitored = bool(radarr.get("auto_add_monitored", True))
     refresh_debounce_seconds = max(0, int(radarr.get("refresh_debounce_seconds", 15)))
@@ -273,14 +268,10 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     ]
 
     cleanup_raw = raw.get("cleanup", {})
-    configured_radarr_action = str(cleanup_raw.get("radarr_action_on_missing", "")).strip().lower()
     configured_sonarr_action = str(cleanup_raw.get("sonarr_action_on_missing", "")).strip().lower()
-    if configured_radarr_action and configured_radarr_action not in {"none", "unmonitor", "delete"}:
-        raise ValueError("cleanup.radarr_action_on_missing must be one of: none, unmonitor, delete")
     if configured_sonarr_action and configured_sonarr_action not in {"none", "unmonitor", "delete"}:
         raise ValueError("cleanup.sonarr_action_on_missing must be one of: none, unmonitor, delete")
 
-    resolved_missing_action = configured_radarr_action or "unmonitor"
     resolved_sonarr_missing_action = configured_sonarr_action or "unmonitor"
 
     missing_grace_seconds = max(0, int(cleanup_raw.get("missing_grace_seconds", 3600)))
@@ -374,7 +365,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             request_timeout_seconds=request_timeout_seconds,
             request_retry_attempts=request_retry_attempts,
             request_retry_backoff_seconds=request_retry_backoff_seconds,
-            path_update_match_policy=path_update_match_policy,
             projection=RadarrProjectionConfig(
                 managed_video_extensions=managed_video_extensions,
                 managed_extras_allowlist=managed_extras_allowlist,
@@ -417,7 +407,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         ),
         cleanup=CleanupConfig(
             remove_orphaned_links=bool(cleanup_raw.get("remove_orphaned_links", True)),
-            radarr_action_on_missing=resolved_missing_action,
             sonarr_action_on_missing=resolved_sonarr_missing_action,
             missing_grace_seconds=missing_grace_seconds,
         ),

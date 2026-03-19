@@ -334,7 +334,7 @@ class ServicePreflightMixin:
 
     def _refresh_radarr_missing_roots(self) -> bool:
         if not self.sync_enabled:
-            self._radarr_missing_shadow_roots = set()
+            self._radarr_missing_managed_roots = set()
             return False
 
         try:
@@ -345,10 +345,10 @@ class ServicePreflightMixin:
             return False
 
         missing = configured - available
-        self._radarr_missing_shadow_roots, became_available = self._update_missing_roots_state(
+        self._radarr_missing_managed_roots, became_available = self._update_missing_roots_state(
             "Radarr",
             missing,
-            self._radarr_missing_shadow_roots,
+            self._radarr_missing_managed_roots,
         )
         return became_available
 

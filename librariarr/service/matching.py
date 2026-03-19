@@ -4,7 +4,6 @@ from pathlib import Path
 
 import requests
 
-from ..quality import map_quality_id
 from ..sync import MovieRef, parse_movie_ref
 from .common import LOG, TITLE_TOKEN_RE
 from .external_id_parsing import (
@@ -15,127 +14,12 @@ from .external_id_parsing import (
 
 
 class ServiceMatchingMixin:
-    def _record_movie_match_strategy(self, folder: Path, strategy: str | None) -> None:
-        if not hasattr(self, "_movie_match_strategy_by_folder"):
-            self._movie_match_strategy_by_folder: dict[str, str] = {}
-        key = str(folder)
-        if strategy is None:
-            self._movie_match_strategy_by_folder.pop(key, None)
-            return
-        self._movie_match_strategy_by_folder[key] = strategy
-
-    def _consume_movie_match_strategy(self, folder: Path, auto_added: bool) -> str | None:
-        if auto_added:
-            return "auto_add"
-        if not hasattr(self, "_movie_match_strategy_by_folder"):
-            return None
-        return self._movie_match_strategy_by_folder.pop(str(folder), None)
-
-    def _is_radarr_path_update_allowed(self, match_strategy: str | None) -> bool:
-        policy = self.config.radarr.path_update_match_policy
-        if policy == "external_ids_only":
-            return match_strategy in {"external_ids", "auto_add"}
-        return True
-
     def _is_http_not_found(self, exc: requests.HTTPError) -> bool:
         response = exc.response
         return response is not None and response.status_code == 404
 
-    def _match_movie_for_folder(
-        self,
-        folder: Path,
-        movies_by_ref: dict[MovieRef, dict],
-        movies_by_path: dict[str, dict],
-        movies_by_external_id: dict[str, dict],
-        existing_links: set[Path],
-    ) -> dict | None:
-        self._record_movie_match_strategy(folder, None)
-
-        external_id_match = self._match_movie_for_external_ids(folder, movies_by_external_id)
-        if external_id_match is not None:
-            self._record_movie_match_strategy(folder, "external_ids")
-            self._log_movie_match(
-                folder,
-                "external_ids",
-                f"tmdb={external_id_match.get('tmdbId')} imdb={external_id_match.get('imdbId')}",
-                external_id_match,
-            )
-            return external_id_match
-
-        ref = parse_movie_ref(folder.name)
-        exact_match = movies_by_ref.get(ref)
-        if exact_match is None and ref.year is None:
-            exact_match = movies_by_ref.get(MovieRef(title=ref.title, year=None))
-        if exact_match is not None:
-            self._record_movie_match_strategy(folder, "exact_title_year")
-            self._log_movie_match(
-                folder,
-                "exact_title_year",
-                f"title={ref.title} year={ref.year}",
-                exact_match,
-            )
-            return exact_match
-
-        link_match = self._match_movie_for_existing_links(
-            existing_links,
-            movies_by_ref,
-            movies_by_path,
-        )
-        if link_match is not None:
-            self._record_movie_match_strategy(folder, "existing_link_path_or_name")
-            self._log_movie_match(
-                folder,
-                "existing_link_path_or_name",
-                f"existing_links={len(existing_links)}",
-                link_match,
-            )
-            return link_match
-
-        fuzzy_match = self._fuzzy_match_movie_for_folder(ref, movies_by_ref)
-        if fuzzy_match is None:
-            return None
-
-        self._log_movie_match(
-            folder,
-            "fuzzy_fallback",
-            f"title={ref.title} year={ref.year}",
-            fuzzy_match,
-        )
-        self._record_movie_match_strategy(folder, "fuzzy_fallback")
-        return fuzzy_match
-
-    def _log_movie_match(self, folder: Path, strategy: str, value: str, movie: dict) -> None:
-        LOG.info(
-            "Matched Radarr movie: folder=%s strategy=%s value=%s movie=%s (%s)",
-            folder,
-            strategy,
-            value,
-            movie.get("title"),
-            movie.get("year"),
-        )
-
     def _normalize_fs_path(self, value: str) -> str:
         return value.rstrip("/")
-
-    def _match_movie_for_existing_links(
-        self,
-        existing_links: set[Path],
-        movies_by_ref: dict[MovieRef, dict],
-        movies_by_path: dict[str, dict],
-    ) -> dict | None:
-        for link in sorted(existing_links):
-            linked_movie = movies_by_path.get(self._normalize_fs_path(str(link)))
-            if linked_movie is not None:
-                return linked_movie
-
-            ref = parse_movie_ref(link.name.split("--", 1)[0])
-            named_movie = movies_by_ref.get(ref)
-            if named_movie is None and ref.year is None:
-                named_movie = movies_by_ref.get(MovieRef(title=ref.title, year=None))
-            if named_movie is not None:
-                return named_movie
-
-        return None
 
     def _normalize_title_token(self, title: str) -> str:
         return TITLE_TOKEN_RE.sub("", title.strip().lower())
@@ -184,84 +68,6 @@ class ServiceMatchingMixin:
                 best = movie
 
         return best if best_score > 0 else None
-
-    def _build_movie_index(self) -> dict[MovieRef, dict]:
-        index: dict[MovieRef, dict] = {}
-        for movie in self.radarr.get_movies():
-            self._index_movie(index=index, movie=movie)
-        return index
-
-    def _build_movie_indices(
-        self,
-    ) -> tuple[dict[MovieRef, dict], dict[str, dict], dict[str, dict]]:
-        """Build ref, path, and external-id indices in a single pass over the API response."""
-        ref_index: dict[MovieRef, dict] = {}
-        path_index: dict[str, dict] = {}
-        ext_id_index: dict[str, dict] = {}
-        for movie in self.radarr.get_movies():
-            self._index_movie(index=ref_index, movie=movie)
-            self._index_movie_path(index=path_index, movie=movie)
-            self._index_movie_external_ids(index=ext_id_index, movie=movie)
-        return ref_index, path_index, ext_id_index
-
-    def _build_movie_path_index(self, movies_by_ref: dict[MovieRef, dict]) -> dict[str, dict]:
-        index: dict[str, dict] = {}
-        seen_ids: set[int] = set()
-        for movie in movies_by_ref.values():
-            movie_id = movie.get("id")
-            if not isinstance(movie_id, int) or movie_id in seen_ids:
-                continue
-            seen_ids.add(movie_id)
-            self._index_movie_path(index=index, movie=movie)
-        return index
-
-    def _build_movie_external_id_index(
-        self,
-        movies_by_ref: dict[MovieRef, dict],
-    ) -> dict[str, dict]:
-        index: dict[str, dict] = {}
-        seen_ids: set[int] = set()
-        for movie in movies_by_ref.values():
-            movie_id = movie.get("id")
-            if not isinstance(movie_id, int) or movie_id in seen_ids:
-                continue
-            seen_ids.add(movie_id)
-            self._index_movie_external_ids(index=index, movie=movie)
-        return index
-
-    def _index_movie(self, index: dict[MovieRef, dict], movie: dict) -> None:
-        title = (movie.get("title") or "").strip().lower()
-        if not title:
-            return
-        year = movie.get("year")
-        ref = MovieRef(title=title, year=year if isinstance(year, int) else None)
-        index[ref] = movie
-        if MovieRef(title=title, year=None) not in index:
-            index[MovieRef(title=title, year=None)] = movie
-
-    def _index_movie_path(self, index: dict[str, dict], movie: dict) -> None:
-        path_raw = movie.get("path")
-        path = str(path_raw).strip() if path_raw is not None else ""
-        if not path:
-            return
-        index[self._normalize_fs_path(path)] = movie
-
-    def _add_movie_id_if_present(self, target: set[int], movie: dict) -> int | None:
-        movie_id = movie.get("id")
-        if isinstance(movie_id, int):
-            target.add(movie_id)
-            return movie_id
-        return None
-
-    def _index_movie_external_ids(self, index: dict[str, dict], movie: dict) -> None:
-        tmdb_id = movie.get("tmdbId")
-        if isinstance(tmdb_id, int):
-            index.setdefault(f"tmdb:{tmdb_id}", movie)
-
-        imdb_raw = movie.get("imdbId")
-        imdb_id = str(imdb_raw).strip().lower() if imdb_raw is not None else ""
-        if imdb_id.startswith("tt"):
-            index.setdefault(f"imdb:{imdb_id}", movie)
 
     def _collect_folder_identity_text(self, folder: Path) -> str:
         parts = [folder.name]
@@ -323,104 +129,15 @@ class ServiceMatchingMixin:
 
         return tmdb_ids, imdb_ids, tvdb_ids
 
-    def _match_movie_for_external_ids(
-        self,
-        folder: Path,
-        movies_by_external_id: dict[str, dict],
-    ) -> dict | None:
-        if not movies_by_external_id:
-            return None
-
-        nfo_tmdb_ids, nfo_imdb_ids, _nfo_tvdb_ids = self._collect_nfo_external_ids(folder)
-        nfo_candidates: list[tuple[str, int | str]] = [
-            *[("tmdb", tmdb_id) for tmdb_id in nfo_tmdb_ids],
-            *[("imdb", imdb_id) for imdb_id in nfo_imdb_ids],
-        ]
-        nfo_match = self._find_external_id_match(movies_by_external_id, nfo_candidates)
-        if nfo_match is not None:
-            return nfo_match
-
-        identity_text = self._collect_folder_identity_text(folder)
-        tmdb_id, imdb_id = extract_external_ids_from_text(identity_text)
-        text_candidates: list[tuple[str, int | str]] = []
-        if tmdb_id is not None:
-            text_candidates.append(("tmdb", tmdb_id))
-        if imdb_id is not None:
-            text_candidates.append(("imdb", imdb_id))
-
-        return self._find_external_id_match(movies_by_external_id, text_candidates)
-
-    def _sync_radarr_for_folder(
-        self,
-        folder: Path,
-        link: Path,
-        movie: dict,
-        force_refresh: bool = False,
-        apply_quality_mapping: bool = False,
-        match_strategy: str | None = None,
-    ) -> None:
-        movie_id = movie.get("id")
-        movie_title = movie.get("title")
-        path_updated = False
-        if self._is_radarr_path_update_allowed(match_strategy):
-            try:
-                path_updated = self.radarr.update_movie_path(movie, str(link))
-            except requests.HTTPError as exc:
-                if self._is_http_not_found(exc):
-                    LOG.warning(
-                        "Skipping Radarr sync for missing movie id=%s title=%s while updating path",
-                        movie_id,
-                        movie_title,
-                    )
-                    return
-                raise
-        else:
-            LOG.warning(
-                "Skipped Radarr path update by policy: "
-                "folder=%s strategy=%s policy=%s movie=%s (%s)",
-                folder,
-                match_strategy or "none",
-                self.config.radarr.path_update_match_policy,
-                movie_title,
-                movie_id,
-            )
-
-        quality_updated = False
-        quality_map = self.config.effective_radarr_quality_map()
-        movie_file = movie.get("movieFile")
-        if apply_quality_mapping and quality_map and movie_file:
-            quality_id = map_quality_id(
-                folder,
-                quality_map,
-                use_nfo=self.config.analysis.use_nfo,
-                use_media_probe=self.config.analysis.use_media_probe,
-                media_probe_bin=self.config.analysis.media_probe_bin,
-            )
-            quality_updated = self.radarr.try_update_moviefile_quality(movie, quality_id)
-
-        if force_refresh or path_updated or quality_updated:
-            try:
-                self.radarr.refresh_movie(int(movie["id"]), force=force_refresh)
-            except requests.HTTPError as exc:
-                if self._is_http_not_found(exc):
-                    LOG.warning(
-                        "Skipping Radarr refresh for missing movie id=%s title=%s",
-                        movie_id,
-                        movie_title,
-                    )
-                    return
-                raise
-
-    def _resolve_movie_for_link_name(
-        self,
-        link_name: str,
-        movies_by_ref: dict[MovieRef, dict],
-    ) -> dict | None:
-        ref = parse_movie_ref(link_name.split("--", 1)[0])
-        return movies_by_ref.get(ref) or movies_by_ref.get(MovieRef(title=ref.title, year=None))
-
     def _extract_tvdb_id_from_text(self, text: str) -> int | None:
         return extract_tvdb_id_from_text(text)
+
+    def _add_movie_id_if_present(self, target: set[int], movie: dict) -> int | None:
+        movie_id = movie.get("id")
+        if isinstance(movie_id, int):
+            target.add(movie_id)
+            return movie_id
+        return None
 
     def _build_series_index(self) -> dict[MovieRef, dict]:
         index: dict[MovieRef, dict] = {}
@@ -441,7 +158,6 @@ class ServiceMatchingMixin:
     def _build_series_indices(
         self,
     ) -> tuple[dict[MovieRef, dict], dict[str, dict], dict[str, dict]]:
-        """Build ref, path, and external-id indices in a single pass over the API response."""
         ref_index: dict[MovieRef, dict] = {}
         path_index: dict[str, dict] = {}
         ext_id_index: dict[str, dict] = {}
