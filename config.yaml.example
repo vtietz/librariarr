@@ -1,15 +1,15 @@
 paths:
   # Radarr movie projection mappings (managed_root -> curated library_root).
   movie_root_mappings:
-    - managed_root: "/data/radarr_library/age_06"
-      library_root: "/data/movies/age_06"
-    - managed_root: "/data/radarr_library/age_12"
-      library_root: "/data/movies/age_12"
-    - managed_root: "/data/radarr_library/age_16"
-      library_root: "/data/movies/age_16"
+    - managed_root: "/data/movies/age_06"
+      library_root: "/data/radarr_library/age_06"
+    - managed_root: "/data/movies/age_12"
+      library_root: "/data/radarr_library/age_12"
+    - managed_root: "/data/movies/age_16"
+      library_root: "/data/radarr_library/age_16"
 
   # Sonarr projection mappings (optional; required only when sonarr.enabled=true).
-  root_mappings:
+  series_root_mappings:
     - nested_root: "/data/series/age_06"      # Sonarr managed root
       shadow_root: "/data/sonarr_library/age_06" # Sonarr library root
     - nested_root: "/data/series/age_12"      # Sonarr managed root

@@ -102,7 +102,7 @@ export default function ConfigEditor({
       ...draft,
       paths: {
         ...draft.paths,
-        root_mappings: draft.paths.root_mappings.map((mapping, mappingIndex) => {
+        series_root_mappings: draft.paths.series_root_mappings.map((mapping, mappingIndex) => {
           if (mappingIndex !== index) {
             return mapping;
           }
@@ -117,7 +117,9 @@ export default function ConfigEditor({
       ...draft,
       paths: {
         ...draft.paths,
-        root_mappings: draft.paths.root_mappings.filter((_, mappingIndex) => mappingIndex !== index)
+        series_root_mappings: draft.paths.series_root_mappings.filter(
+          (_, mappingIndex) => mappingIndex !== index
+        )
       }
     });
   };
@@ -127,13 +129,18 @@ export default function ConfigEditor({
       ...draft,
       paths: {
         ...draft.paths,
-        root_mappings: [...draft.paths.root_mappings, { nested_root: "", shadow_root: "" }]
+        series_root_mappings: [
+          ...draft.paths.series_root_mappings,
+          { nested_root: "", shadow_root: "" }
+        ]
       }
     });
   };
 
   const pickerInitialPath =
-    pickerTarget == null ? "" : draft.paths.root_mappings[pickerTarget.index]?.[pickerTarget.key] ?? "";
+    pickerTarget == null
+      ? ""
+      : draft.paths.series_root_mappings[pickerTarget.index]?.[pickerTarget.key] ?? "";
 
   const parseActionError = (error: unknown): string => {
     if (typeof error !== "object" || error === null) {
@@ -277,7 +284,7 @@ export default function ConfigEditor({
       )}
 
       <PathsSection
-        rootMappings={draft.paths.root_mappings}
+        rootMappings={draft.paths.series_root_mappings}
         excludePaths={draft.paths.exclude_paths ?? []}
         onAddMapping={addRootMapping}
         onRemoveMapping={removeRootMapping}

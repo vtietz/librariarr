@@ -25,7 +25,7 @@ def _write_config(path: Path, nested_root: Path, shadow_root: Path) -> None:
     path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             f"    - nested_root: {nested_root}\n"
             f"      shadow_root: {shadow_root}\n"
             "  movie_root_mappings:\n"
@@ -52,7 +52,7 @@ def _write_config_with_excludes(path: Path, nested_root: Path, shadow_root: Path
     path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             f"    - nested_root: {nested_root}\n"
             f"      shadow_root: {shadow_root}\n"
             "  movie_root_mappings:\n"

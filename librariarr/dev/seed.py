@@ -37,17 +37,40 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def _extract_seed_targets(payload: dict[str, Any]) -> list[tuple[Path, str]]:
-    mappings = payload.get("paths", {}).get("root_mappings", [])
-    if not isinstance(mappings, list):
-        return []
+    paths_payload = payload.get("paths", {}) if isinstance(payload.get("paths"), dict) else {}
+
+    series_mappings_raw = paths_payload.get("series_root_mappings")
+    movie_mappings_raw = paths_payload.get("movie_root_mappings")
+
+    if isinstance(series_mappings_raw, list):
+        series_mappings: list[dict[str, Any]] = [
+            item for item in series_mappings_raw if isinstance(item, dict)
+        ]
+    else:
+        series_mappings = []
+
+    movie_mappings: list[dict[str, Any]] = (
+        [item for item in movie_mappings_raw if isinstance(item, dict)]
+        if isinstance(movie_mappings_raw, list)
+        else []
+    )
 
     roots: list[tuple[Path, str]] = []
     seen: dict[str, int] = {}
 
-    for item in mappings:
-        if not isinstance(item, dict):
+    for item in movie_mappings:
+        managed_root = str(item.get("managed_root", "")).strip()
+        if not managed_root:
             continue
 
+        root_kind = "movies"
+        if managed_root in seen:
+            continue
+
+        seen[managed_root] = len(roots)
+        roots.append((Path(managed_root), root_kind))
+
+    for item in series_mappings:
         nested_root = str(item.get("nested_root", "")).strip()
         shadow_root = str(item.get("shadow_root", "")).strip().lower()
         if not nested_root:

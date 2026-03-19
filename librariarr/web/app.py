@@ -163,7 +163,7 @@ def _to_yaml_text(payload: Any, base_yaml_text: str) -> str:
 
 def _allowed_roots(config: AppConfig) -> list[Path]:
     roots: set[Path] = set()
-    for mapping in config.paths.root_mappings:
+    for mapping in config.paths.series_root_mappings:
         roots.add(Path(mapping.nested_root))
         roots.add(Path(mapping.shadow_root))
     for mapping in config.paths.movie_root_mappings:

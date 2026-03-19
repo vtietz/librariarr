@@ -49,10 +49,10 @@ class ServiceBootstrapMixin:
             get_sonarr_client=lambda: self.sonarr,
         )
         self.movie_root_mappings = self._build_movie_root_mappings(config)
-        self.root_mappings = self._build_root_mappings(config)
-        self.series_managed_roots = [managed for managed, _ in self.root_mappings]
+        self.series_root_mappings = self._build_series_root_mappings(config)
+        self.series_managed_roots = [managed for managed, _ in self.series_root_mappings]
         self.series_library_roots = self._unique_paths(
-            [library for _, library in self.root_mappings]
+            [library for _, library in self.series_root_mappings]
         )
         self.watched_source_roots = self._unique_paths(
             [managed for managed, _ in self.movie_root_mappings] + self.series_managed_roots
@@ -98,9 +98,10 @@ class ServiceBootstrapMixin:
         self._sonarr_missing_managed_roots: set[str] = set()
         self.runtime_status_tracker = get_runtime_status_tracker()
 
-    def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
+    def _build_series_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
         return [
-            (Path(item.nested_root), Path(item.shadow_root)) for item in config.paths.root_mappings
+            (Path(item.nested_root), Path(item.shadow_root))
+            for item in config.paths.series_root_mappings
         ]
 
     def _build_movie_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
@@ -122,8 +123,8 @@ class ServiceBootstrapMixin:
     def run(self, stop_event: threading.Event | None = None) -> None:
         movie_managed_roots = "\n    - ".join(str(root) for root, _ in self.movie_root_mappings)
         movie_library_roots = "\n    - ".join(str(root) for _, root in self.movie_root_mappings)
-        series_managed_roots = "\n    - ".join(str(root) for root, _ in self.root_mappings)
-        series_library_roots = "\n    - ".join(str(root) for _, root in self.root_mappings)
+        series_managed_roots = "\n    - ".join(str(root) for root, _ in self.series_root_mappings)
+        series_library_roots = "\n    - ".join(str(root) for _, root in self.series_root_mappings)
         LOG.info("")
         LOG.info("================ LibrariArr Startup ================")
         LOG.info("Startup configuration:")
@@ -160,7 +161,7 @@ class ServiceBootstrapMixin:
         for managed_root, library_root in self.movie_root_mappings:
             managed_root.mkdir(parents=True, exist_ok=True)
             library_root.mkdir(parents=True, exist_ok=True)
-        for managed_root, library_root in self.root_mappings:
+        for managed_root, library_root in self.series_root_mappings:
             managed_root.mkdir(parents=True, exist_ok=True)
             library_root.mkdir(parents=True, exist_ok=True)
         self._run_sync_preflight_checks()

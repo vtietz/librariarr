@@ -10,7 +10,7 @@ def test_load_config_rejects_legacy_top_level_quality_map(tmp_path: Path) -> Non
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "radarr:\n"
@@ -38,7 +38,7 @@ def test_load_config_reads_namespaced_sonarr_mapping(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/series/one\n"
             "      shadow_root: /data/sonarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -75,7 +75,7 @@ def test_load_config_rejects_legacy_radarr_quality_map_id_key(tmp_path: Path) ->
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -103,7 +103,7 @@ def test_load_config_rejects_legacy_radarr_custom_format_format_key(tmp_path: Pa
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -131,7 +131,7 @@ def test_load_config_rejects_legacy_sonarr_profile_id_alias(tmp_path: Path) -> N
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/series/one\n"
             "      shadow_root: /data/sonarr_library/one\n"
             "  movie_root_mappings:\n"

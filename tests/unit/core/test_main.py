@@ -8,7 +8,7 @@ def test_main_no_longer_fails_fast_for_ambiguous_ingest_root_mappings(tmp_path: 
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/a\n"
             "      shadow_root: /data/radarr_library\n"
             "    - nested_root: /data/movies/b\n"

@@ -124,15 +124,17 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             "Use radarr.mapping.quality_map and radarr.mapping.custom_format_map."
         )
 
-    root_mappings_raw = paths.get("root_mappings") or []
-    if not isinstance(root_mappings_raw, list):
-        raise ValueError("paths.root_mappings must be a list")
-    root_mappings = [
+    series_root_mappings_raw = paths.get("series_root_mappings") or []
+
+    if not isinstance(series_root_mappings_raw, list):
+        raise ValueError("paths.series_root_mappings must be a list")
+
+    series_root_mappings = [
         RootMapping(
             nested_root=str(_require(item, "nested_root")),
             shadow_root=str(_require(item, "shadow_root")),
         )
-        for item in root_mappings_raw
+        for item in series_root_mappings_raw
     ]
 
     movie_root_mappings_raw = paths.get("movie_root_mappings") or []
@@ -150,8 +152,8 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
 
     _validate_movie_root_mappings(movie_root_mappings)
 
-    if sonarr_enabled and not root_mappings:
-        raise ValueError("paths.root_mappings is required when Sonarr is enabled")
+    if sonarr_enabled and not series_root_mappings:
+        raise ValueError("paths.series_root_mappings is required when Sonarr is enabled")
     exclude_paths_raw = paths.get("exclude_paths", [])
     if exclude_paths_raw is None:
         exclude_paths_raw = []
@@ -371,7 +373,7 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
 
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=root_mappings,
+            series_root_mappings=series_root_mappings,
             movie_root_mappings=movie_root_mappings,
             exclude_paths=exclude_paths,
         ),

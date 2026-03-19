@@ -30,7 +30,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 def _collect_media_paths(payload: dict[str, Any]) -> list[Path]:
     collected: list[Path] = list(DEFAULT_MEDIA_PATHS)
-    mappings = payload.get("paths", {}).get("root_mappings", [])
+    mappings = payload.get("paths", {}).get("series_root_mappings", [])
 
     if isinstance(mappings, list):
         for item in mappings:

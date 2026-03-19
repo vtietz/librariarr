@@ -6,7 +6,7 @@ from librariarr.config import DEFAULT_SCAN_VIDEO_EXTENSIONS, load_config
 
 CONFIG_CONTENT = (
     "paths:\n"
-    "  root_mappings:\n"
+    "  series_root_mappings:\n"
     "    - nested_root: /data/movies/one\n"
     "      shadow_root: /data/radarr_library/one\n"
     "  movie_root_mappings:\n"
@@ -44,9 +44,9 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
 
     config = load_config(config_path)
 
-    assert len(config.paths.root_mappings) == 1
-    assert config.paths.root_mappings[0].nested_root == "/data/movies/one"
-    assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/one"
+    assert len(config.paths.series_root_mappings) == 1
+    assert config.paths.series_root_mappings[0].nested_root == "/data/movies/one"
+    assert config.paths.series_root_mappings[0].shadow_root == "/data/radarr_library/one"
     assert config.radarr.enabled is True
     assert config.radarr.url == "http://radarr:7878"
     assert config.radarr.api_key == "test-key"
@@ -88,18 +88,18 @@ def test_only_radarr_url_and_api_key_env_overrides_are_applied(tmp_path: Path, m
     assert config.radarr.api_key == "env-key"
     assert config.sonarr.url == "http://sonarr.local:8989"
     assert config.sonarr.api_key == "sonarr-env-key"
-    assert len(config.paths.root_mappings) == 1
+    assert len(config.paths.series_root_mappings) == 1
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
     assert config.analysis.media_probe_bin == "ffprobe"
 
 
-def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
+def test_load_config_reads_multiple_series_root_mappings(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/age_06\n"
             "      shadow_root: /data/radarr_library/age_06\n"
             "    - nested_root: /data/movies/age_12\n"
@@ -122,9 +122,9 @@ def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
 
     config = load_config(config_path)
 
-    assert len(config.paths.root_mappings) == 2
-    assert config.paths.root_mappings[0].nested_root == "/data/movies/age_06"
-    assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/age_06"
+    assert len(config.paths.series_root_mappings) == 2
+    assert config.paths.series_root_mappings[0].nested_root == "/data/movies/age_06"
+    assert config.paths.series_root_mappings[0].shadow_root == "/data/radarr_library/age_06"
 
 
 def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
@@ -132,7 +132,7 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/age_12\n"
             "      shadow_root: /data/radarr_library/age_12\n"
             "  movie_root_mappings:\n"
@@ -155,7 +155,7 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
     assert config.paths.exclude_paths == [".deletedByTMM/", ".librariarr/**"]
 
 
-def test_load_config_rejects_missing_root_mappings(tmp_path: Path) -> None:
+def test_load_config_rejects_missing_series_root_mappings(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
@@ -176,8 +176,32 @@ def test_load_config_rejects_missing_root_mappings(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="paths.root_mappings is required"):
+    with pytest.raises(ValueError, match="paths.series_root_mappings is required"):
         load_config(config_path)
+
+
+def test_load_config_reads_series_root_mappings(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/series/age_12\n"
+            "      shadow_root: /data/sonarr_library/age_12\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert len(config.paths.series_root_mappings) == 1
+    assert config.paths.series_root_mappings[0].nested_root == "/data/series/age_12"
 
 
 def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monkeypatch) -> None:
@@ -185,7 +209,7 @@ def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monke
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -214,7 +238,7 @@ def test_load_config_reads_arr_root_poll_interval(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -240,7 +264,7 @@ def test_load_config_normalizes_dotless_scan_video_extensions(tmp_path: Path) ->
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -266,7 +290,7 @@ def test_load_config_uses_default_scan_video_extensions_when_not_set(tmp_path: P
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -291,7 +315,7 @@ def test_load_config_rejects_non_list_scan_video_extensions(tmp_path: Path) -> N
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -316,7 +340,7 @@ def test_load_config_rejects_ingest_section(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -342,7 +366,7 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -376,7 +400,7 @@ def test_load_config_disables_radarr_when_enabled_false(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "radarr:\n"
@@ -403,7 +427,7 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -435,7 +459,7 @@ def test_load_config_reads_cleanup_grace(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -461,7 +485,7 @@ def test_load_config_reads_sonarr_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/series/one\n"
             "      shadow_root: /data/sonarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -510,7 +534,7 @@ def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> No
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"
@@ -535,7 +559,7 @@ def test_load_config_reads_namespaced_radarr_mapping(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "  movie_root_mappings:\n"

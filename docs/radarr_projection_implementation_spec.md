@@ -215,7 +215,7 @@ Removed from codebase after movie cutover (explicit implementation instructions)
   - Keep/adjust any Sonarr-specific ingest only if still required before Sonarr migration.
 
 5. **Remove legacy movie root naming from config model**
-  - Replace movie use of `paths.root_mappings` (`nested_root`/`shadow_root`) with `paths.movie_root_mappings` (`managed_root`/`library_root`).
+  - Use dedicated movie mappings `paths.movie_root_mappings` (`managed_root`/`library_root`) for projection.
   - Update `librariarr/config/models.py` and `librariarr/config/loader.py` accordingly.
 
 6. **Remove legacy movie docs/UI language**
@@ -470,7 +470,7 @@ Implementation (explicit removals):
 - Remove movie symlink cleanup path (`ShadowCleanupManager` usage) from movie flow.
 - Remove movie watcher-trigger dependency from `librariarr/runtime/loop.py`.
 - Remove movie ingest path tied to shadow roots (`ShadowIngestor` movie wiring).
-- Replace movie naming/config usage from `paths.root_mappings` to `paths.movie_root_mappings`.
+- Keep movie config usage on `paths.movie_root_mappings`.
 
 Cutover runbook:
 

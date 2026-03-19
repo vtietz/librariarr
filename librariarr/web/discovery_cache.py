@@ -30,7 +30,7 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
     all_movie_paths: set[Path] = set()
     excluded_movie_paths: list[Path] = []
 
-    for mapping in config.paths.root_mappings:
+    for mapping in config.paths.series_root_mappings:
         nested_root = Path(mapping.nested_root)
         all_folders = discover_movie_folders(nested_root, video_exts, [])
         all_movie_paths.update(all_folders)
@@ -227,7 +227,7 @@ class DiscoveryWarningsCache:
         signature = (
             tuple(
                 (str(item.nested_root), str(item.shadow_root))
-                for item in config.paths.root_mappings
+                for item in config.paths.series_root_mappings
             ),
             tuple(config.paths.exclude_paths),
             tuple(config.runtime.scan_video_extensions or []),

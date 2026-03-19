@@ -23,7 +23,7 @@ class SonarrProjectionOrchestrator:
                 managed_root=Path(item.nested_root),
                 library_root=Path(item.shadow_root),
             )
-            for item in config.paths.root_mappings
+            for item in config.paths.series_root_mappings
         ]
         state_db_path = _sonarr_projection_state_db_path()
         self.state_store = ProjectionStateStore(state_db_path)

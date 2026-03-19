@@ -281,7 +281,7 @@ class ServicePreflightMixin:
     def _configured_sonarr_managed_root_paths(self) -> set[str]:
         return {
             self._normalize_arr_root_path(str(managed_root))
-            for managed_root, _ in self.root_mappings
+            for managed_root, _ in self.series_root_mappings
         }
 
     def _configured_radarr_root_paths(self) -> set[str]:

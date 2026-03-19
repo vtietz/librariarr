@@ -11,7 +11,7 @@ from .state_store import PersistentStateStore
 
 
 def shadow_roots(config: AppConfig) -> list[Path]:
-    roots = {Path(item.shadow_root) for item in config.paths.root_mappings}
+    roots = {Path(item.shadow_root) for item in config.paths.series_root_mappings}
     return sorted(roots)
 
 

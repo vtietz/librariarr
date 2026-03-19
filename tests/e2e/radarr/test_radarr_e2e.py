@@ -206,7 +206,7 @@ def _projection_config(
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[],
+            series_root_mappings=[],
             movie_root_mappings=[
                 MovieRootMapping(
                     managed_root=str(managed_root),
@@ -634,7 +634,7 @@ def test_radarr_e2e_ingest_collision_qualify_moves_with_suffix_and_updates_path(
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[],
+            series_root_mappings=[],
             movie_root_mappings=[
                 MovieRootMapping(managed_root=str(managed_a), library_root=str(library_a)),
                 MovieRootMapping(managed_root=str(managed_b), library_root=str(library_b)),

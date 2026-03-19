@@ -91,7 +91,7 @@ def test_e2e_projection_creates_expected_hardlink_layout(tmp_path: Path) -> None
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[],
+            series_root_mappings=[],
             movie_root_mappings=[
                 MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
             ],
@@ -144,7 +144,7 @@ def test_e2e_projection_respects_movie_root_mappings(tmp_path: Path) -> None:
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[],
+            series_root_mappings=[],
             movie_root_mappings=[
                 MovieRootMapping(managed_root=str(managed_a), library_root=str(library_a)),
                 MovieRootMapping(managed_root=str(managed_b), library_root=str(library_b)),
@@ -194,7 +194,7 @@ def test_e2e_projection_scopes_to_webhook_movie_ids(tmp_path: Path) -> None:
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[],
+            series_root_mappings=[],
             movie_root_mappings=[
                 MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
             ],
@@ -240,7 +240,7 @@ def test_e2e_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[
+            series_root_mappings=[
                 RootMapping(nested_root=str(nested_root), shadow_root=str(mapped_shadow)),
             ],
             movie_root_mappings=[],

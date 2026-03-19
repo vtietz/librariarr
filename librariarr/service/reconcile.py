@@ -259,7 +259,7 @@ class ServiceReconcileMixin:
         }
 
         discovered_folders: set[Path] = set()
-        for managed_root, _library_root in self.root_mappings:
+        for managed_root, _library_root in self.series_root_mappings:
             discovered_folders.update(
                 discover_series_folders(managed_root, self.video_exts, self.scan_exclude_paths)
             )
@@ -275,7 +275,10 @@ class ServiceReconcileMixin:
 
         added_series_ids: set[int] = set()
         for folder in unmatched_folders:
-            library_root = self._resolve_library_root_for_folder(folder, self.root_mappings)
+            library_root = self._resolve_library_root_for_folder(
+                folder,
+                self.series_root_mappings,
+            )
             if library_root is None:
                 continue
 

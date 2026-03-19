@@ -13,10 +13,10 @@ Recommended baseline:
 ```yaml
 paths:
   movie_root_mappings:
-    - managed_root: "/data/radarr_library/age_06"
-      library_root: "/data/movies/age_06"
+    - managed_root: "/data/movies/age_06"
+      library_root: "/data/radarr_library/age_06"
   # Required only when sonarr.enabled=true
-  root_mappings:
+  series_root_mappings:
     - nested_root: "/data/series/age_06"       # Sonarr managed root
       shadow_root: "/data/sonarr_library/age_06" # Sonarr projection library root
   exclude_paths:
@@ -111,7 +111,7 @@ Configuration interaction for auto-add/profile behavior:
 
 Projection strategy for Arr identity:
 1. Radarr projection uses Radarr movie inventory (`/api/v3/movie`) and `paths.movie_root_mappings`.
-2. Sonarr projection uses Sonarr series inventory (`/api/v3/series`) and `paths.root_mappings`.
+2. Sonarr projection uses Sonarr series inventory (`/api/v3/series`) and `paths.series_root_mappings`.
 3. Optional webhook queues scope projection to affected movie/series ids.
 
 Why Radarr parse is title-based:
@@ -174,7 +174,7 @@ Notes:
 - Each Radarr-managed source root (`managed_root`) maps to one curated movie target (`library_root`).
 - Used by the movie projection pipeline.
 
-`paths.root_mappings`:
+`paths.series_root_mappings`:
 - Sonarr projection mappings (`nested_root` -> `shadow_root`).
 - Required when `sonarr.enabled=true`.
 - `nested_root` is Sonarr-managed source root.
@@ -420,7 +420,7 @@ Audio language token notes:
 - Interval for polling Radarr/Sonarr root-folder catalogs.
 - Triggers reconcile when configured roots become available later:
   - Radarr: configured `managed_root` paths in `paths.movie_root_mappings`
-  - Sonarr: configured `nested_root` paths in `paths.root_mappings`
+  - Sonarr: configured `nested_root` paths in `paths.series_root_mappings`
 - LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
 - Set `0` to disable this poller.
 

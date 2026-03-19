@@ -146,7 +146,9 @@ def make_config(
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))],
+            series_root_mappings=[
+                RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))
+            ],
             movie_root_mappings=[
                 MovieRootMapping(managed_root=str(nested_root), library_root=str(shadow_root))
             ],

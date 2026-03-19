@@ -77,7 +77,7 @@ def _make_config(
 
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[
+            series_root_mappings=[
                 RootMapping(
                     nested_root=str(nested_root),
                     shadow_root=str(shadow_root),

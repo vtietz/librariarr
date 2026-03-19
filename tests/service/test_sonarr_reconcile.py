@@ -90,7 +90,7 @@ def _make_config(
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[
+            series_root_mappings=[
                 RootMapping(
                     nested_root=str(managed_root),
                     shadow_root=str(library_root),

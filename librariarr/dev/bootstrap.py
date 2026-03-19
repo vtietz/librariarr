@@ -15,8 +15,7 @@ ENV_PATH = Path("/app/.env")
 RADARR_CONFIG_XML = Path("/radarr-config/config.xml")
 SONARR_CONFIG_XML = Path("/sonarr-config/config.xml")
 
-DEFAULT_ROOT_MAPPINGS = [
-    {"nested_root": "/data/movies", "shadow_root": "/data/radarr_library"},
+DEFAULT_SERIES_ROOT_MAPPINGS = [
     {"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"},
 ]
 
@@ -186,9 +185,9 @@ def _ensure_root_folders(
         LOG.info("Added %s root folder: %s", label, root_path)
 
 
-def _safe_shadow_roots(root_mappings: list[dict[str, Any]]) -> list[str]:
+def _safe_shadow_roots(series_root_mappings: list[dict[str, Any]]) -> list[str]:
     shadow_roots: list[str] = []
-    for mapping in root_mappings:
+    for mapping in series_root_mappings:
         shadow_root = str(mapping.get("shadow_root", "")).strip()
         if not shadow_root:
             continue
@@ -197,8 +196,8 @@ def _safe_shadow_roots(root_mappings: list[dict[str, Any]]) -> list[str]:
     return shadow_roots
 
 
-def _ensure_container_paths(root_mappings: list[dict[str, Any]]) -> None:
-    for mapping in root_mappings:
+def _ensure_container_paths(series_root_mappings: list[dict[str, Any]]) -> None:
+    for mapping in series_root_mappings:
         for key in ("nested_root", "shadow_root"):
             path_text = str(mapping.get(key, "")).strip()
             if not path_text.startswith("/data/"):
@@ -223,12 +222,14 @@ def _pick_roots_for_service(shadow_roots: list[str], service_hint: str, fallback
     return [fallback]
 
 
-def _ensure_dev_sonarr_mappings(root_mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _ensure_dev_sonarr_mappings(
+    series_root_mappings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     existing_pairs: set[tuple[str, str]] = set()
     radarr_candidates: list[tuple[str, str]] = []
     has_sonarr_mapping = False
 
-    for mapping in root_mappings:
+    for mapping in series_root_mappings:
         nested_root = str(mapping.get("nested_root", "")).strip()
         shadow_root = str(mapping.get("shadow_root", "")).strip()
         if not nested_root or not shadow_root:
@@ -243,7 +244,7 @@ def _ensure_dev_sonarr_mappings(root_mappings: list[dict[str, Any]]) -> list[dic
             radarr_candidates.append((nested_root, shadow_root))
 
     if has_sonarr_mapping:
-        return root_mappings
+        return series_root_mappings
 
     additions: list[dict[str, str]] = []
     for nested_root, shadow_root in radarr_candidates:
@@ -265,10 +266,10 @@ def _ensure_dev_sonarr_mappings(root_mappings: list[dict[str, Any]]) -> list[dic
         additions.append({"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"})
 
     if additions:
-        root_mappings.extend(additions)
+        series_root_mappings.extend(additions)
         LOG.info("Added %s Sonarr root mapping(s) for dev mode", len(additions))
 
-    return root_mappings
+    return series_root_mappings
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -331,15 +332,14 @@ def _sync_config_yaml(
     sonarr_section = payload.setdefault("sonarr", {})
     paths_section = payload.setdefault("paths", {})
 
-    root_mappings = paths_section.get("root_mappings")
-    if not _is_non_empty_mapping_list(root_mappings):
-        root_mappings = list(DEFAULT_ROOT_MAPPINGS)
-        paths_section["root_mappings"] = root_mappings
+    series_root_mappings = paths_section.get("series_root_mappings")
+    if not _is_non_empty_mapping_list(series_root_mappings):
+        series_root_mappings = list(DEFAULT_SERIES_ROOT_MAPPINGS)
     else:
-        root_mappings = [item for item in root_mappings if isinstance(item, dict)]
-        paths_section["root_mappings"] = root_mappings
+        series_root_mappings = [item for item in series_root_mappings if isinstance(item, dict)]
 
-    root_mappings = _ensure_dev_sonarr_mappings(root_mappings)
+    series_root_mappings = _ensure_dev_sonarr_mappings(series_root_mappings)
+    paths_section["series_root_mappings"] = series_root_mappings
 
     radarr_section["enabled"] = True
     radarr_section["sync_enabled"] = True
@@ -354,7 +354,7 @@ def _sync_config_yaml(
     _save_yaml(CONFIG_PATH, payload)
     LOG.info("Synchronized %s with dev Arr URLs and API keys", CONFIG_PATH)
 
-    return [item for item in root_mappings if isinstance(item, dict)]
+    return [item for item in series_root_mappings if isinstance(item, dict)]
 
 
 def main() -> None:
@@ -391,15 +391,15 @@ def main() -> None:
     radarr_effective_url = radarr_bootstrap_url
     sonarr_effective_url = sonarr_bootstrap_url
 
-    root_mappings = _sync_config_yaml(
+    series_root_mappings = _sync_config_yaml(
         radarr_url=radarr_effective_url,
         sonarr_url=sonarr_effective_url,
         radarr_api_key=radarr_api_key,
         sonarr_api_key=sonarr_api_key,
     )
-    _ensure_container_paths(root_mappings)
+    _ensure_container_paths(series_root_mappings)
 
-    shadow_roots = _safe_shadow_roots(root_mappings)
+    shadow_roots = _safe_shadow_roots(series_root_mappings)
     radarr_roots = _pick_roots_for_service(
         shadow_roots,
         service_hint="radarr",

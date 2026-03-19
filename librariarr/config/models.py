@@ -149,7 +149,7 @@ class SonarrProjectionConfig:
 
 @dataclass
 class PathsConfig:
-    root_mappings: list[RootMapping] = field(default_factory=list)
+    series_root_mappings: list[RootMapping] = field(default_factory=list)
     movie_root_mappings: list[MovieRootMapping] = field(default_factory=list)
     exclude_paths: list[str] = field(default_factory=list)
 

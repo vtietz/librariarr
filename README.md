@@ -22,7 +22,7 @@ LibrariArr bridges that gap and keeps both sides aligned.
 
 - Continuous projection sync for Radarr and Sonarr using filesystem events plus scheduled maintenance reconciles.
 - Embedded web UI for visual config editing, mapping exploration, diagnostics, and dry-runs.
-- Movie projection mappings (`paths.movie_root_mappings`) and series projection mappings (`paths.root_mappings`).
+- Movie projection mappings (`paths.movie_root_mappings`) and series projection mappings (`paths.series_root_mappings`).
 - Hardlink projection for managed video files plus allowlisted extras.
 - Optional webhook-scoped projection via `POST /api/hooks/radarr` and `POST /api/hooks/sonarr`.
 - Idempotent reconcile behavior with relink-on-replace and unknown-file preservation.
@@ -180,7 +180,7 @@ paths:
   movie_root_mappings:
     - managed_root: "/data/radarr_library/age_12"
       library_root: "/data/movies/age_12"
-  root_mappings:
+  series_root_mappings:
     - nested_root: "/data/series/age_12"
       shadow_root: "/data/sonarr_library/age_12"
 

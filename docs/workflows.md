@@ -10,8 +10,8 @@ This document describes the **current** runtime behavior.
   - Projection mode: hardlink managed video + allowlisted extras
   - Trigger model: Radarr webhook queue + periodic/full reconcile
 - **Series (Sonarr): projection-first, hooks-first**
-  - Source: `paths.root_mappings[].nested_root`
-  - Target: `paths.root_mappings[].shadow_root`
+  - Source: `paths.series_root_mappings[].nested_root`
+  - Target: `paths.series_root_mappings[].shadow_root`
   - Projection mode: hardlink managed episode files + allowlisted extras
   - Trigger model: Sonarr webhook queue + periodic/full reconcile
 

@@ -22,7 +22,7 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[
+            series_root_mappings=[
                 RootMapping(
                     nested_root=str(managed_root),
                     shadow_root=str(library_root),
@@ -74,7 +74,7 @@ def test_service_no_longer_fails_on_ambiguous_ingest_root_mappings(tmp_path: Pat
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[
+            series_root_mappings=[
                 RootMapping(nested_root=str(managed_a), shadow_root=str(library_root)),
                 RootMapping(nested_root=str(managed_b), shadow_root=str(library_root)),
             ],

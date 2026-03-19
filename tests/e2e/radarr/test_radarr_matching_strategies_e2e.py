@@ -36,7 +36,7 @@ def _projection_config(
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[],
+            series_root_mappings=[],
             movie_root_mappings=[
                 MovieRootMapping(
                     managed_root=str(managed_root),
