@@ -54,12 +54,8 @@ export default function Dashboard({
   const taskState = runtimeStatus?.current_task.state ?? "idle";
   const taskBadgeColor =
     taskState === "running" ? "blue" : taskState === "error" ? "red" : "gray";
-  const pendingIngest =
-    runtimeStatus?.current_task.pending_ingest_dirs ??
-    runtimeStatus?.last_reconcile?.pending_ingest_dirs ??
-    0;
   const queuedChanges = runtimeStatus?.dirty_paths_queued ?? 0;
-  const totalQueue = queuedChanges + pendingIngest;
+  const totalQueue = queuedChanges;
   const activeJobs = jobsSummary?.active ?? 0;
   const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
   const knownLinksInMemory =
@@ -208,7 +204,7 @@ export default function Dashboard({
       : runningScopeSummary ??
         runtimeStatus?.current_task.phase ??
         runtimeTaskFromPending?.detail ??
-        "Waiting for debounce, ingest, or manual trigger";
+        "Waiting for debounce or manual trigger";
   const runtimeLoopQueuedAt =
     runtimeLoopStatus === "error"
       ? formatAge(runtimeStatus?.current_task.updated_at ?? runtimeStatus?.last_reconcile?.finished_at)
@@ -362,7 +358,7 @@ export default function Dashboard({
         <Card withBorder h={146}>
           <Text fw={600}>Queue</Text>
           <Text size="sm" c="dimmed">
-            {totalQueue} pending ({queuedChanges} fs changes, {pendingIngest} ingest candidates)
+            {totalQueue} pending ({queuedChanges} fs changes)
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
             Next debounce run in {runtimeStatus?.next_event_reconcile_in_seconds ?? 0}s

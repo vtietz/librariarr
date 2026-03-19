@@ -131,3 +131,37 @@ def test_reconcile_skips_movie_projection_when_radarr_disabled(tmp_path: Path) -
     service.reconcile()
 
     assert not _projected_file(library_root, "Fixture Catalog A (2008)", "movie.mkv").exists()
+
+
+def test_reconcile_auto_adds_unmatched_movie_folder_when_enabled(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Auto Add (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Fixture.Auto.Add.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        managed_root,
+        library_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[],
+        quality_profiles=[{"id": 7, "name": "1080p"}],
+        lookup_results=[{"title": "Fixture Auto Add", "year": 2017, "tmdbId": 1001}],
+        add_movie_result={
+            "id": 42,
+            "title": "Fixture Auto Add",
+            "year": 2017,
+            "path": str(library_root / "Fixture Auto Add (2017)"),
+            "movieFile": {"id": 420},
+            "monitored": True,
+        },
+    )
+
+    service.reconcile()
+
+    assert service.radarr.added_movies
+    assert service.radarr.added_movies[0]["quality_profile_id"] == 7

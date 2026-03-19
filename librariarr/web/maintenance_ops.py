@@ -40,12 +40,15 @@ def queue_maintenance_reconcile(
         runtime_status.mark_reconcile_started(trigger_source="manual")
         try:
             service = LibrariArrService(config)
-            ingest_pending = service.reconcile(
+            followup_pending = service.reconcile(
                 affected_paths=affected_paths,
                 refresh_arr_root_availability=affected_paths is None,
             )
             duration_ms = int((time.perf_counter() - started) * 1000)
-            runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
+            runtime_status.mark_reconcile_finished(
+                success=True,
+                followup_pending=followup_pending,
+            )
             if affected_paths is None:
                 mapped_cache.request_refresh(config, force=True)
                 mapped_cache.wait_for_build(timeout=5.0)
@@ -66,23 +69,23 @@ def queue_maintenance_reconcile(
                     outcome=path_outcome,
                 )
             LOG.info(
-                "Manual reconcile completed in %d ms (ingest_pending=%s, scoped=%s)",
+                "Manual reconcile completed in %d ms (followup_pending=%s, scoped=%s)",
                 duration_ms,
-                ingest_pending,
+                followup_pending,
                 bool(affected_paths),
             )
             return {
                 "ok": True,
                 "message": "Reconcile completed.",
                 "duration_ms": duration_ms,
-                "ingest_pending": ingest_pending,
+                "followup_pending": followup_pending,
                 "scoped": bool(affected_paths),
                 "path_outcome": path_outcome,
             }
         except Exception as exc:
             runtime_status.mark_reconcile_finished(
                 success=False,
-                ingest_pending=False,
+                followup_pending=False,
                 error=str(exc),
             )
             if path_value:

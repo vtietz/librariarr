@@ -23,8 +23,6 @@ def test_main_no_longer_fails_fast_for_ambiguous_ingest_root_mappings(tmp_path: 
             "  sync_enabled: false\n"
             "cleanup: {}\n"
             "runtime: {}\n"
-            "ingest:\n"
-            "  enabled: true\n"
         ),
         encoding="utf-8",
     )

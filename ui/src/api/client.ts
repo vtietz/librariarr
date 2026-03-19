@@ -380,7 +380,6 @@ export type RuntimeStatusResponse = {
     started_at: number | null;
     updated_at: number | null;
     error: string | null;
-    pending_ingest_dirs?: number;
     movie_folders_seen?: number;
     series_folders_seen?: number;
     affected_paths_count?: number | null;
@@ -392,7 +391,7 @@ export type RuntimeStatusResponse = {
     started_at: number | null;
     finished_at: number | null;
     duration_seconds: number | null;
-    ingest_pending: boolean;
+    followup_pending?: boolean;
     error: string | null;
     movie_folders_seen?: number;
     series_folders_seen?: number;
@@ -401,8 +400,6 @@ export type RuntimeStatusResponse = {
     unmatched_movies?: number;
     matched_series?: number;
     unmatched_series?: number;
-    ingested_dirs?: number;
-    pending_ingest_dirs?: number;
     affected_paths_count?: number | null;
   } | null;
   known_links_in_memory?: number;

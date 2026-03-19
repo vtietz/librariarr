@@ -311,21 +311,7 @@ def test_load_config_rejects_non_list_scan_video_extensions(tmp_path: Path) -> N
         load_config(config_path)
 
 
-def test_load_config_ingest_defaults(tmp_path: Path, monkeypatch) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(CONFIG_CONTENT, encoding="utf-8")
-
-    monkeypatch.delenv("LIBRARIARR_RADARR_URL", raising=False)
-    monkeypatch.delenv("LIBRARIARR_RADARR_API_KEY", raising=False)
-
-    config = load_config(config_path)
-
-    assert config.ingest.enabled is False
-    assert config.ingest.min_age_seconds == 30
-    assert config.ingest.collision_policy == "qualify"
-
-
-def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
+def test_load_config_rejects_ingest_section(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
@@ -343,17 +329,12 @@ def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
             "runtime: {}\n"
             "ingest:\n"
             "  enabled: true\n"
-            "  selector: first\n"
         ),
         encoding="utf-8",
     )
 
-    try:
+    with pytest.raises(ValueError, match="ingest section is no longer supported"):
         load_config(config_path)
-    except ValueError as exc:
-        assert "ingest.selector is no longer supported" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for deprecated ingest.selector")
 
 
 def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:

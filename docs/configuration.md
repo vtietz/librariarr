@@ -74,11 +74,6 @@ sonarr:
       - match: ["german", "lang-de"]
         profile_id: 4
 
-ingest:
-  enabled: true
-  min_age_seconds: 300
-  collision_policy: "qualify"
-
 analysis:
   use_nfo: false
   use_media_probe: true
@@ -96,7 +91,6 @@ analysis:
 - `sonarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshSeries` bursts during noisy rename windows.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
 - Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
-- `ingest.*` settings are retained for compatibility but are no longer part of the active projection reconcile path.
 - `radarr.mapping.custom_format_map` is optional and useful when Radarr parse cannot infer enough custom-format signal from release title alone.
 - Keep `radarr.mapping.quality_map` short if you use it as fallback; start with resolution and codec signals.
 - Enable `analysis.use_media_probe=true` for more reliable quality detection when filenames are inconsistent.
@@ -287,22 +281,22 @@ Notes:
 - Default is `0.5`.
 
 `sonarr.auto_add_unmatched`:
-- Legacy compatibility field; not part of the active projection reconcile path.
+- If true, unmatched series folders can be auto-added to Sonarr.
 
 `sonarr.auto_add_quality_profile_id`:
-- Legacy compatibility field; not part of the active projection reconcile path.
+- Optional fixed quality profile id for Sonarr auto-add.
 
 `sonarr.auto_add_language_profile_id`:
-- Legacy compatibility field; not part of the active projection reconcile path.
+- Optional fixed language profile id for Sonarr auto-add.
 
 `sonarr.auto_add_search_on_add`:
-- Legacy compatibility field; not part of the active projection reconcile path.
+- If true, Sonarr starts indexer search immediately after auto-add.
 
 `sonarr.auto_add_monitored`:
-- Legacy compatibility field; not part of the active projection reconcile path.
+- Initial Sonarr monitored flag for newly auto-added entries.
 
 `sonarr.auto_add_season_folder`:
-- Legacy compatibility field; not part of the active projection reconcile path.
+- Controls Sonarr season-folder behavior on auto-added series.
 
 `sonarr.projection.series_folder_name_source`:
 - `managed`: keep managed relative path under `shadow_root`.
@@ -395,13 +389,6 @@ Audio language token notes:
 - Common language tags are normalized to spoken tokens plus `lang-xx` tokens (for example `deu/ger/de` -> `german` + `lang-de`, `eng/en` -> `english` + `lang-en`, `fra` -> `french`, `spa` -> `spanish`).
 - Compact combined tags from metadata sources (for example `gereng`) are split when possible and mapped to multiple languages.
 - `multi-language` and `dual-language` tokens are emitted when at least two recognized languages are detected.
-
-## Ingest
-
-`ingest.*` options are currently retained for compatibility and config stability.
-
-- They are not used by the active projection-first reconcile pipeline.
-- Keep existing values to preserve backward-compatible config files.
 
 ## Cleanup
 

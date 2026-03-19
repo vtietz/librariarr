@@ -7,7 +7,6 @@ import pytest
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
-    IngestConfig,
     MovieRootMapping,
     PathsConfig,
     RadarrConfig,
@@ -254,7 +253,6 @@ def test_e2e_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
-        ingest=IngestConfig(enabled=True, min_age_seconds=0),
     )
 
     service = LibrariArrService(config)

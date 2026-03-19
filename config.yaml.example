@@ -156,17 +156,6 @@ sonarr:
       - match: ["lang-de", "lang-en"]
         profile_id: 6
 
-ingest:
-  # Legacy compatibility section.
-  # Ingest is no longer part of the active projection reconcile pipeline.
-  enabled: true
-  # Minimum stable age before ingest.
-  min_age_seconds: 300
-  # Collision policy: qualify appends [ingest-N], skip leaves source in shadow.
-  collision_policy: "qualify"
-  # Optional path for failed ingest recovery.
-  quarantine_root: "/data/movies/.librariarr/quarantine"
-
 cleanup:
   remove_orphaned_links: true
   # What to do in Sonarr when a source folder is missing:
@@ -181,7 +170,6 @@ runtime:
   # Debounce window for filesystem event bursts (seconds).
   debounce_seconds: 8
   # Minutes between full maintenance reconciles (0 = startup-only + events).
-  # Note: ingest min_age deferrals still schedule temporary debounced retries.
   maintenance_interval_minutes: 0
   # Minutes between Arr root-folder checks used to auto-trigger reconcile when
   # configured managed roots are added later in Radarr/Sonarr (0 disables polling).

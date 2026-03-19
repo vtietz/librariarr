@@ -61,12 +61,6 @@ export type ConfigModel = {
     use_media_probe: boolean;
     media_probe_bin: string;
   };
-  ingest: {
-    enabled: boolean;
-    min_age_seconds: number;
-    collision_policy: "qualify" | "skip";
-    quarantine_root: string;
-  };
 };
 
 export type ConfigResponse = {

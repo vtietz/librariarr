@@ -5,7 +5,6 @@ import {
   NumberInput,
   Select,
   Stack,
-  Switch,
   TagsInput,
   TextInput,
   Title
@@ -50,56 +49,6 @@ type Props = {
 export default function MiscSections({ draft, onSetSectionField, onSetCleanupAction }: Props) {
   return (
     <>
-      <Card withBorder>
-        <Title order={4}>Ingest</Title>
-        <Stack mt="sm">
-          <Switch
-            label={
-              <HelpLabel
-                label="Enabled"
-                help="Moves real folders from shadow roots back to nested roots when safe."
-              />
-            }
-            checked={draft.ingest.enabled}
-            onChange={(event) => onSetSectionField("ingest", "enabled", event.currentTarget.checked)}
-          />
-          <Group grow align="flex-end">
-            <NumberInput
-              label={
-                <HelpLabel
-                  label="Minimum Age Seconds"
-                  help="Minimum stable age before ingest is allowed to move a folder."
-                />
-              }
-              value={draft.ingest.min_age_seconds}
-              min={0}
-              onChange={(value) => onSetSectionField("ingest", "min_age_seconds", Number(value) || 0)}
-            />
-            <Select
-              label={
-                <HelpLabel
-                  label="Collision Policy"
-                  help="How ingest handles name conflicts: qualify appends a suffix, skip leaves the source untouched."
-                />
-              }
-              data={["qualify", "skip"]}
-              value={draft.ingest.collision_policy}
-              onChange={(value) => onSetSectionField("ingest", "collision_policy", value ?? "qualify")}
-            />
-            <TextInput
-              label={
-                <HelpLabel
-                  label="Quarantine Root"
-                  help="Optional folder where failed ingest moves can be placed for recovery."
-                />
-              }
-              value={draft.ingest.quarantine_root}
-              onChange={(event) => onSetSectionField("ingest", "quarantine_root", event.currentTarget.value)}
-            />
-          </Group>
-        </Stack>
-      </Card>
-
       <Card withBorder>
         <Title order={4}>Cleanup</Title>
         <Stack mt="sm">

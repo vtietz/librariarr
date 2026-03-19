@@ -12,7 +12,6 @@ from .models import (
     AppConfig,
     CleanupConfig,
     CustomFormatRule,
-    IngestConfig,
     MovieRootMapping,
     PathsConfig,
     ProfileRule,
@@ -367,23 +366,8 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         media_probe_bin=str(analysis_raw.get("media_probe_bin", "ffprobe")),
     )
 
-    ingest_raw = raw.get("ingest", {})
-    collision_policy = str(ingest_raw.get("collision_policy", "qualify")).strip().lower()
-    if collision_policy not in {"qualify", "skip"}:
-        raise ValueError("ingest.collision_policy must be one of: qualify, skip")
-
-    if "selector" in ingest_raw:
-        raise ValueError(
-            "ingest.selector is no longer supported; ingest requires a 1:1 "
-            "mapping between each shadow root and nested root"
-        )
-
-    ingest = IngestConfig(
-        enabled=bool(ingest_raw.get("enabled", False)),
-        min_age_seconds=max(0, int(ingest_raw.get("min_age_seconds", 30))),
-        collision_policy=collision_policy,
-        quarantine_root=str(ingest_raw.get("quarantine_root", "")).strip(),
-    )
+    if "ingest" in raw:
+        raise ValueError("ingest section is no longer supported in projection-only mode")
 
     return AppConfig(
         paths=PathsConfig(
@@ -469,5 +453,4 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         ),
         runtime=runtime,
         analysis=analysis,
-        ingest=ingest,
     )

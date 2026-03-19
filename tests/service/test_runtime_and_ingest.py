@@ -3,7 +3,6 @@ from pathlib import Path
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
-    IngestConfig,
     MovieRootMapping,
     PathsConfig,
     QualityRule,
@@ -58,7 +57,6 @@ def test_reconcile_does_not_ingest_shadow_folder_when_projection_only(tmp_path: 
     (incoming / "Incoming.Movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(managed_root, library_root, sync_enabled=False, radarr_enabled=False)
-    config.ingest = IngestConfig(enabled=True, min_age_seconds=0)
     service = LibrariArrService(config)
 
     service.reconcile()
@@ -95,7 +93,6 @@ def test_service_no_longer_fails_on_ambiguous_ingest_root_mappings(tmp_path: Pat
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
-        ingest=IngestConfig(enabled=True, min_age_seconds=0),
     )
 
     service = LibrariArrService(config)

@@ -4,6 +4,7 @@ import time
 from pathlib import Path
 
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
+from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .common import LOG
 
 
@@ -40,17 +41,24 @@ class ServiceReconcileMixin:
                     force=self._arr_root_poll_interval is None,
                 )
 
+            auto_added_movie_ids = self._auto_add_unmatched_movies(affected_paths)
+            auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
+
             scoped_movie_ids: set[int] | None = None
             if self.radarr_enabled:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if queued_movie_ids:
                     scoped_movie_ids = queued_movie_ids
+            if auto_added_movie_ids and scoped_movie_ids is not None:
+                scoped_movie_ids.update(auto_added_movie_ids)
 
             scoped_series_ids: set[int] | None = None
             if self.sonarr_enabled and self.sonarr_sync_enabled:
                 queued_series_ids = get_sonarr_webhook_queue().consume_series_ids()
                 if queued_series_ids:
                     scoped_series_ids = queued_series_ids
+            if auto_added_series_ids and scoped_series_ids is not None:
+                scoped_series_ids.update(auto_added_series_ids)
 
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
@@ -151,9 +159,6 @@ class ServiceReconcileMixin:
                         "matched_series": matched_series,
                         "unmatched_series": unmatched_series,
                         "removed_orphans": 0,
-                        "ingested_dirs": 0,
-                        "pending_ingest_dirs": 0,
-                        "ingest_pending": False,
                         "duration_seconds": duration_seconds,
                         "affected_paths_count": (
                             int(affected_paths_count)
@@ -180,6 +185,141 @@ class ServiceReconcileMixin:
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("completed")
             return False
+
+    def _auto_add_unmatched_movies(self, affected_paths: set[Path] | None) -> set[int]:
+        if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):
+            return set()
+
+        try:
+            movies = self.radarr.get_movies()
+        except Exception as exc:
+            self._log_sync_config_hint(exc)
+            LOG.warning(
+                "Skipping Radarr auto-add scan because movie inventory fetch failed: %s",
+                exc,
+            )
+            return set()
+
+        existing_paths = {
+            Path(path_raw).resolve(strict=False)
+            for path_raw in (str(movie.get("path") or "").strip() for movie in movies)
+            if path_raw
+        }
+
+        discovered_folders: set[Path] = set()
+        for managed_root, _library_root in self.movie_root_mappings:
+            discovered_folders.update(
+                discover_movie_folders(managed_root, self.video_exts, self.scan_exclude_paths)
+            )
+
+        unmatched_folders = sorted(
+            folder
+            for folder in discovered_folders
+            if folder.resolve(strict=False) not in existing_paths
+            and self._folder_matches_affected_paths(folder, affected_paths)
+        )
+        if not unmatched_folders:
+            return set()
+
+        added_movie_ids: set[int] = set()
+        for folder in unmatched_folders:
+            library_root = self._resolve_library_root_for_folder(folder, self.movie_root_mappings)
+            if library_root is None:
+                continue
+
+            added_movie = self.radarr_sync.auto_add_movie_for_folder(folder, library_root)
+            if not isinstance(added_movie, dict):
+                continue
+            movie_id = added_movie.get("id")
+            if isinstance(movie_id, int):
+                added_movie_ids.add(movie_id)
+
+        return added_movie_ids
+
+    def _auto_add_unmatched_series(self, affected_paths: set[Path] | None) -> set[int]:
+        if not (
+            self.sonarr_enabled and self.sonarr_sync_enabled and self.sonarr_auto_add_unmatched
+        ):
+            return set()
+
+        try:
+            series = self.sonarr.get_series()
+        except Exception as exc:
+            self._log_sonarr_sync_config_hint(exc)
+            LOG.warning(
+                "Skipping Sonarr auto-add scan because series inventory fetch failed: %s",
+                exc,
+            )
+            return set()
+
+        existing_paths = {
+            Path(path_raw).resolve(strict=False)
+            for path_raw in (str(item.get("path") or "").strip() for item in series)
+            if path_raw
+        }
+
+        discovered_folders: set[Path] = set()
+        for managed_root, _library_root in self.root_mappings:
+            discovered_folders.update(
+                discover_series_folders(managed_root, self.video_exts, self.scan_exclude_paths)
+            )
+
+        unmatched_folders = sorted(
+            folder
+            for folder in discovered_folders
+            if folder.resolve(strict=False) not in existing_paths
+            and self._folder_matches_affected_paths(folder, affected_paths)
+        )
+        if not unmatched_folders:
+            return set()
+
+        added_series_ids: set[int] = set()
+        for folder in unmatched_folders:
+            library_root = self._resolve_library_root_for_folder(folder, self.root_mappings)
+            if library_root is None:
+                continue
+
+            added_series = self.sonarr_sync.auto_add_series_for_folder(folder, library_root)
+            if not isinstance(added_series, dict):
+                continue
+            series_id = added_series.get("id")
+            if isinstance(series_id, int):
+                added_series_ids.add(series_id)
+
+        return added_series_ids
+
+    def _folder_matches_affected_paths(
+        self,
+        folder: Path,
+        affected_paths: set[Path] | None,
+    ) -> bool:
+        if not affected_paths:
+            return True
+
+        folder_resolved = folder.resolve(strict=False)
+        for candidate in affected_paths:
+            candidate_resolved = candidate.resolve(strict=False)
+            if folder_resolved == candidate_resolved:
+                return True
+            if candidate_resolved in folder_resolved.parents:
+                return True
+            if folder_resolved in candidate_resolved.parents:
+                return True
+        return False
+
+    def _resolve_library_root_for_folder(
+        self,
+        folder: Path,
+        mappings: list[tuple[Path, Path]],
+    ) -> Path | None:
+        sorted_mappings = sorted(mappings, key=lambda item: len(item[0].parts), reverse=True)
+        for managed_root, library_root in sorted_mappings:
+            try:
+                folder.relative_to(managed_root)
+            except ValueError:
+                continue
+            return library_root
+        return None
 
     def _current_reconcile_source(self) -> str:
         runtime_status_tracker = getattr(self, "runtime_status_tracker", None)

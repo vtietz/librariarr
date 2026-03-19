@@ -3,7 +3,6 @@ from pathlib import Path
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
-    IngestConfig,
     MovieRootMapping,
     PathsConfig,
     QualityRule,
@@ -172,5 +171,4 @@ def make_config(
             maintenance_interval_minutes=60,
             arr_root_poll_interval_minutes=0,
         ),
-        ingest=IngestConfig(),
     )

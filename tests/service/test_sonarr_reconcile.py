@@ -36,6 +36,52 @@ class TimeoutSonarr(FakeSonarr):
         raise requests.Timeout("read timed out")
 
 
+class AutoAddFakeSonarr(FakeSonarr):
+    def __init__(self, series: list[dict] | None = None) -> None:
+        super().__init__(series=series)
+        self.lookup_results: list[dict] = []
+        self.added_series: list[dict] = []
+
+    def lookup_series(self, term: str) -> list[dict]:
+        del term
+        return self.lookup_results
+
+    def add_series_from_lookup(
+        self,
+        lookup_series: dict,
+        *,
+        path: str,
+        root_folder_path: str,
+        quality_profile_id: int,
+        language_profile_id: int | None,
+        monitored: bool,
+        season_folder: bool,
+        search_for_missing_episodes: bool,
+    ) -> dict:
+        payload = {
+            "lookup_series": lookup_series,
+            "path": path,
+            "root_folder_path": root_folder_path,
+            "quality_profile_id": quality_profile_id,
+            "language_profile_id": language_profile_id,
+            "monitored": monitored,
+            "season_folder": season_folder,
+            "search_for_missing_episodes": search_for_missing_episodes,
+        }
+        self.added_series.append(payload)
+        return {
+            "id": 903,
+            "title": lookup_series.get("title", "Auto Added"),
+            "path": path,
+        }
+
+    def get_quality_profiles(self) -> list[dict]:
+        return [{"id": 8, "name": "HD-1080p"}]
+
+    def get_language_profiles(self) -> list[dict]:
+        return [{"id": 3, "name": "German"}]
+
+
 def _make_config(
     managed_root: Path,
     library_root: Path,
@@ -233,3 +279,27 @@ def test_reconcile_uses_sonarr_title_for_library_folder_when_configured(tmp_path
 
     projected = library_root / "Fixture Show (2020)" / "Season 01" / source_file.name
     assert projected.exists()
+
+
+def test_reconcile_auto_adds_unmatched_series_folder_when_enabled(tmp_path: Path) -> None:
+    managed_root = tmp_path / "series"
+    library_root = tmp_path / "sonarr_library"
+    season_one = managed_root / "Fixture Auto Series (2022)" / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Fixture.Auto.Series.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config = _make_config(managed_root, library_root, sonarr_sync_enabled=True)
+    config.sonarr.auto_add_unmatched = True
+    config.sonarr.auto_add_quality_profile_id = 8
+    config.sonarr.auto_add_language_profile_id = 3
+    service = LibrariArrService(config)
+
+    fake = AutoAddFakeSonarr(series=[])
+    fake.lookup_results = [{"title": "Fixture Auto Series", "year": 2022, "tvdbId": 1203}]
+    service.sonarr = fake
+
+    service.reconcile()
+
+    assert fake.added_series
+    assert fake.added_series[0]["quality_profile_id"] == 8
+    assert fake.added_series[0]["language_profile_id"] == 3

@@ -60,14 +60,6 @@ class AnalysisConfig:
 
 
 @dataclass
-class IngestConfig:
-    enabled: bool = False
-    min_age_seconds: int = 30
-    collision_policy: str = "qualify"
-    quarantine_root: str = ""
-
-
-@dataclass
 class RadarrConfig:
     url: str
     api_key: str
@@ -170,7 +162,6 @@ class AppConfig:
     runtime: RuntimeConfig
     sonarr: SonarrConfig = field(default_factory=SonarrConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
-    ingest: IngestConfig = field(default_factory=IngestConfig)
 
     def effective_radarr_quality_map(self) -> list[QualityRule]:
         return self.radarr.mapping.quality_map
