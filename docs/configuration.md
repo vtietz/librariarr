@@ -12,9 +12,13 @@ Recommended baseline:
 
 ```yaml
 paths:
+  movie_root_mappings:
+    - managed_root: "/data/radarr_library/age_06"
+      library_root: "/data/movies/age_06"
+  # Required only when sonarr.enabled=true
   root_mappings:
-    - nested_root: "/data/movies/age_06"
-      shadow_root: "/data/radarr_library/age_06"
+    - nested_root: "/data/series/age_06"       # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_06" # Sonarr projection library root
   exclude_paths:
     - ".deletedByTMM/"
     - ".actors/"
@@ -58,6 +62,10 @@ sonarr:
   request_retry_backoff_seconds: 0.5
   auto_add_unmatched: false
   auto_add_search_on_add: false
+  projection:
+    series_folder_name_source: "managed"
+    managed_video_extensions: [".mkv", ".mp4", ".avi"]
+    managed_extras_allowlist: ["*.srt", "series.nfo", "tvshow.nfo"]
   mapping:
     quality_profile_map:
       - match: ["2160p", "x265"]
@@ -81,15 +89,14 @@ analysis:
 `config.yaml.example` is intentionally brief. Use this section for the longer rationale:
 
 - `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
-- `radarr.enabled=false` disables movie-folder discovery and Radarr integration entirely (useful for Sonarr-only setups).
-- `sonarr.enabled=true` enables series-folder discovery and Sonarr path synchronization.
-- `sonarr.auto_add_unmatched=true` enables Sonarr auto-creation for unmatched series folders.
+- `radarr.enabled=false` disables movie projection and Radarr integration entirely (useful for Sonarr-only setups).
+- `sonarr.enabled=true` enables Sonarr projection (managed roots to library roots).
+- `sonarr.projection.series_folder_name_source=managed` preserves managed relative folder names in the Sonarr library root.
 - `radarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshMovie` bursts for the same movie during noisy event windows; set `0` to disable.
 - `sonarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshSeries` bursts during noisy rename windows.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
 - Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
-- Example ingest defaults (`enabled=true`, `min_age_seconds=300`) favor safe move-back behavior and reduce the risk of ingesting partially written folders.
-- `ingest.collision_policy=qualify` keeps ingest moving by appending a deterministic suffix like `[ingest-2]`; `skip` leaves the source directory in the shadow root.
+- `ingest.*` settings are retained for compatibility but are no longer part of the active projection reconcile path.
 - `radarr.mapping.custom_format_map` is optional and useful when Radarr parse cannot infer enough custom-format signal from release title alone.
 - Keep `radarr.mapping.quality_map` short if you use it as fallback; start with resolution and codec signals.
 - Enable `analysis.use_media_probe=true` for more reliable quality detection when filenames are inconsistent.
@@ -108,14 +115,10 @@ Configuration interaction for auto-add/profile behavior:
 6. `analysis.use_nfo` and `analysis.use_media_probe` feed token extraction for both `radarr.mapping.custom_format_map` and `radarr.mapping.quality_map` matching.
 7. `radarr.mapping.quality_map` is optional and can be short (or empty) when you primarily rely on custom-format-based mapping.
 
-Matching strategy order for folder-to-Arr identity:
-1. External IDs (`tvdb`/`tmdb`/`imdb`) from NFO and folder text.
-2. Exact title/year parsed from folder name.
-3. Existing link/path based match.
-4. Fuzzy title/year fallback.
-
-Path update interaction:
-- Sonarr applies path updates whenever a series match is found.
+Projection strategy for Arr identity:
+1. Radarr projection uses Radarr movie inventory (`/api/v3/movie`) and `paths.movie_root_mappings`.
+2. Sonarr projection uses Sonarr series inventory (`/api/v3/series`) and `paths.root_mappings`.
+3. Optional webhook queues scope projection to affected movie/series ids.
 
 Why Radarr parse is title-based:
 - Radarr `/api/v3/parse` accepts a `title` parameter, so parse-based custom format detection is driven by folder/file title strings.
@@ -173,11 +176,15 @@ Notes:
 
 ## Paths
 
+`paths.movie_root_mappings`:
+- Each Radarr-managed source root (`managed_root`) maps to one curated movie target (`library_root`).
+- Used by the movie projection pipeline.
+
 `paths.root_mappings`:
-- Each nested source root maps to one shadow root.
-- Avoids ambiguity and works best with ingest.
-- Managed link names are derived from discovered folder names.
-- Arr metadata titles do not control shadow link names.
+- Sonarr projection mappings (`nested_root` -> `shadow_root`).
+- Required when `sonarr.enabled=true`.
+- `nested_root` is Sonarr-managed source root.
+- `shadow_root` is Sonarr projection library target root.
 
 `paths.exclude_paths`:
 - Optional list of glob-style ignore patterns applied during movie/series discovery.
@@ -188,8 +195,8 @@ Notes:
 ## Radarr
 
 `radarr.enabled`:
-- Enables movie-folder discovery and Radarr integration flow.
-- If false, movie folders are ignored.
+- Enables movie projection and Radarr integration flow.
+- If false, movie projection is skipped.
 
 `radarr.url`:
 - Radarr base URL (for example `http://radarr:7878`).
@@ -198,8 +205,8 @@ Notes:
 - Radarr API key.
 
 `radarr.sync_enabled`:
-- Enables all Radarr API interactions.
-- If false while `radarr.enabled=true`, LibrariArr manages movie symlinks only.
+- Controls Radarr sync/preflight behaviors around auxiliary Radarr sync checks.
+- Movie projection still relies on Radarr movie inventory when `radarr.enabled=true`.
 
 `radarr.refresh_debounce_seconds`:
 - Debounce window for `RefreshMovie` commands per movie id.
@@ -248,7 +255,7 @@ Notes:
 ## Sonarr
 
 `sonarr.enabled`:
-- Enables Sonarr-series discovery and integration flow.
+- Enables Sonarr projection and Sonarr integration flow.
 
 `sonarr.url`:
 - Sonarr base URL (for example `http://sonarr:8989`).
@@ -257,8 +264,8 @@ Notes:
 - Sonarr API key.
 
 `sonarr.sync_enabled`:
-- Enables Sonarr API interactions.
-- If false while `sonarr.enabled=true`, LibrariArr manages series symlinks only.
+- Enables Sonarr API projection interactions.
+- If false while `sonarr.enabled=true`, Sonarr projection is skipped.
 
 `sonarr.refresh_debounce_seconds`:
 - Debounce window for `RefreshSeries` commands per series id.
@@ -280,25 +287,32 @@ Notes:
 - Default is `0.5`.
 
 `sonarr.auto_add_unmatched`:
-- If true, unmatched series folders can be auto-added to Sonarr.
-- Auto-add still converges to folder-derived managed link paths.
+- Legacy compatibility field; not part of the active projection reconcile path.
 
 `sonarr.auto_add_quality_profile_id`:
-- Optional fixed quality profile id for Sonarr auto-add.
-- If omitted, LibrariArr checks `sonarr.mapping.quality_profile_map` first, then falls back to the lowest available Sonarr quality profile id.
+- Legacy compatibility field; not part of the active projection reconcile path.
 
 `sonarr.auto_add_language_profile_id`:
-- Optional fixed language profile id for Sonarr auto-add.
-- If omitted, LibrariArr checks `sonarr.mapping.language_profile_map` first, then uses the lowest available Sonarr language profile id when available.
+- Legacy compatibility field; not part of the active projection reconcile path.
 
 `sonarr.auto_add_search_on_add`:
-- If true, Sonarr starts search immediately after add.
+- Legacy compatibility field; not part of the active projection reconcile path.
 
 `sonarr.auto_add_monitored`:
-- Initial Sonarr monitored flag for newly auto-added series.
+- Legacy compatibility field; not part of the active projection reconcile path.
 
 `sonarr.auto_add_season_folder`:
-- Sets Sonarr `seasonFolder` when auto-adding series.
+- Legacy compatibility field; not part of the active projection reconcile path.
+
+`sonarr.projection.series_folder_name_source`:
+- `managed`: keep managed relative path under `shadow_root`.
+- `sonarr`: use Sonarr title/year naming.
+
+`sonarr.projection.managed_video_extensions`:
+- Extensions treated as managed episode/video files for Sonarr projection.
+
+`sonarr.projection.managed_extras_allowlist`:
+- Allowlisted extras (for example subtitles or NFO files) projected with episodes.
 
 ## Mapping
 
@@ -384,22 +398,10 @@ Audio language token notes:
 
 ## Ingest
 
-`ingest.enabled`:
-- Enables ingest of real folders created in shadow roots.
+`ingest.*` options are currently retained for compatibility and config stability.
 
-`ingest.min_age_seconds`:
-- Folder must be unchanged for at least this long before ingest.
-- When candidates are too fresh, LibrariArr logs a deferral line and schedules retry reconciles after debounce until ingest can proceed.
-
-`ingest.collision_policy`:
-- `qualify`: keeps ingesting with deterministic suffixes.
-- `skip`: leaves source untouched if destination exists.
-
-`ingest.quarantine_root`:
-- Optional recovery location for failed ingest moves.
-
-Note:
-- Ingest requires a 1:1 shadow-to-nested mapping.
+- They are not used by the active projection-first reconcile pipeline.
+- Keep existing values to preserve backward-compatible config files.
 
 ## Cleanup
 
@@ -421,19 +423,18 @@ Note:
 
 `runtime.debounce_seconds`:
 - Debounce window for filesystem events.
-- Shadow-root nested file events under real top-level directories trigger
-  incremental reconcile.
-- Nested events under existing top-level symlink entries are ignored.
+- Filesystem events trigger incremental reconcile for configured managed/library roots.
 
 `runtime.maintenance_interval_minutes`:
 - Periodic full reconcile interval.
 - Set `0` to disable periodic maintenance (event-driven only after startup).
-- Ingest deferrals from `ingest.min_age_seconds` still trigger temporary retry reconciles so fresh folders are retried without requiring a new filesystem event.
 
 `runtime.arr_root_poll_interval_minutes`:
 - Interval for polling Radarr/Sonarr root-folder catalogs.
-- When one of the configured `shadow_root` paths becomes available in Arr later,
-  LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
+- Triggers reconcile when configured roots become available later:
+  - Radarr: configured `managed_root` paths in `paths.movie_root_mappings`
+  - Sonarr: configured `nested_root` paths in `paths.root_mappings`
+- LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
 - Set `0` to disable this poller.
 
 `runtime.scan_video_extensions`:

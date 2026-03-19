@@ -8,14 +8,14 @@ paths:
     - managed_root: "/data/radarr_library/age_16"
       library_root: "/data/movies/age_16"
 
-  # Sonarr legacy mappings (optional; required only when sonarr.enabled=true).
+  # Sonarr projection mappings (optional; required only when sonarr.enabled=true).
   root_mappings:
-    - nested_root: "/data/series/age_06"
-      shadow_root: "/data/sonarr_library/age_06"
-    - nested_root: "/data/series/age_12"
-      shadow_root: "/data/sonarr_library/age_12"
-    - nested_root: "/data/series/age_16"
-      shadow_root: "/data/sonarr_library/age_16"
+    - nested_root: "/data/series/age_06"      # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_06" # Sonarr library root
+    - nested_root: "/data/series/age_12"      # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_12" # Sonarr library root
+    - nested_root: "/data/series/age_16"      # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_16" # Sonarr library root
   # Optional gitignore-style patterns (relative to each nested_root) to skip
   # during movie/series discovery. Matching is case-insensitive.
   # Useful for trash/temp folders like TMM deletes.
@@ -98,7 +98,7 @@ radarr:
         format_id: 99
 
 sonarr:
-  # Disabled by default. Enable for series path syncing.
+  # Disabled by default. Enable for series projection.
   enabled: false
   # Env overrides: LIBRARIARR_SONARR_URL, LIBRARIARR_SONARR_API_KEY.
   url: "http://sonarr:8989"
@@ -123,6 +123,21 @@ sonarr:
   request_retry_attempts: 2
   # Exponential backoff base delay (seconds): delay = base * 2^attempt.
   request_retry_backoff_seconds: 0.5
+  projection:
+    managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
+    managed_extras_allowlist:
+      - "*.srt"
+      - "*.ass"
+      - "*.sub"
+      - "series.nfo"
+      - "tvshow.nfo"
+      - "poster.jpg"
+      - "fanart.jpg"
+    preserve_unknown_files: true
+    delete_managed_files: true
+    provenance_file: ".librariarr-sonarr-provenance.json"
+    hash_max_file_size_mb: 256
+    series_folder_name_source: "managed"
 
   mapping:
     # Optional: token-based quality profile selection for Sonarr auto-add.
@@ -142,8 +157,8 @@ sonarr:
         profile_id: 6
 
 ingest:
-  # Move real folders from shadow roots back into nested roots.
-  # Requires a 1:1 mapping between each shadow_root and nested_root.
+  # Legacy compatibility section.
+  # Ingest is no longer part of the active projection reconcile pipeline.
   enabled: true
   # Minimum stable age before ingest.
   min_age_seconds: 300
@@ -169,7 +184,7 @@ runtime:
   # Note: ingest min_age deferrals still schedule temporary debounced retries.
   maintenance_interval_minutes: 0
   # Minutes between Arr root-folder checks used to auto-trigger reconcile when
-  # configured shadow roots are added later in Radarr/Sonarr (0 disables polling).
+  # configured managed roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
   # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts", ".m4v", ".mpg", ".mpeg"]

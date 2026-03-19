@@ -230,7 +230,7 @@ def test_e2e_projection_scopes_to_webhook_movie_ids(tmp_path: Path) -> None:
 
 
 @pytest.mark.fs_e2e
-def test_e2e_ingest_moves_shadow_folder_into_nested_root(tmp_path: Path) -> None:
+def test_e2e_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
     managed_root, shadow_root = _make_roots(tmp_path, "ingest_moves_shadow_to_nested")
     nested_root = managed_root / "age_12"
     mapped_shadow = shadow_root / "age_12"
@@ -259,10 +259,9 @@ def test_e2e_ingest_moves_shadow_folder_into_nested_root(tmp_path: Path) -> None
 
     service = LibrariArrService(config)
     service.reconcile()
-    _relativize_links_for_host_view(mapped_shadow)
 
     destination = nested_root / "Imported Movie (2024)"
-    shadow_link = mapped_shadow / "Imported Movie (2024)"
-    assert destination.exists()
-    assert shadow_link.is_symlink()
-    assert shadow_link.resolve(strict=False) == destination
+    assert not destination.exists()
+    assert imported_dir.exists()
+    assert imported_dir.is_dir()
+    assert not imported_dir.is_symlink()

@@ -101,6 +101,7 @@ class SonarrConfig:
     request_timeout_seconds: int = 30
     request_retry_attempts: int = 2
     request_retry_backoff_seconds: float = 0.5
+    projection: SonarrProjectionConfig = field(default_factory=lambda: SonarrProjectionConfig())
     mapping: SonarrMappingConfig = field(default_factory=SonarrMappingConfig)
 
 
@@ -129,6 +130,29 @@ class RadarrProjectionConfig:
     provenance_file: str = ".librariarr-provenance.json"
     hash_max_file_size_mb: int = 256
     movie_folder_name_source: str = "managed"
+
+
+@dataclass
+class SonarrProjectionConfig:
+    managed_video_extensions: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
+    )
+    managed_extras_allowlist: list[str] = field(
+        default_factory=lambda: [
+            "*.srt",
+            "*.ass",
+            "*.sub",
+            "series.nfo",
+            "tvshow.nfo",
+            "poster.jpg",
+            "fanart.jpg",
+        ]
+    )
+    preserve_unknown_files: bool = True
+    delete_managed_files: bool = True
+    provenance_file: str = ".librariarr-sonarr-provenance.json"
+    hash_max_file_size_mb: int = 256
+    series_folder_name_source: str = "managed"
 
 
 @dataclass

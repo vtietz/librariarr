@@ -6,16 +6,10 @@ from pathlib import Path
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
-from ..projection import MovieProjectionOrchestrator
+from ..projection import MovieProjectionOrchestrator, SonarrProjectionOrchestrator
 from ..quality import VIDEO_EXTENSIONS
 from ..runtime import ReconcileSchedule, RuntimeSyncLoop, get_runtime_status_tracker
-from ..sync import (
-    RadarrSyncHelper,
-    ShadowCleanupManager,
-    ShadowIngestor,
-    ShadowLinkManager,
-    SonarrSyncHelper,
-)
+from ..sync import RadarrSyncHelper, SonarrSyncHelper
 from .common import LOG
 
 
@@ -56,32 +50,18 @@ class ServiceBootstrapMixin:
         )
         self.movie_root_mappings = self._build_movie_root_mappings(config)
         self.root_mappings = self._build_root_mappings(config)
-        self.nested_roots = [nested for nested, _ in self.root_mappings]
-        self.shadow_roots = self._unique_paths([shadow for _, shadow in self.root_mappings])
-        self.shadow_to_nested_roots = self._build_shadow_to_nested_roots(self.root_mappings)
-        self._validate_ingest_root_mappings(config.ingest.enabled)
+        self.series_managed_roots = [managed for managed, _ in self.root_mappings]
+        self.series_library_roots = self._unique_paths(
+            [library for _, library in self.root_mappings]
+        )
+        self.watched_source_roots = self._unique_paths(
+            [managed for managed, _ in self.movie_root_mappings] + self.series_managed_roots
+        )
+        self.watched_target_roots = self._unique_paths(
+            [library for _, library in self.movie_root_mappings] + self.series_library_roots
+        )
         self.video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
         self.scan_exclude_paths = list(config.paths.exclude_paths)
-        self.link_manager = ShadowLinkManager(self.nested_roots, logger=LOG)
-        self.ingestor = ShadowIngestor(
-            config=config.ingest,
-            video_exts=self.video_exts,
-            shadow_roots=self.shadow_roots,
-            shadow_to_nested_roots=self.shadow_to_nested_roots,
-            logger=LOG,
-        )
-        self.sonarr_cleanup_manager = ShadowCleanupManager(
-            shadow_roots=self.shadow_roots,
-            sync_enabled=self.sonarr_sync_enabled,
-            on_missing_action=config.cleanup.sonarr_action_on_missing,
-            missing_grace_seconds=config.cleanup.missing_grace_seconds,
-            get_arr_client=lambda: self.sonarr,
-            resolve_item_for_link_name=self._resolve_series_for_link_name,
-            unmonitor_item=lambda client, item: client.unmonitor_series(item),
-            delete_item=lambda client, item_id: client.delete_series(item_id, delete_files=False),
-            refresh_item=lambda client, item_id: client.refresh_series(item_id),
-            logger=LOG,
-        )
         self.movie_projection = (
             MovieProjectionOrchestrator(
                 config=config,
@@ -89,6 +69,15 @@ class ServiceBootstrapMixin:
                 logger=LOG,
             )
             if self.radarr_enabled
+            else None
+        )
+        self.sonarr_projection = (
+            SonarrProjectionOrchestrator(
+                config=config,
+                sonarr=self.sonarr,
+                logger=LOG,
+            )
+            if self.sonarr_enabled
             else None
         )
 
@@ -106,8 +95,7 @@ class ServiceBootstrapMixin:
         self._sonarr_sync_hint_logged = False
         self._next_arr_root_poll_at = 0.0
         self._radarr_missing_managed_roots: set[str] = set()
-        self._sonarr_missing_shadow_roots: set[str] = set()
-        self._known_series_folders: dict[Path, Path] | None = None
+        self._sonarr_missing_managed_roots: set[str] = set()
         self.runtime_status_tracker = get_runtime_status_tracker()
 
     def _build_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
@@ -131,50 +119,20 @@ class ServiceBootstrapMixin:
             ordered.append(path)
         return ordered
 
-    def _build_shadow_to_nested_roots(
-        self,
-        mappings: list[tuple[Path, Path]],
-    ) -> dict[Path, list[Path]]:
-        out: dict[Path, list[Path]] = {}
-        for nested_root, shadow_root in mappings:
-            out.setdefault(shadow_root, [])
-            if nested_root not in out[shadow_root]:
-                out[shadow_root].append(nested_root)
-        return out
-
-    def _validate_ingest_root_mappings(self, ingest_enabled: bool) -> None:
-        if not ingest_enabled:
-            return
-
-        ambiguous = [
-            shadow_root
-            for shadow_root, nested_roots in self.shadow_to_nested_roots.items()
-            if len(nested_roots) != 1
-        ]
-        if not ambiguous:
-            return
-
-        roots = ", ".join(str(root) for root in sorted(ambiguous))
-        raise ValueError(
-            "Ingest requires a 1:1 mapping between each shadow root and nested root. "
-            f"Ambiguous shadow roots: {roots}. Use paths.root_mappings with unique "
-            "shadow_root values when ingest is enabled."
-        )
-
     def run(self, stop_event: threading.Event | None = None) -> None:
-        shadow_roots = "\n    - ".join(str(root) for root in self.shadow_roots)
-        nested_roots = "\n    - ".join(str(root) for root in self.nested_roots)
-        managed_roots = "\n    - ".join(str(root) for root, _ in self.movie_root_mappings)
-        library_roots = "\n    - ".join(str(root) for _, root in self.movie_root_mappings)
+        movie_managed_roots = "\n    - ".join(str(root) for root, _ in self.movie_root_mappings)
+        movie_library_roots = "\n    - ".join(str(root) for _, root in self.movie_root_mappings)
+        series_managed_roots = "\n    - ".join(str(root) for root, _ in self.root_mappings)
+        series_library_roots = "\n    - ".join(str(root) for _, root in self.root_mappings)
         LOG.info("")
         LOG.info("================ LibrariArr Startup ================")
         LOG.info("Startup configuration:")
         LOG.info("  Movie projection paths:")
-        LOG.info("    managed_roots:\n    - %s", managed_roots or "-")
-        LOG.info("    library_roots:\n    - %s", library_roots or "-")
-        LOG.info("  Sonarr shadow-link paths:")
-        LOG.info("    shadow_roots:\n    - %s", shadow_roots or "-")
-        LOG.info("    nested_roots:\n    - %s", nested_roots or "-")
+        LOG.info("    managed_roots:\n    - %s", movie_managed_roots or "-")
+        LOG.info("    library_roots:\n    - %s", movie_library_roots or "-")
+        LOG.info("  Sonarr projection paths:")
+        LOG.info("    managed_roots:\n    - %s", series_managed_roots or "-")
+        LOG.info("    library_roots:\n    - %s", series_library_roots or "-")
         LOG.info(
             "  Radarr: enabled=%s sync_enabled=%s auto_add_unmatched=%s",
             self.radarr_enabled,
@@ -202,8 +160,9 @@ class ServiceBootstrapMixin:
         for managed_root, library_root in self.movie_root_mappings:
             managed_root.mkdir(parents=True, exist_ok=True)
             library_root.mkdir(parents=True, exist_ok=True)
-        for shadow_root in self.shadow_roots:
-            shadow_root.mkdir(parents=True, exist_ok=True)
+        for managed_root, library_root in self.root_mappings:
+            managed_root.mkdir(parents=True, exist_ok=True)
+            library_root.mkdir(parents=True, exist_ok=True)
         self._run_sync_preflight_checks()
 
         def _on_reconcile_complete() -> None:
@@ -214,8 +173,8 @@ class ServiceBootstrapMixin:
             get_discovery_warnings_cache().request_refresh(self.config, force=True)
 
         runtime_loop = RuntimeSyncLoop(
-            nested_roots=self.nested_roots,
-            shadow_roots=self.shadow_roots,
+            nested_roots=self.watched_source_roots,
+            shadow_roots=self.watched_target_roots,
             schedule=ReconcileSchedule(
                 debounce_seconds=self._debounce_seconds,
                 maintenance_interval_seconds=self._maintenance_interval,

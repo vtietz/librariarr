@@ -1,202 +1,117 @@
 # LibrariArr Workflow and Reconcile Flows
 
-This document describes how LibrariArr behaves in common lifecycle cases.
-It focuses on the reconcile pipeline, link management, and Arr sync behavior.
+This document describes the **current** runtime behavior.
+
+## Transition State (Current)
+
+- **Movies (Radarr): projection-first, hooks-first**
+  - Source: `paths.movie_root_mappings[].managed_root`
+  - Target: `paths.movie_root_mappings[].library_root`
+  - Projection mode: hardlink managed video + allowlisted extras
+  - Trigger model: Radarr webhook queue + periodic/full reconcile
+- **Series (Sonarr): projection-first, hooks-first**
+  - Source: `paths.root_mappings[].nested_root`
+  - Target: `paths.root_mappings[].shadow_root`
+  - Projection mode: hardlink managed episode files + allowlisted extras
+  - Trigger model: Sonarr webhook queue + periodic/full reconcile
+
+Important: legacy Sonarr link matching/path-update/cleanup and ingest flows are removed from the
+runtime reconcile path.
 
 ## Terms
 
-- **Nested root**: Real media storage location (source of truth for discovered folders).
-- **Shadow root**: Virtual library root where LibrariArr creates symlinks for Arr.
-- **Link**: Symlink in shadow root pointing to a discovered nested folder.
-- **Full reconcile**: Scan all mapped roots.
-- **Incremental reconcile**: Scan only affected scopes from filesystem events or scoped API path.
+- **Managed root**: Arr-owned source storage root.
+- **Library root**: Curated target root populated by projection.
+- **Projection**: Hardlinking managed files into library roots.
+- **Full reconcile**: No affected-path scope; broad cycle.
+- **Incremental reconcile**: Affected-path scope from filesystem/manual path trigger.
 
 ## Core Reconcile Pipeline
 
-On every reconcile cycle, LibrariArr runs this sequence:
+On each reconcile cycle, LibrariArr performs:
 
-1. Ensure shadow roots exist.
-2. Refresh Arr root-folder availability state.
-3. Run ingest (if enabled).
-4. Resolve scope:
-   - Full reconcile when no affected paths are provided.
-   - Incremental reconcile when affected paths are provided.
-5. Collect existing shadow links.
-6. Build Arr indices (title/year, path, external IDs) when sync is enabled.
-7. For each discovered folder:
-   - Match to Arr item (external IDs -> exact title/year -> existing link/path -> fuzzy).
-   - Auto-add if enabled and still unmatched.
-   - Ensure a link exists.
-    - Update Arr item path to that link when matched.
-8. Cleanup stale/orphan links.
+1. Refresh Arr root-folder availability state.
+2. Consume scoped movie ids from the Radarr webhook queue (if any).
+3. Consume scoped series ids from the Sonarr webhook queue (if any).
+4. Run movie projection from Radarr movie inventory + movie root mappings.
+5. Run series projection from Sonarr series inventory + series root mappings.
+6. Publish reconcile metrics/status.
 
 ## Trigger Sources
 
 ### Runtime loop
 
-- Watches nested roots and shadow roots with debounce.
-- Shadow-root events are considered for top-level entries and for nested changes under real top-level shadow directories.
+- Watches configured managed roots and library roots.
 - Runs:
-  - **Initial reconcile** once on startup.
-  - **Filesystem-triggered reconcile** (incremental).
-  - **Scheduled maintenance reconcile** (full).
-  - **Poll-triggered reconcile** when missing Arr roots become available.
+  - initial reconcile at startup,
+  - filesystem-triggered reconcile (incremental),
+  - scheduled maintenance reconcile (full),
+  - poll-triggered reconcile when Arr roots become available.
+
+### Webhook queues
+
+- `POST /api/hooks/radarr` enqueues movie ids.
+- `POST /api/hooks/sonarr` enqueues series ids.
+- Queues are deduped/coalesced.
+- Next reconcile consumes ids and scopes projection work.
 
 ### Manual API
 
 - `POST /api/maintenance/reconcile`
-  - No `path` query: full reconcile.
-  - With absolute `path`: scoped/incremental reconcile for that path.
+  - without `path`: full reconcile,
+  - with absolute `path`: incremental/scoped reconcile.
 
-## Link Naming Rules (Current Behavior)
+## Movie Projection Behavior
 
-- Link names are derived from the **folder name** (canonicalized from folder), not Arr metadata title.
-- Auto-add canonical paths follow the same folder-derived naming policy.
-- Existing link reuse rules:
-  - Reuse exact canonical link for the folder when valid.
-  - Reuse collision-qualified variants (`<base>--...`) for the same folder.
-  - Do **not** keep a stale wrong-named link just because it points to the same folder.
+- Folder naming source: `radarr.projection.movie_folder_name_source`
+  - `managed`: mirror managed folder relative path under library root.
+  - `radarr`: use sanitized Radarr title/year naming.
+- Managed files include:
+  - video extensions from `radarr.projection.managed_video_extensions`,
+  - extras from `radarr.projection.managed_extras_allowlist`.
+- Unknown library files are preserved (`preserve_unknown_files=true`).
+- Reconcile is idempotent and re-links replaced managed files.
 
-## Scenario Flows
+## Series Projection Behavior
 
-## 1) First Reconcile After Startup
+- Folder naming source: `sonarr.projection.series_folder_name_source`
+  - `managed`: mirror managed folder relative path under library root.
+  - `sonarr`: use sanitized Sonarr title/year naming.
+- Managed files include:
+  - video extensions from `sonarr.projection.managed_video_extensions`,
+  - extras from `sonarr.projection.managed_extras_allowlist`.
+- Unknown library files are preserved (`preserve_unknown_files=true`).
+- Reconcile is idempotent and re-links replaced managed files.
 
-Expected flow:
+## Main Scenarios Covered by E2E
 
-1. Preflight checks Arr connectivity and root configuration.
-2. Runtime runs initial full reconcile.
-3. All discoverable folders under nested roots are scanned.
-4. Links are created or reused under corresponding shadow roots.
-5. If Arr sync is enabled and items are matched, Arr paths are updated to link paths.
-6. Orphans/stale links are cleaned depending on cleanup settings.
+### Filesystem E2E
 
-Result:
+- projection creates expected hardlink layout,
+- projection respects movie root mappings,
+- projection scopes to webhook movie ids,
+- projection-only runtime does not perform legacy ingest moves.
 
-- Shadow library reflects current nested folders.
-- Radarr/Sonarr paths converge to LibrariArr-managed link paths.
+### Radarr E2E
 
-## 2) Movie/Series Added in Nested Directory (Filesystem First)
+- managed-folder naming projection,
+- optional Radarr title/year naming projection,
+- webhook-scoped movie projection,
+- relink when managed source file is replaced,
+- preserve unknown files in library folders,
+- runtime loop processing of queued webhook projection,
+- multi-mapping and extras projection behavior.
 
-Example: a new folder appears under a nested root and contains media files.
+### Sonarr E2E
 
-Expected flow:
-
-1. Watcher records create/move events and debounces.
-2. Incremental reconcile scans only affected scope.
-3. Folder is discovered as movie/series candidate.
-4. Match attempt order:
-   - External IDs from folder/NFO (`tmdb`, `imdb`, `tvdb` as applicable)
-   - Exact title/year from folder name
-   - Existing link/path based match
-   - Fuzzy title/year fallback
-5. If matched, Arr path is updated to folder-derived link path.
-6. If unmatched and auto-add enabled, item is added in Arr and then synced to link path.
-7. Orphan/stale links in affected scope are cleaned.
-
-Result:
-
-- New folder gets a shadow link.
-- Arr path points to that link when sync match/add succeeds.
-
-## 3) Movie/Series Added in Radarr/Sonarr First (No Filesystem Change)
-
-If an item is created in Arr only (without new nested-folder filesystem events):
-
-- No immediate event-triggered incremental reconcile is generated from nested roots.
-- The item is considered on the next full/maintenance/manual reconcile.
-- A link is created only if a discoverable nested folder exists.
-
-If the Arr item path is created directly in the shadow root and ingest is enabled:
-
-1. Shadow-root top-level create/move/delete event triggers reconcile.
-2. Ingest may move that real folder to nested root (subject to stability/collision policy).
-3. Source shadow folder becomes a symlink to nested destination.
-4. Reconcile then syncs Arr path to the managed link.
-
-## 4) Folder Rename in Nested Root
-
-Expected flow:
-
-1. Move/rename event contributes source and destination paths to affected set.
-2. Incremental scope removes old discovered folder from known set and discovers new path.
-3. Reconcile creates/keeps link for the new folder name.
-4. Old link becomes stale and is removed during cleanup.
-5. Matched Arr item path is updated to new link path.
-
-Result:
-
-- Arr path follows the renamed folder via updated link.
-
-## 5) Folder Move Between Nested Roots (Same or Different Mapping)
-
-Expected flow:
-
-1. Event paths drive incremental scan roots.
-2. Folder disappears from old scope and appears in new scope.
-3. New link is created under destination mapping's shadow root.
-4. Old link is removed as stale/orphan.
-5. Arr item path updates to the new link if matched.
-
-If multiple nested roots map to one shadow root and names collide, collision suffixes (`--...`) are used.
-
-## 6) NFO Initially Wrong, Later Corrected
-
-Example: folder is `EO (2022)` but NFO initially points to another movie ID.
-
-Expected flow:
-
-1. First run may match wrong Arr item via external ID from NFO.
-2. Link name remains folder-derived (not metadata-derived).
-3. After NFO fix, next reconcile matches the correct Arr item.
-4. Arr path for correct item is updated to the same folder-derived link.
-5. Any stale wrong-named link is not preserved as the canonical result and is cleaned as stale/orphan.
-
-Result:
-
-- Path converges to a folder-consistent link even if prior metadata was wrong.
-
-## 7) Folder Deleted from Nested Root
-
-Expected flow:
-
-1. Incremental/full reconcile no longer discovers the folder.
-2. Link targeting that missing folder is removed as orphan.
-3. Missing-item action can be queued for Arr based on cleanup config:
-   - `none`
-   - `unmonitor`
-   - `delete`
-4. Action is applied after `missing_grace_seconds`.
-5. Missing-item actions are evaluated in both full and incremental cleanup paths.
-
-## 8) Arr Root Not Configured Yet
-
-If a shadow root is missing in Radarr/Sonarr root folders:
-
-- Matching/sync for that root is skipped.
-- Existing links for that root are preserved (when present).
-- Polling checks for root availability and triggers reconcile once available.
-
-Result:
-
-- Filesystem link management can continue without destructive sync behavior until root is available.
-
-## Ingest Workflow (When `ingest.enabled=true`)
-
-Ingest handles real directories dropped directly into shadow roots:
-
-1. Candidate must be a non-hidden real directory (not symlink) containing media and no partial files.
-2. Candidate must satisfy quiescence (`min_age_seconds`).
-3. Folder is moved to the mapped nested root.
-4. Original shadow location is replaced by symlink to moved destination.
-5. Collision behavior:
-   - `skip`: leave candidate in place.
-   - `qualify`: move to suffixed destination (`[ingest-2]`, ...).
-6. Failed ingest can be quarantined if configured.
+- series projection into library roots,
+- Sonarr title/year naming projection mode,
+- webhook-scoped series projection,
+- runtime loop projection for managed-root file creation,
+- projection edge cases (unmapped managed roots, extras allowlist behavior).
 
 ## Practical Summary
 
-- Nested folder structure is the naming authority for links.
-- External IDs in NFO strongly influence matching, but no longer control link naming.
-- Reconcile is idempotent: repeated runs converge paths/links to current filesystem truth.
-- Auto-add is optional and only used when no safe match exists.
-- Cleanup removes stale/orphan links and can enforce Arr missing-item policy after grace period.
+- Both movie and series flows are projection-first.
+- Legacy symlink and path-mutation orchestration is removed from active runtime behavior.
+- Wrapper validations stay green when this projection-only architecture is preserved.

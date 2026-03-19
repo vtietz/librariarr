@@ -24,6 +24,7 @@ from .models import (
     RuntimeConfig,
     SonarrConfig,
     SonarrMappingConfig,
+    SonarrProjectionConfig,
 )
 
 
@@ -114,6 +115,9 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     radarr_mapping_raw = radarr.get("mapping") if isinstance(radarr.get("mapping"), dict) else {}
     sonarr_mapping_raw = sonarr.get("mapping") if isinstance(sonarr.get("mapping"), dict) else {}
     projection_raw = radarr.get("projection") if isinstance(radarr.get("projection"), dict) else {}
+    sonarr_projection_raw = (
+        sonarr.get("projection") if isinstance(sonarr.get("projection"), dict) else {}
+    )
 
     if "quality_map" in raw or "custom_format_map" in raw:
         raise ValueError(
@@ -309,6 +313,41 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     if not preserve_unknown_files:
         preserve_unknown_files = True
 
+    sonarr_managed_video_extensions = _normalize_extensions(
+        sonarr_projection_raw.get("managed_video_extensions"),
+        key_name="sonarr.projection.managed_video_extensions",
+        default_values=list(DEFAULT_SCAN_VIDEO_EXTENSIONS),
+    )
+    sonarr_managed_extras_allowlist_raw = sonarr_projection_raw.get("managed_extras_allowlist")
+    if sonarr_managed_extras_allowlist_raw is None:
+        sonarr_managed_extras_allowlist = [
+            "*.srt",
+            "*.ass",
+            "*.sub",
+            "series.nfo",
+            "tvshow.nfo",
+            "poster.jpg",
+            "fanart.jpg",
+        ]
+    elif isinstance(sonarr_managed_extras_allowlist_raw, list):
+        sonarr_managed_extras_allowlist = [
+            str(item).strip() for item in sonarr_managed_extras_allowlist_raw if str(item).strip()
+        ]
+    else:
+        raise ValueError("sonarr.projection.managed_extras_allowlist must be a list")
+
+    series_folder_name_source = str(
+        sonarr_projection_raw.get("series_folder_name_source", "managed")
+    ).strip()
+    if series_folder_name_source not in {"managed", "sonarr"}:
+        raise ValueError(
+            "sonarr.projection.series_folder_name_source must be one of: managed, sonarr"
+        )
+
+    sonarr_preserve_unknown_files = bool(sonarr_projection_raw.get("preserve_unknown_files", True))
+    if not sonarr_preserve_unknown_files:
+        sonarr_preserve_unknown_files = True
+
     periodic_reconcile_minutes = runtime_raw.get(
         "periodic_reconcile_minutes",
         runtime_raw.get("maintenance_interval_minutes", 1440),
@@ -400,6 +439,24 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             request_timeout_seconds=sonarr_request_timeout_seconds,
             request_retry_attempts=sonarr_request_retry_attempts,
             request_retry_backoff_seconds=sonarr_request_retry_backoff_seconds,
+            projection=SonarrProjectionConfig(
+                managed_video_extensions=sonarr_managed_video_extensions,
+                managed_extras_allowlist=sonarr_managed_extras_allowlist,
+                preserve_unknown_files=sonarr_preserve_unknown_files,
+                delete_managed_files=bool(sonarr_projection_raw.get("delete_managed_files", True)),
+                provenance_file=str(
+                    sonarr_projection_raw.get(
+                        "provenance_file",
+                        ".librariarr-sonarr-provenance.json",
+                    )
+                ).strip()
+                or ".librariarr-sonarr-provenance.json",
+                hash_max_file_size_mb=max(
+                    1,
+                    int(sonarr_projection_raw.get("hash_max_file_size_mb", 256)),
+                ),
+                series_folder_name_source=series_folder_name_source,
+            ),
             mapping=SonarrMappingConfig(
                 quality_profile_map=sonarr_quality_profile_map,
                 language_profile_map=sonarr_language_profile_map,

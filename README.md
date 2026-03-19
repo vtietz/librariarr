@@ -2,7 +2,8 @@
 
 LibrariArr keeps real media folders in your preferred nested structure while continuously syncing flat library views for Radarr and Sonarr.
 
-It solves the path drift problem between your filesystem and *arr apps by maintaining symlinks and updating managed paths automatically.
+It solves the path drift problem between your filesystem and *arr apps by projecting managed
+media into curated library roots with hardlinks.
 
 ## What Problem It Solves
 
@@ -19,31 +20,26 @@ LibrariArr bridges that gap and keeps both sides aligned.
 
 ## Core Features
 
-- Continuous sync for Radarr and Sonarr paths using filesystem events plus scheduled maintenance reconciles.
+- Continuous projection sync for Radarr and Sonarr using filesystem events plus scheduled maintenance reconciles.
 - Embedded web UI for visual config editing, mapping exploration, diagnostics, and dry-runs.
-- Shadow-link projection from nested roots into flat roots (`paths.root_mappings`).
-- Folder-authoritative link naming (shadow link names derive from discovered folder names, not Arr metadata).
-- Season-aware series discovery for Sonarr and movie-folder discovery for Radarr.
-- Optional auto-add for unmatched folders (`radarr.auto_add_unmatched`, `sonarr.auto_add_unmatched`).
-- Optional ingest mode to move real folders from shadow roots back into nested storage.
-- Orphan cleanup and missing-source actions (none/unmonitor/delete) for both Radarr and Sonarr across full and incremental reconciles.
-- Debounced refresh calls to avoid API spam during noisy rename/import bursts.
+- Movie projection mappings (`paths.movie_root_mappings`) and series projection mappings (`paths.root_mappings`).
+- Hardlink projection for managed video files plus allowlisted extras.
+- Optional webhook-scoped projection via `POST /api/hooks/radarr` and `POST /api/hooks/sonarr`.
+- Idempotent reconcile behavior with relink-on-replace and unknown-file preservation.
 
 ## Sync Architecture
 
 ```mermaid
 flowchart LR
   A[Nested media folders under /data] --> B[LibrariArr discovery + reconcile]
-  B --> C[Shadow symlinks in /data/radarr_library and /data/sonarr_library]
-  B --> D[Radarr API path updates]
-  B --> E[Sonarr API path updates]
-  C --> D
-  C --> E
+  B --> C[Hardlink projection into /data/movies and /data/sonarr_library]
+  B --> D[Radarr movie inventory]
+  B --> E[Sonarr series inventory]
 ```
 
 ## How It Works
 
-Example:
+Example movie projection:
 
 ```text
 /data/movies/
@@ -51,18 +47,16 @@ Example:
   age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
 
 /data/radarr_library/
-  Foo (2020) -> /data/movies/age_12/Studio/Foo (2020)
-  Bar (2011) -> /data/movies/age_16/Other/Bar (2011)
+  age_12/Studio/Foo (2020)/Foo.2020.1080p.x265.mkv
+  age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
 ```
 
 On reconcile, LibrariArr:
 
-1. Discovers media folders in nested roots.
-2. Creates/repairs folder-derived symlinks in mapped shadow roots.
-3. Matches items in Radarr/Sonarr and updates managed paths.
-4. Applies optional quality/auto-add/cleanup behavior.
-
-Auto-add path candidates and managed link paths use the same folder-derived naming strategy to keep naming stable and predictable.
+1. Reads Radarr movie inventory and Sonarr series inventory.
+2. Resolves managed->library mappings.
+3. Builds projection plans for managed video and allowlisted extras.
+4. Applies hardlink projection idempotently into library roots.
 
 ## Common Sync Scenarios
 
@@ -70,25 +64,22 @@ Auto-add path candidates and managed link paths use the same folder-derived nami
 
 - The download/import creates filesystem events under your nested roots.
 - LibrariArr debounces bursts (`runtime.debounce_seconds`) and runs an incremental reconcile.
-- Existing movie/series links are reused; paths are updated only when needed.
-- If `*.sync_enabled=true`, Radarr/Sonarr paths are kept aligned to shadow links.
+- Projection reuses existing hardlinks when unchanged and links new/replaced managed files.
 
 ### When you rename/move a movie or series folder manually
 
 - Rename/move is detected via filesystem events and queued for incremental reconcile.
-- Old/stale symlink is removed as orphan; new symlink is created for the new folder path.
-- If the item already matches an Arr record, path is updated and refreshed.
-- If no Arr match is found and `radarr.auto_add_unmatched` / `sonarr.auto_add_unmatched` is enabled, LibrariArr attempts auto-add.
+- Next reconcile projects from the Arr item path currently known to Radarr/Sonarr.
+- Webhook queue scoping can speed up convergence to changed items.
 
 ### When you add files into an existing folder
 
 - Events are detected and reconciled, but the folder identity often remains unchanged.
-- In that case, no new Arr entry is created (existing mapping is preserved).
-- You may still see a reconcile run in logs even if resulting link/path changes are zero.
+- You may still see a reconcile run in logs even if resulting projected-file changes are zero.
 
 ### Why logs may show large `affected_paths`
 
-- `affected_paths` is the raw number of changed paths collected during debounce, not the number of movies/series.
+- `affected_paths` is the raw number of changed paths collected during debounce, not the number of projected items.
 - Single large copy/move operations can generate many filesystem events.
 - Incremental scope resolution then narrows this to scan targets before link/match actions are applied.
 
@@ -186,9 +177,12 @@ docker compose -f docker-compose.full-stack.example.yml down
 
 ```yaml
 paths:
+  movie_root_mappings:
+    - managed_root: "/data/radarr_library/age_12"
+      library_root: "/data/movies/age_12"
   root_mappings:
-    - nested_root: "/data/movies/age_12"
-      shadow_root: "/data/radarr_library/age_12"
+    - nested_root: "/data/series/age_12"
+      shadow_root: "/data/sonarr_library/age_12"
 
 radarr:
   enabled: true
@@ -209,7 +203,7 @@ sonarr:
 - Keep nested and shadow folders under that shared root (for example `/data/movies`, `/data/radarr_library`, `/data/sonarr_library`).
 - Add mapped shadow roots as root folders in Radarr/Sonarr.
 - Keep `radarr.enabled=true` for movie processing, `sonarr.enabled=true` for series processing.
-- Use `*.sync_enabled=false` when you want symlink-only mode without API updates.
+- Use `*.sync_enabled=false` to disable Arr API projection for that service.
 - If API sync is enabled and updates fail, check path parity across containers first.
 
 ## More Details
