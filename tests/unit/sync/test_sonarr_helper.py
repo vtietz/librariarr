@@ -7,6 +7,7 @@ from librariarr.config import (
     PathsConfig,
     ProfileRule,
     RadarrConfig,
+    RootMapping,
     RuntimeConfig,
     SonarrConfig,
     SonarrMappingConfig,
@@ -269,3 +270,104 @@ def test_auto_add_series_updates_existing_series_path_when_mismatched(tmp_path: 
     assert added.get("path") == str(folder)
     assert fake.add_calls == []
     assert fake.update_calls == [(77, str(folder))]
+
+
+def _make_multi_root_config(tmp_path: Path) -> AppConfig:
+    """Config with two series managed roots in priority order: age_00 > age_06."""
+    age_00 = tmp_path / "series" / "age_00"
+    age_06 = tmp_path / "series" / "age_06"
+    shadow_00 = tmp_path / "shadow" / "age_00"
+    shadow_06 = tmp_path / "shadow" / "age_06"
+    for d in (age_00, age_06, shadow_00, shadow_06):
+        d.mkdir(parents=True, exist_ok=True)
+
+    return AppConfig(
+        paths=PathsConfig(
+            series_root_mappings=[
+                RootMapping(nested_root=str(age_00), shadow_root=str(shadow_00)),
+                RootMapping(nested_root=str(age_06), shadow_root=str(shadow_06)),
+            ],
+        ),
+        radarr=RadarrConfig(url="http://radarr:7878", api_key="test"),
+        sonarr=SonarrConfig(
+            enabled=True,
+            url="http://sonarr:8989",
+            api_key="test",
+            auto_add_quality_profile_id=4,
+            auto_add_language_profile_id=1,
+        ),
+        cleanup=CleanupConfig(),
+        runtime=RuntimeConfig(),
+    )
+
+
+def test_auto_add_series_skips_path_update_when_existing_has_higher_root_priority(
+    tmp_path: Path,
+) -> None:
+    """Duplicate series folder in age_06 must not flip the path away from age_00."""
+    config = _make_multi_root_config(tmp_path)
+    age_00_folder = tmp_path / "series" / "age_00" / "Fixture Series (2023)"
+    age_06_folder = tmp_path / "series" / "age_06" / "Fixture Series (2023)"
+    age_00_folder.mkdir(parents=True)
+    age_06_folder.mkdir(parents=True)
+
+    existing = {
+        "id": 55,
+        "title": "Fixture Series",
+        "tvdbId": 4567,
+        "path": str(age_00_folder),
+    }
+    fake = _FakeSonarr(
+        quality_profiles=[{"id": 4, "name": "HD-1080p"}],
+        language_profiles=[{"id": 1, "name": "Deprecated"}],
+        lookup_results=[{"title": "Fixture Series", "year": 2023, "tvdbId": 4567}],
+        series=[existing],
+    )
+    helper = SonarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_sonarr_client=lambda: fake,
+    )
+
+    result = helper.auto_add_series_for_folder(age_06_folder, age_06_folder.parent)
+
+    assert isinstance(result, dict)
+    assert result.get("path") == str(age_00_folder)
+    assert fake.update_calls == []
+    assert fake.add_calls == []
+
+
+def test_auto_add_series_updates_path_when_new_folder_has_higher_root_priority(
+    tmp_path: Path,
+) -> None:
+    """When canonical age_00 folder appears, the path SHOULD be updated."""
+    config = _make_multi_root_config(tmp_path)
+    age_00_folder = tmp_path / "series" / "age_00" / "Fixture Series (2023)"
+    age_06_folder = tmp_path / "series" / "age_06" / "Fixture Series (2023)"
+    age_00_folder.mkdir(parents=True)
+    age_06_folder.mkdir(parents=True)
+
+    existing = {
+        "id": 55,
+        "title": "Fixture Series",
+        "tvdbId": 4567,
+        "path": str(age_06_folder),
+    }
+    fake = _FakeSonarr(
+        quality_profiles=[{"id": 4, "name": "HD-1080p"}],
+        language_profiles=[{"id": 1, "name": "Deprecated"}],
+        lookup_results=[{"title": "Fixture Series", "year": 2023, "tvdbId": 4567}],
+        series=[existing],
+    )
+    helper = SonarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_sonarr_client=lambda: fake,
+    )
+
+    result = helper.auto_add_series_for_folder(age_00_folder, age_00_folder.parent)
+
+    assert isinstance(result, dict)
+    assert result.get("path") == str(age_00_folder)
+    assert fake.update_calls == [(55, str(age_00_folder))]
+    assert fake.add_calls == []

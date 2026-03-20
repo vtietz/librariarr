@@ -192,6 +192,21 @@ class SonarrSyncHelper:
         del series
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
+    def _managed_root_priority(self, folder: Path) -> int | None:
+        """Return the config-order index of the managed root containing *folder*.
+
+        Lower index means higher priority.  Returns ``None`` when the folder
+        does not fall under any configured series managed root.
+        """
+        for index, mapping in enumerate(self.config.paths.series_root_mappings):
+            managed_root = Path(mapping.nested_root)
+            try:
+                folder.relative_to(managed_root)
+                return index
+            except ValueError:
+                continue
+        return None
+
     def _find_existing_series(self, candidate: dict, target_path: Path) -> dict | None:
         try:
             existing_series = self._sonarr().get_series()
@@ -248,6 +263,28 @@ class SonarrSyncHelper:
             existing_path = str(existing_series.get("path") or "").strip()
             target_path = str(folder)
             if existing_path != target_path:
+                # Deterministic tie-break: only update the Arr path when the
+                # new folder has equal or higher priority (lower config index)
+                # than the folder Arr currently points to.
+                existing_priority = self._managed_root_priority(Path(existing_path))
+                new_priority = self._managed_root_priority(folder)
+                if (
+                    existing_priority is not None
+                    and new_priority is not None
+                    and new_priority > existing_priority
+                ):
+                    self.log.info(
+                        "Skipping path update for series_id=%s; existing path has "
+                        "higher root priority (existing_idx=%s new_idx=%s) "
+                        "folder=%s existing_path=%s",
+                        existing_series.get("id"),
+                        existing_priority,
+                        new_priority,
+                        folder,
+                        existing_path,
+                    )
+                    return existing_series
+
                 try:
                     self._sonarr().update_series_path(existing_series, target_path)
                     existing_series["path"] = target_path

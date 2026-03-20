@@ -15,6 +15,16 @@ def shadow_roots(config: AppConfig) -> list[Path]:
     return sorted(roots)
 
 
+def library_roots(config: AppConfig) -> list[Path]:
+    """Return all unique library/shadow roots (movies + series)."""
+    roots: set[Path] = set()
+    for item in config.paths.series_root_mappings:
+        roots.add(Path(item.shadow_root))
+    for item in config.paths.movie_root_mappings:
+        roots.add(Path(item.library_root))
+    return sorted(roots)
+
+
 def safe_directory_entries(root: Path) -> list[Path]:
     try:
         return sorted(root.iterdir(), key=lambda item: item.name.lower())
@@ -83,22 +93,35 @@ class MappedDirectoriesCache:
         )
 
     def _scan(self, config: AppConfig) -> tuple[list[dict[str, Any]], list[str]]:
-        roots = shadow_roots(config)
+        roots = library_roots(config)
         items: list[dict[str, Any]] = []
         for root in roots:
             for child in safe_directory_entries(root):
-                if not child.is_symlink():
-                    continue
-                virtual_path = str(child)
-                real_path = str(child.resolve(strict=False))
-                items.append(
-                    {
-                        "shadow_root": str(root),
-                        "virtual_path": virtual_path,
-                        "real_path": real_path,
-                        "target_exists": Path(real_path).exists(),
-                    }
-                )
+                if child.is_symlink():
+                    virtual_path = str(child)
+                    real_path = str(child.resolve(strict=False))
+                    items.append(
+                        {
+                            "shadow_root": str(root),
+                            "virtual_path": virtual_path,
+                            "real_path": real_path,
+                            "target_exists": Path(real_path).exists(),
+                        }
+                    )
+                elif child.is_dir():
+                    # Projection-first flow creates real directories with
+                    # hardlinked files.  Include them so the cache reflects
+                    # the current library state.
+                    virtual_path = str(child)
+                    real_path = str(child.resolve(strict=False))
+                    items.append(
+                        {
+                            "shadow_root": str(root),
+                            "virtual_path": virtual_path,
+                            "real_path": real_path,
+                            "target_exists": True,
+                        }
+                    )
         return items, [str(root) for root in roots]
 
     def _rebuild_worker(self, config: AppConfig) -> None:
@@ -162,7 +185,7 @@ class MappedDirectoriesCache:
         with self._lock:
             if self._building:
                 return False
-            new_roots = sorted(str(r) for r in shadow_roots(config))
+            new_roots = sorted(str(r) for r in library_roots(config))
             roots_changed = new_roots != self._shadow_roots
             if not force and not roots_changed:
                 recent_build = (time.time() - self._last_build_finished) < 10
