@@ -50,6 +50,7 @@ Commands:
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
   dev-up      Start dev API, UI, Sonarr, and Radarr services
+  dev-once    Run one reconcile cycle in the dev service container
   dev-reset   Stop dev stack, wipe dev data/config, start stack, and reseed
   dev-bootstrap  Configure dev Arr instances and sync API keys into config.yaml
   dev-seed    Create fake movie/series folders/files in configured source roots
@@ -166,6 +167,11 @@ case "$cmd" in
     echo "- Vite dev UI:           http://localhost:5173"
     echo "- Radarr admin:          http://localhost:${radarr_port}"
     echo "- Sonarr admin:          http://localhost:${sonarr_port}"
+    ;;
+  dev-once)
+    "$0" setup
+    compose_dev run --rm "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.main --config /config/config.yaml --once"
     ;;
   dev-reset)
     "$0" dev-down

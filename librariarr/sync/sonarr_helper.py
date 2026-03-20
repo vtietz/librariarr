@@ -57,6 +57,13 @@ class SonarrSyncHelper:
         self._auto_add_profiles_cache = profiles
         return profiles
 
+    def _available_quality_profile_ids(self) -> set[int]:
+        return {
+            profile_id
+            for profile_id in (profile.get("id") for profile in self._get_auto_add_profiles())
+            if isinstance(profile_id, int)
+        }
+
     def _get_auto_add_language_profiles(self) -> list[dict]:
         if self._auto_add_language_profiles_cache is not None:
             return self._auto_add_language_profiles_cache
@@ -68,10 +75,27 @@ class SonarrSyncHelper:
         self._auto_add_language_profiles_cache = profiles
         return profiles
 
+    def _available_language_profile_ids(self) -> set[int]:
+        return {
+            profile_id
+            for profile_id in (
+                profile.get("id") for profile in self._get_auto_add_language_profiles()
+            )
+            if isinstance(profile_id, int)
+        }
+
     def _resolve_auto_add_quality_profile_id(self, folder: Path) -> int | None:
+        available_profile_ids = self._available_quality_profile_ids()
         configured_profile_id = self.config.sonarr.auto_add_quality_profile_id
         if configured_profile_id is not None:
-            return configured_profile_id
+            if configured_profile_id in available_profile_ids:
+                return configured_profile_id
+            self.log.warning(
+                "Configured sonarr.auto_add_quality_profile_id=%s is unavailable; "
+                "falling back to available profile ids=%s",
+                configured_profile_id,
+                sorted(available_profile_ids),
+            )
 
         quality_profile_map = self.config.sonarr.mapping.quality_profile_map
         if quality_profile_map:
@@ -84,23 +108,28 @@ class SonarrSyncHelper:
                 media_probe_bin=self.config.analysis.media_probe_bin,
             )
             if mapped_profile_id is not None:
-                self.log.info(
-                    "Sonarr auto-add: mapped folder=%s to quality_profile_id=%s "
-                    "via sonarr.mapping.quality_profile_map",
-                    folder,
+                if mapped_profile_id in available_profile_ids:
+                    self.log.info(
+                        "Sonarr auto-add: mapped folder=%s to quality_profile_id=%s "
+                        "via sonarr.mapping.quality_profile_map",
+                        folder,
+                        mapped_profile_id,
+                    )
+                    return mapped_profile_id
+                self.log.warning(
+                    "Mapped Sonarr quality_profile_id=%s for folder=%s is unavailable; "
+                    "falling back to available profile ids=%s",
                     mapped_profile_id,
+                    folder,
+                    sorted(available_profile_ids),
                 )
-                return mapped_profile_id
 
         if self._auto_add_quality_profile_id_cache is not None:
-            return self._auto_add_quality_profile_id_cache
+            if self._auto_add_quality_profile_id_cache in available_profile_ids:
+                return self._auto_add_quality_profile_id_cache
+            self._auto_add_quality_profile_id_cache = None
 
-        profiles = self._get_auto_add_profiles()
-        profile_ids = sorted(
-            profile_id
-            for profile_id in (profile.get("id") for profile in profiles)
-            if isinstance(profile_id, int)
-        )
+        profile_ids = sorted(available_profile_ids)
         if not profile_ids:
             return None
 
@@ -108,9 +137,17 @@ class SonarrSyncHelper:
         return self._auto_add_quality_profile_id_cache
 
     def _resolve_auto_add_language_profile_id(self, folder: Path) -> int | None:
+        available_profile_ids = self._available_language_profile_ids()
         configured_profile_id = self.config.sonarr.auto_add_language_profile_id
         if configured_profile_id is not None:
-            return configured_profile_id
+            if configured_profile_id in available_profile_ids:
+                return configured_profile_id
+            self.log.warning(
+                "Configured sonarr.auto_add_language_profile_id=%s is unavailable; "
+                "falling back to available profile ids=%s",
+                configured_profile_id,
+                sorted(available_profile_ids),
+            )
 
         language_profile_map = self.config.sonarr.mapping.language_profile_map
         if language_profile_map:
@@ -123,23 +160,28 @@ class SonarrSyncHelper:
                 media_probe_bin=self.config.analysis.media_probe_bin,
             )
             if mapped_profile_id is not None:
-                self.log.info(
-                    "Sonarr auto-add: mapped folder=%s to language_profile_id=%s "
-                    "via sonarr.mapping.language_profile_map",
-                    folder,
+                if mapped_profile_id in available_profile_ids:
+                    self.log.info(
+                        "Sonarr auto-add: mapped folder=%s to language_profile_id=%s "
+                        "via sonarr.mapping.language_profile_map",
+                        folder,
+                        mapped_profile_id,
+                    )
+                    return mapped_profile_id
+                self.log.warning(
+                    "Mapped Sonarr language_profile_id=%s for folder=%s is unavailable; "
+                    "falling back to available profile ids=%s",
                     mapped_profile_id,
+                    folder,
+                    sorted(available_profile_ids),
                 )
-                return mapped_profile_id
 
         if self._auto_add_language_profile_id_cache is not None:
-            return self._auto_add_language_profile_id_cache
+            if self._auto_add_language_profile_id_cache in available_profile_ids:
+                return self._auto_add_language_profile_id_cache
+            self._auto_add_language_profile_id_cache = None
 
-        profiles = self._get_auto_add_language_profiles()
-        profile_ids = sorted(
-            profile_id
-            for profile_id in (profile.get("id") for profile in profiles)
-            if isinstance(profile_id, int)
-        )
+        profile_ids = sorted(available_profile_ids)
         if not profile_ids:
             return None
 
@@ -150,7 +192,27 @@ class SonarrSyncHelper:
         del series
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
-    def auto_add_series_for_folder(self, folder: Path, shadow_root: Path) -> dict | None:
+    def _find_existing_series(self, candidate: dict, target_path: Path) -> dict | None:
+        try:
+            existing_series = self._sonarr().get_series()
+        except requests.RequestException:
+            return None
+
+        candidate_tvdb_id = candidate.get("tvdbId")
+        if isinstance(candidate_tvdb_id, int):
+            for series in existing_series:
+                if int(series.get("tvdbId") or 0) == candidate_tvdb_id:
+                    return series
+
+        target_path_text = str(target_path)
+        for series in existing_series:
+            series_path = str(series.get("path") or "").strip()
+            if series_path == target_path_text:
+                return series
+
+        return None
+
+    def auto_add_series_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
 
@@ -181,12 +243,45 @@ class SonarrSyncHelper:
         language_profile_id = self._resolve_auto_add_language_profile_id(folder)
 
         canonical_name = self._canonical_name_from_series(candidate, folder)
-        link_path = shadow_root / canonical_name
+        existing_series = self._find_existing_series(candidate, folder)
+        if existing_series is not None:
+            existing_path = str(existing_series.get("path") or "").strip()
+            target_path = str(folder)
+            if existing_path != target_path:
+                try:
+                    self._sonarr().update_series_path(existing_series, target_path)
+                    existing_series["path"] = target_path
+                    self.log.info(
+                        "Updated existing Sonarr series path for folder=%s canonical=%s "
+                        "series_id=%s",
+                        folder,
+                        canonical_name,
+                        existing_series.get("id"),
+                    )
+                except requests.RequestException as exc:
+                    self.log.warning(
+                        "Failed to update existing Sonarr series path for folder=%s canonical=%s "
+                        "series_id=%s: %s",
+                        folder,
+                        canonical_name,
+                        existing_series.get("id"),
+                        exc,
+                    )
+                    return None
+            self.log.info(
+                "Series already present in Sonarr; skipping auto-add for folder=%s canonical=%s "
+                "series_id=%s",
+                folder,
+                canonical_name,
+                existing_series.get("id"),
+            )
+            return existing_series
+
         try:
             added_series = self._sonarr().add_series_from_lookup(
                 candidate,
-                path=str(link_path),
-                root_folder_path=str(shadow_root),
+                path=str(folder),
+                root_folder_path=str(managed_root),
                 quality_profile_id=quality_profile_id,
                 language_profile_id=language_profile_id,
                 monitored=self.config.sonarr.auto_add_monitored,

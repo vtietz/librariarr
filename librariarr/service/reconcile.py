@@ -223,11 +223,11 @@ class ServiceReconcileMixin:
 
         added_movie_ids: set[int] = set()
         for folder in unmatched_folders:
-            library_root = self._resolve_library_root_for_folder(folder, self.movie_root_mappings)
-            if library_root is None:
+            managed_root = self._resolve_managed_root_for_folder(folder, self.movie_root_mappings)
+            if managed_root is None:
                 continue
 
-            added_movie = self.radarr_sync.auto_add_movie_for_folder(folder, library_root)
+            added_movie = self.radarr_sync.auto_add_movie_for_folder(folder, managed_root)
             if not isinstance(added_movie, dict):
                 continue
             movie_id = added_movie.get("id")
@@ -275,14 +275,11 @@ class ServiceReconcileMixin:
 
         added_series_ids: set[int] = set()
         for folder in unmatched_folders:
-            library_root = self._resolve_library_root_for_folder(
-                folder,
-                self.series_root_mappings,
-            )
-            if library_root is None:
+            managed_root = self._resolve_managed_root_for_folder(folder, self.series_root_mappings)
+            if managed_root is None:
                 continue
 
-            added_series = self.sonarr_sync.auto_add_series_for_folder(folder, library_root)
+            added_series = self.sonarr_sync.auto_add_series_for_folder(folder, managed_root)
             if not isinstance(added_series, dict):
                 continue
             series_id = added_series.get("id")
@@ -309,6 +306,20 @@ class ServiceReconcileMixin:
             if folder_resolved in candidate_resolved.parents:
                 return True
         return False
+
+    def _resolve_managed_root_for_folder(
+        self,
+        folder: Path,
+        mappings: list[tuple[Path, Path]],
+    ) -> Path | None:
+        sorted_mappings = sorted(mappings, key=lambda item: len(item[0].parts), reverse=True)
+        for managed_root, _library_root in sorted_mappings:
+            try:
+                folder.relative_to(managed_root)
+            except ValueError:
+                continue
+            return managed_root
+        return None
 
     def _resolve_library_root_for_folder(
         self,

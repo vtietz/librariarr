@@ -352,7 +352,27 @@ class RadarrSyncHelper:
         del movie
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
-    def auto_add_movie_for_folder(self, folder: Path, shadow_root: Path) -> dict | None:
+    def _find_existing_movie(self, candidate: dict, target_path: Path) -> dict | None:
+        try:
+            existing_movies = self._radarr().get_movies()
+        except requests.RequestException:
+            return None
+
+        candidate_tmdb_id = candidate.get("tmdbId")
+        if isinstance(candidate_tmdb_id, int):
+            for movie in existing_movies:
+                if int(movie.get("tmdbId") or 0) == candidate_tmdb_id:
+                    return movie
+
+        target_path_text = str(target_path)
+        for movie in existing_movies:
+            movie_path = str(movie.get("path") or "").strip()
+            if movie_path == target_path_text:
+                return movie
+
+        return None
+
+    def auto_add_movie_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
 
@@ -386,12 +406,44 @@ class RadarrSyncHelper:
             return None
 
         canonical_name = self._canonical_name_from_movie(candidate, folder)
-        link_path = shadow_root / canonical_name
+        existing_movie = self._find_existing_movie(candidate, folder)
+        if existing_movie is not None:
+            existing_path = str(existing_movie.get("path") or "").strip()
+            target_path = str(folder)
+            if existing_path != target_path:
+                try:
+                    self._radarr().update_movie_path(existing_movie, target_path)
+                    existing_movie["path"] = target_path
+                    self.log.info(
+                        "Updated existing Radarr movie path for folder=%s canonical=%s movie_id=%s",
+                        folder,
+                        canonical_name,
+                        existing_movie.get("id"),
+                    )
+                except requests.RequestException as exc:
+                    self.log.warning(
+                        "Failed to update existing Radarr movie path for "
+                        "folder=%s canonical=%s movie_id=%s: %s",
+                        folder,
+                        canonical_name,
+                        existing_movie.get("id"),
+                        exc,
+                    )
+                    return None
+            self.log.info(
+                "Movie already present in Radarr; skipping auto-add for "
+                "folder=%s canonical=%s movie_id=%s",
+                folder,
+                canonical_name,
+                existing_movie.get("id"),
+            )
+            return existing_movie
+
         try:
             added_movie = self._radarr().add_movie_from_lookup(
                 candidate,
-                path=str(link_path),
-                root_folder_path=str(shadow_root),
+                path=str(folder),
+                root_folder_path=str(managed_root),
                 quality_profile_id=quality_profile_id,
                 monitored=self.config.radarr.auto_add_monitored,
                 search_for_movie=self.config.radarr.auto_add_search_on_add,

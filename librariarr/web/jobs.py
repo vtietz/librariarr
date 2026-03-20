@@ -73,34 +73,39 @@ class JobManager:
         source: str = "job-manager",
         detail: str | None = None,
         payload: dict[str, Any] | None = None,
+        task_key: str | None = None,
         history_visible: bool = True,
     ) -> str:
         self.start()
-        job_id = uuid.uuid4().hex
-        now = time.time()
-        record = {
-            "job_id": job_id,
-            "kind": kind,
-            "name": name or kind,
-            "source": source,
-            "status": "queued",
-            "detail": detail or "queued",
-            "queued_at": now,
-            "started_at": None,
-            "finished_at": None,
-            "updated_at": now,
-            "error": None,
-            "result": None,
-            "cancel_requested": False,
-            "cancel_requested_at": None,
-            "payload": payload or {},
-            "history_visible": bool(history_visible),
-            "authoritative": True,
-            "task_key": None,
-            "attempt": 1,
-            "max_attempts": 1,
-        }
         with self._lock:
+            existing = self._find_active_task_by_key_locked(task_key)
+            if existing is not None:
+                return existing
+
+            job_id = uuid.uuid4().hex
+            now = time.time()
+            record = {
+                "job_id": job_id,
+                "kind": kind,
+                "name": name or kind,
+                "source": source,
+                "status": "queued",
+                "detail": detail or "queued",
+                "queued_at": now,
+                "started_at": None,
+                "finished_at": None,
+                "updated_at": now,
+                "error": None,
+                "result": None,
+                "cancel_requested": False,
+                "cancel_requested_at": None,
+                "payload": payload or {},
+                "history_visible": bool(history_visible),
+                "authoritative": True,
+                "task_key": task_key,
+                "attempt": 1,
+                "max_attempts": 1,
+            }
             self._jobs[job_id] = record
             self._order.append(job_id)
             self._trim_history_locked()

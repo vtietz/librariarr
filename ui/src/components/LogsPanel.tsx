@@ -12,6 +12,8 @@ const LEVEL_COLOR: Record<string, string> = {
   UNKNOWN: "gray"
 };
 
+const ACCESS_LOG_MARKER = " uvicorn.access - ";
+
 function levelColor(level: string): string {
   const normalized = level.toUpperCase();
   return LEVEL_COLOR[normalized] ?? "gray";
@@ -116,7 +118,12 @@ export default function LogsPanel() {
     };
   }, []);
 
-  const countLabel = useMemo(() => logs.length.toString(), [logs.length]);
+  const visibleLogs = useMemo(
+    () => logs.filter((entry) => !entry.line.includes(ACCESS_LOG_MARKER)),
+    [logs]
+  );
+
+  const countLabel = useMemo(() => visibleLogs.length.toString(), [visibleLogs.length]);
   const streamColor =
     streamState === "live" ? "teal" : streamState === "connecting" ? "blue" : "gray";
 
@@ -156,14 +163,14 @@ export default function LogsPanel() {
               Loading logs...
             </Text>
           </Group>
-        ) : logs.length === 0 ? (
+        ) : visibleLogs.length === 0 ? (
           error ? (
             <Text size="sm" c="red">
               {error}
             </Text>
           ) : (
             <Text size="sm" c="dimmed">
-              No log entries yet.
+              No application log entries yet.
             </Text>
           )
         ) : (
@@ -175,7 +182,7 @@ export default function LogsPanel() {
             ) : null}
             <ScrollArea h={520} type="auto">
               <Stack gap="xs">
-                {logs.map((entry) => (
+                {visibleLogs.map((entry) => (
                   <Text key={entry.seq} size="sm" c={levelColor(entry.level)}>
                     [{entry.level}] {entry.line}
                   </Text>

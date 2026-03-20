@@ -6,6 +6,8 @@ from typing import Any
 from fastapi import APIRouter, Header, HTTPException, Request
 
 from ...projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
+from ...service.constants import RECONCILE_TASK_INCREMENTAL_KEY
+from ..request_helpers import job_manager_or_http
 
 
 def build_hooks_router() -> APIRouter:
@@ -38,6 +40,16 @@ def build_hooks_router() -> APIRouter:
             movie_id=movie_id,
             event_type=event_type,
             normalized_path=normalized_path,
+        )
+        manager = job_manager_or_http(request)
+        manager.begin_external_task(
+            kind="reconcile-webhook",
+            name="Webhook Reconcile",
+            source="radarr-webhook",
+            detail="queued",
+            payload={"movie_id": movie_id, "event_type": event_type},
+            task_key=RECONCILE_TASK_INCREMENTAL_KEY,
+            history_visible=False,
         )
 
         return {
@@ -77,6 +89,16 @@ def build_hooks_router() -> APIRouter:
             series_id=series_id,
             event_type=event_type,
             normalized_path=normalized_path,
+        )
+        manager = job_manager_or_http(request)
+        manager.begin_external_task(
+            kind="reconcile-webhook",
+            name="Webhook Reconcile",
+            source="sonarr-webhook",
+            detail="queued",
+            payload={"series_id": series_id, "event_type": event_type},
+            task_key=RECONCILE_TASK_INCREMENTAL_KEY,
+            history_visible=False,
         )
 
         return {

@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from ..runtime.status import RuntimeStatusTracker
+from ..service.constants import RECONCILE_TASK_FULL_KEY, RECONCILE_TASK_INCREMENTAL_KEY
 from .jobs import JobManager
+
+
+def _task_key_for_runtime_trigger(trigger_source: str) -> str:
+    normalized = str(trigger_source).strip().lower()
+    if normalized in {"filesystem", "poll"}:
+        return RECONCILE_TASK_INCREMENTAL_KEY
+    return RECONCILE_TASK_FULL_KEY
 
 
 def configure_runtime_task_callbacks(
@@ -16,7 +24,7 @@ def configure_runtime_task_callbacks(
             source=str(kwargs.get("trigger_source") or "runtime"),
             detail=str(kwargs.get("phase") or "running"),
             payload=dict(kwargs.get("current_task") or {}),
-            task_key="runtime-reconcile",
+            task_key=_task_key_for_runtime_trigger(str(kwargs.get("trigger_source") or "")),
             history_visible=False,
         ),
         on_updated=lambda **kwargs: job_manager.update_external_task(

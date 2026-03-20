@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from ..service import LibrariArrService
+from ..service.constants import RECONCILE_TASK_FULL_KEY, RECONCILE_TASK_INCREMENTAL_KEY
 from .path_mapping_status import build_path_mapping_outcome, record_path_mapping_outcome
 from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 
@@ -103,6 +104,7 @@ def queue_maintenance_reconcile(
             LOG.error("Manual reconcile failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
+    task_key = RECONCILE_TASK_INCREMENTAL_KEY if affected_paths else RECONCILE_TASK_FULL_KEY
     job_id = manager.submit(
         kind="reconcile-manual-scoped" if affected_paths else "reconcile-manual",
         name="Manual Reconcile (Scoped)" if affected_paths else "Manual Reconcile",
@@ -110,6 +112,7 @@ def queue_maintenance_reconcile(
         detail="queued",
         func=action,
         payload={"path": path_value} if path_value else None,
+        task_key=task_key,
     )
     return {
         "ok": True,
