@@ -63,6 +63,7 @@ class ServiceReconcileMixin:
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
 
+            had_projection_error = False
             movie_projection_metrics = {
                 "scoped_movie_count": 0,
                 "planned_movies": 0,
@@ -80,6 +81,7 @@ class ServiceReconcileMixin:
                 try:
                     movie_projection_metrics = self.movie_projection.reconcile(scoped_movie_ids)
                 except Exception as exc:
+                    had_projection_error = True
                     self._log_sync_config_hint(exc)
                     LOG.warning(
                         "Continuing reconcile without Radarr projection due to request failure: %s",
@@ -106,6 +108,7 @@ class ServiceReconcileMixin:
                 try:
                     series_projection_metrics = self.sonarr_projection.reconcile(scoped_series_ids)
                 except Exception as exc:
+                    had_projection_error = True
                     self._log_sonarr_sync_config_hint(exc)
                     LOG.warning(
                         "Continuing reconcile without Sonarr projection due to request failure: %s",
@@ -184,7 +187,7 @@ class ServiceReconcileMixin:
             )
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("completed")
-            return False
+            return had_projection_error
 
     def _auto_add_unmatched_movies(self, affected_paths: set[Path] | None) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):

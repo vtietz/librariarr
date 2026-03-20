@@ -18,6 +18,8 @@ class SonarrClient:
         retry_attempts: int = 2,
         retry_backoff_seconds: float = 0.5,
         refresh_debounce_seconds: int = 15,
+        circuit_breaker_threshold: int = 5,
+        circuit_breaker_cooldown: float = 300.0,
     ) -> None:
         self.base_url = base_url.rstrip("/")
         self.timeout = max(1, int(timeout))
@@ -25,6 +27,10 @@ class SonarrClient:
         self.retry_backoff_seconds = max(0.0, float(retry_backoff_seconds))
         self.refresh_debounce_seconds = max(0, int(refresh_debounce_seconds))
         self._last_refresh_by_series_id: dict[int, float] = {}
+        self._cb_threshold = max(1, int(circuit_breaker_threshold))
+        self._cb_cooldown = max(0.0, float(circuit_breaker_cooldown))
+        self._cb_consecutive_failures = 0
+        self._cb_open_since: float | None = None
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": api_key, "Content-Type": "application/json"})
 
@@ -66,7 +72,36 @@ class SonarrClient:
             exc,
         )
 
+    def _check_circuit_breaker(self) -> None:
+        if self._cb_open_since is None:
+            return
+        elapsed = time.time() - self._cb_open_since
+        if elapsed < self._cb_cooldown:
+            raise requests.ConnectionError(
+                f"Sonarr circuit breaker is open ({self._cb_consecutive_failures} consecutive "
+                f"failures, {self._cb_cooldown - elapsed:.0f}s remaining in cooldown)"
+            )
+        LOG.info("Sonarr circuit breaker closed after %.0fs cooldown", elapsed)
+        self._cb_consecutive_failures = 0
+        self._cb_open_since = None
+
+    def _record_cb_success(self) -> None:
+        if self._cb_consecutive_failures > 0:
+            self._cb_consecutive_failures = 0
+            self._cb_open_since = None
+
+    def _record_cb_failure(self) -> None:
+        self._cb_consecutive_failures += 1
+        if self._cb_consecutive_failures >= self._cb_threshold and self._cb_open_since is None:
+            self._cb_open_since = time.time()
+            LOG.warning(
+                "Sonarr circuit breaker opened after %s consecutive failures, cooldown=%.0fs",
+                self._cb_consecutive_failures,
+                self._cb_cooldown,
+            )
+
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        self._check_circuit_breaker()
         method_name = method.upper()
         total_attempts = self.retry_attempts + 1
 
@@ -79,11 +114,13 @@ class SonarrClient:
                     **kwargs,
                 )
                 response.raise_for_status()
+                self._record_cb_success()
                 if response.content:
                     return response.json()
                 return None
             except requests.RequestException as exc:
                 if attempt >= self.retry_attempts or not self._can_retry_request(method_name, exc):
+                    self._record_cb_failure()
                     raise
                 self._log_retry_attempt(method_name, path, attempt, exc)
                 time.sleep(self._retry_delay_seconds(attempt))

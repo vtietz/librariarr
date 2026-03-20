@@ -22,8 +22,15 @@ class SeriesWebhookEvent:
     enqueued_at: float
 
 
+DEFAULT_DEDUPE_BUCKET_SECONDS = 120
+
+
 class RadarrWebhookQueue:
-    def __init__(self, max_items: int = 2000, dedupe_bucket_seconds: int = 30) -> None:
+    def __init__(
+        self,
+        max_items: int = 2000,
+        dedupe_bucket_seconds: int = DEFAULT_DEDUPE_BUCKET_SECONDS,
+    ) -> None:
         self.max_items = max(1, int(max_items))
         self.dedupe_bucket_seconds = max(1, int(dedupe_bucket_seconds))
         self._lock = threading.RLock()
@@ -106,7 +113,11 @@ def get_radarr_webhook_queue() -> RadarrWebhookQueue:
 
 
 class SonarrWebhookQueue:
-    def __init__(self, max_items: int = 2000, dedupe_bucket_seconds: int = 30) -> None:
+    def __init__(
+        self,
+        max_items: int = 2000,
+        dedupe_bucket_seconds: int = DEFAULT_DEDUPE_BUCKET_SECONDS,
+    ) -> None:
         self.max_items = max(1, int(max_items))
         self.dedupe_bucket_seconds = max(1, int(dedupe_bucket_seconds))
         self._lock = threading.RLock()

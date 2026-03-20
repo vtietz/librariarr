@@ -72,10 +72,37 @@ def _config_backup_path(config_path: Path) -> Path:
     return config_path.with_name(f"{config_path.name}.bak")
 
 
+def _atomic_write(target: Path, content: str) -> None:
+    fd = None
+    tmp_path = None
+    try:
+        fd = NamedTemporaryFile(
+            "w",
+            dir=str(target.parent),
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+            encoding="utf-8",
+        )
+        tmp_path = Path(fd.name)
+        fd.write(content)
+        fd.flush()
+        os.fsync(fd.fileno())
+        fd.close()
+        fd = None
+        os.replace(str(tmp_path), str(target))
+        tmp_path = None
+    finally:
+        if fd is not None:
+            fd.close()
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
 def _write_config_with_backup(config_path: Path, previous_yaml: str, next_yaml: str) -> None:
     backup_path = _config_backup_path(config_path)
-    backup_path.write_text(previous_yaml, encoding="utf-8")
-    config_path.write_text(next_yaml, encoding="utf-8")
+    _atomic_write(backup_path, previous_yaml)
+    _atomic_write(config_path, next_yaml)
 
 
 def _is_permission_error(exc: OSError) -> bool:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import errno
+import logging
 import os
 from pathlib import Path
 
@@ -11,6 +12,8 @@ from .models import (
     ProjectionApplyMetrics,
 )
 from .provenance import ProjectionStateStore
+
+LOG = logging.getLogger(__name__)
 
 
 class MovieProjectionExecutor:
@@ -141,6 +144,14 @@ def _hardlink_file(source_path: Path, dest_path: Path) -> bool:
         os.link(source_path, dest_path)
         return True
     except OSError as exc:
-        if exc.errno in {errno.EXDEV, errno.EPERM, errno.EACCES}:
+        if exc.errno == errno.EXDEV:
+            LOG.warning(
+                "Cross-device hardlink failed (source and dest are on different filesystems): "
+                "source=%s dest=%s — check your volume/mount layout",
+                source_path,
+                dest_path,
+            )
+            return False
+        if exc.errno in {errno.EPERM, errno.EACCES}:
             return False
         raise
