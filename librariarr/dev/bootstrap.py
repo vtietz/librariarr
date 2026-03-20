@@ -19,6 +19,12 @@ DEFAULT_SERIES_ROOT_MAPPINGS = [
     {"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"},
 ]
 
+DEFAULT_MOVIE_ROOT_MAPPINGS = [
+    {"managed_root": "/data/movies/age_06", "library_root": "/data/radarr_library/age_06"},
+    {"managed_root": "/data/movies/age_12", "library_root": "/data/radarr_library/age_12"},
+    {"managed_root": "/data/movies/age_16", "library_root": "/data/radarr_library/age_16"},
+]
+
 
 def _find_text_case_insensitive(root: ET.Element, expected_tag: str) -> str:
     for child in root.iter():
@@ -196,9 +202,12 @@ def _safe_shadow_roots(series_root_mappings: list[dict[str, Any]]) -> list[str]:
     return shadow_roots
 
 
-def _ensure_container_paths(series_root_mappings: list[dict[str, Any]]) -> None:
-    for mapping in series_root_mappings:
-        for key in ("nested_root", "shadow_root"):
+def _ensure_container_paths(
+    mappings: list[dict[str, Any]],
+    keys: tuple[str, ...] = ("nested_root", "shadow_root"),
+) -> None:
+    for mapping in mappings:
+        for key in keys:
             path_text = str(mapping.get(key, "")).strip()
             if not path_text.startswith("/data/"):
                 continue
@@ -325,7 +334,7 @@ def _sync_config_yaml(
     sonarr_url: str,
     radarr_api_key: str,
     sonarr_api_key: str,
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     payload = _load_yaml(CONFIG_PATH)
 
     radarr_section = payload.setdefault("radarr", {})
@@ -341,6 +350,13 @@ def _sync_config_yaml(
     series_root_mappings = _ensure_dev_sonarr_mappings(series_root_mappings)
     paths_section["series_root_mappings"] = series_root_mappings
 
+    movie_root_mappings = paths_section.get("movie_root_mappings")
+    if not _is_non_empty_mapping_list(movie_root_mappings):
+        movie_root_mappings = list(DEFAULT_MOVIE_ROOT_MAPPINGS)
+    else:
+        movie_root_mappings = [item for item in movie_root_mappings if isinstance(item, dict)]
+    paths_section["movie_root_mappings"] = movie_root_mappings
+
     radarr_section["enabled"] = True
     radarr_section["sync_enabled"] = True
     radarr_section["url"] = radarr_url
@@ -354,7 +370,10 @@ def _sync_config_yaml(
     _save_yaml(CONFIG_PATH, payload)
     LOG.info("Synchronized %s with dev Arr URLs and API keys", CONFIG_PATH)
 
-    return [item for item in series_root_mappings if isinstance(item, dict)]
+    return (
+        [item for item in series_root_mappings if isinstance(item, dict)],
+        [item for item in movie_root_mappings if isinstance(item, dict)],
+    )
 
 
 def main() -> None:
@@ -391,20 +410,21 @@ def main() -> None:
     radarr_effective_url = radarr_bootstrap_url
     sonarr_effective_url = sonarr_bootstrap_url
 
-    series_root_mappings = _sync_config_yaml(
+    series_root_mappings, movie_root_mappings = _sync_config_yaml(
         radarr_url=radarr_effective_url,
         sonarr_url=sonarr_effective_url,
         radarr_api_key=radarr_api_key,
         sonarr_api_key=sonarr_api_key,
     )
     _ensure_container_paths(series_root_mappings)
+    _ensure_container_paths(movie_root_mappings, keys=("managed_root", "library_root"))
 
     shadow_roots = _safe_shadow_roots(series_root_mappings)
-    radarr_roots = _pick_roots_for_service(
-        shadow_roots,
-        service_hint="radarr",
-        fallback="/data/radarr_library",
-    )
+    radarr_roots = [
+        str(m.get("library_root", "")).strip()
+        for m in movie_root_mappings
+        if str(m.get("library_root", "")).strip()
+    ] or ["/data/radarr_library"]
     sonarr_roots = _pick_roots_for_service(
         shadow_roots,
         service_hint="sonarr",

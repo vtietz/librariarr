@@ -97,10 +97,7 @@ def _movie_file_name(title: str, year: int) -> str:
 
 
 def _movie_variants_for_root(root: Path) -> list[tuple[str, int]]:
-    bucket = root.name.replace("_", " ").strip()
-    if not bucket:
-        return SAMPLE_MOVIES
-    return [(f"{title} {bucket}", year) for title, year in SAMPLE_MOVIES]
+    return SAMPLE_MOVIES
 
 
 def _seed_movie_root(root: Path) -> tuple[int, int]:
