@@ -10,16 +10,28 @@ LOG = logging.getLogger("librariarr.dev.seed")
 CONFIG_PATH = Path("/config/config.yaml")
 
 SAMPLE_MOVIES: list[tuple[str, int]] = [
-    ("Movie A", 2020),
-    ("Movie B", 2021),
-    ("Movie C", 2022),
+    ("Toy Story", 1995),
+    ("The Dark Knight", 2008),
+    ("Inception", 2010),
 ]
 
 SAMPLE_SERIES: list[tuple[str, int]] = [
-    ("Series Alpha", 2021),
-    ("Series Beta", 2022),
-    ("Series Gamma", 2023),
+    ("Bluey", 2018),
+    ("Stranger Things", 2016),
+    ("Breaking Bad", 2008),
 ]
+
+_MOVIE_BY_AGE_BUCKET: dict[str, list[tuple[str, int]]] = {
+    "age_06": [("Toy Story", 1995)],
+    "age_12": [("The Dark Knight", 2008)],
+    "age_16": [("Inception", 2010)],
+}
+
+_SERIES_BY_AGE_BUCKET: dict[str, list[tuple[str, int]]] = {
+    "age_06": [("Bluey", 2018)],
+    "age_12": [("Stranger Things", 2016)],
+    "age_16": [("Breaking Bad", 2008)],
+}
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -97,7 +109,8 @@ def _movie_file_name(title: str, year: int) -> str:
 
 
 def _movie_variants_for_root(root: Path) -> list[tuple[str, int]]:
-    return SAMPLE_MOVIES
+    bucket = root.name
+    return _MOVIE_BY_AGE_BUCKET.get(bucket, SAMPLE_MOVIES)
 
 
 def _seed_movie_root(root: Path) -> tuple[int, int]:
@@ -123,11 +136,16 @@ def _episode_file_name(title: str, year: int, season: int, episode: int) -> str:
     return f"{safe_title}.{year}.S{season:02d}E{episode:02d}.1080p.mkv"
 
 
+def _series_variants_for_root(root: Path) -> list[tuple[str, int]]:
+    bucket = root.name
+    return _SERIES_BY_AGE_BUCKET.get(bucket, SAMPLE_SERIES)
+
+
 def _seed_series_root(root: Path) -> tuple[int, int]:
     created_dirs = 0
     created_files = 0
 
-    for title, year in SAMPLE_SERIES:
+    for title, year in _series_variants_for_root(root):
         series_dir = root / f"{title} ({year})"
         if not series_dir.exists():
             series_dir.mkdir(parents=True, exist_ok=True)

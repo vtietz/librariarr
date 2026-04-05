@@ -17,11 +17,9 @@ All operations go through `./run.sh <command>`. Never run `python`, `pip`, `pyte
 ./run.sh quality-autofix  # Auto-fix then re-check
 ./run.sh e2e              # Integration tests against live Radarr/Sonarr containers
 ./run.sh fs-e2e           # Filesystem-focused e2e tests
-./run.sh dev-up           # Start full dev stack (API, Vite UI, Radarr, Sonarr)
+./run.sh dev-up           # Start dev stack with demo data (API, Vite UI, Radarr, Sonarr)
 ./run.sh dev-down         # Stop dev stack
-./run.sh dev-bootstrap    # Configure dev Arr instances + sync API keys
-./run.sh dev-seed         # Create fake media folders/files
-./run.sh dev-reset        # Wipe dev data and reseed from scratch
+./run.sh dev-reset        # Full reset: wipe all data + Arr state, rebuild from scratch
 ./run.sh dev-shell        # Shell into dev container
 ```
 
@@ -113,3 +111,14 @@ React/TypeScript SPA built with Vite, served as static files in production.
 - Extract cohesive modules by responsibility rather than just splitting long files
 - Keep domain logic, I/O, mapping, and validation separated
 - Preserve behavior and verify with `./run.sh test` and `./run.sh quality`
+
+## Agent Team Workflow
+
+For non-trivial feature requests, use the agent team in order:
+1. **Analyst** — scope requirements, identify edge cases, structure the spec (for complex/ambiguous features)
+2. **Architect** — design the technical solution, identify affected files, produce implementation plan
+3. **Coder** — implement the plan (can be parallelized for independent modules)
+4. **Reviewer** — run quality gate, review code, write missing tests
+5. **E2E Tester** — write/run Playwright tests for user-facing features
+
+For simple bug fixes or small changes, skip directly to implementation. Use judgment about when the full pipeline is needed.

@@ -8,8 +8,14 @@ export type RootMapping = {
   shadow_root: string;
 };
 
+export type MovieRootMapping = {
+  managed_root: string;
+  library_root: string;
+};
+
 export type ConfigModel = {
   paths: {
+    movie_root_mappings: MovieRootMapping[];
     series_root_mappings: RootMapping[];
     exclude_paths: string[];
   };

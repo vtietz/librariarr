@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 import threading
+import time
 from pathlib import Path
 
 from .models import ProjectedFileState
+
+LOG = logging.getLogger(__name__)
+
+_MAINTENANCE_INTERVAL = 86400  # 24 hours
 
 
 class ProjectionStateStore:
     def __init__(self, db_path: Path) -> None:
         self.db_path = db_path
         self._lock = threading.RLock()
+        self._last_maintenance = 0.0
         self._initialize()
 
     def _connect(self) -> sqlite3.Connection:
@@ -106,3 +113,19 @@ class ProjectionStateStore:
                         for record in records
                     ],
                 )
+            self._maybe_run_maintenance()
+
+    def _maybe_run_maintenance(self) -> None:
+        now = time.time()
+        if now - self._last_maintenance < _MAINTENANCE_INTERVAL:
+            return
+        self._last_maintenance = now
+        try:
+            with self._lock:
+                with self._connect() as connection:
+                    result = connection.execute("PRAGMA integrity_check").fetchone()
+                    if result and result[0] != "ok":
+                        LOG.error("SQLite integrity check failed: %s", result[0])
+                    connection.execute("PRAGMA optimize")
+        except sqlite3.DatabaseError as exc:
+            LOG.warning("SQLite maintenance failed: %s", exc)

@@ -105,10 +105,41 @@ class MovieProjectionExecutor:
                 return "unchanged"
             if not managed_dest and self.preserve_unknown_files:
                 return None
-            self._remove_existing_dest(dest_path)
+            # Rename before unlinking so we can restore on hardlink failure
+            backup_path = dest_path.with_suffix(dest_path.suffix + ".librariarr-tmp")
+            try:
+                dest_path.rename(backup_path)
+            except OSError as exc:
+                LOG.warning(
+                    "Cannot rename existing dest for safe replacement, skipping: dest=%s error=%s",
+                    dest_path,
+                    exc,
+                )
+                return None
 
-        if not _hardlink_file(source_path, dest_path):
-            return None
+            if not _hardlink_file(source_path, dest_path):
+                # Hardlink failed — restore the backup so we don't lose the file
+                try:
+                    backup_path.rename(dest_path)
+                    LOG.warning(
+                        "Hardlink failed, restored previous file: dest=%s source=%s",
+                        dest_path,
+                        source_path,
+                    )
+                except OSError as restore_exc:
+                    LOG.error(
+                        "Hardlink failed AND could not restore backup: dest=%s backup=%s error=%s",
+                        dest_path,
+                        backup_path,
+                        restore_exc,
+                    )
+                return None
+
+            # Hardlink succeeded — clean up the backup
+            backup_path.unlink(missing_ok=True)
+        else:
+            if not _hardlink_file(source_path, dest_path):
+                return None
 
         source_stat = source_path.stat()
         return ProjectedFileState(
@@ -153,5 +184,11 @@ def _hardlink_file(source_path: Path, dest_path: Path) -> bool:
             )
             return False
         if exc.errno in {errno.EPERM, errno.EACCES}:
+            LOG.warning(
+                "Hardlink failed (permission denied): source=%s dest=%s — "
+                "check file/directory ownership and permissions",
+                source_path,
+                dest_path,
+            )
             return False
         raise

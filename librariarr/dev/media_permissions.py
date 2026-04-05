@@ -28,18 +28,39 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     return {}
 
 
+def _extract_data_paths(
+    mappings: Any,
+    keys: tuple[str, ...],
+) -> list[Path]:
+    if not isinstance(mappings, list):
+        return []
+    paths: list[Path] = []
+    for item in mappings:
+        if not isinstance(item, dict):
+            continue
+        for key in keys:
+            value = str(item.get(key, "")).strip()
+            if value.startswith("/data/"):
+                paths.append(Path(value))
+    return paths
+
+
 def _collect_media_paths(payload: dict[str, Any]) -> list[Path]:
     collected: list[Path] = list(DEFAULT_MEDIA_PATHS)
-    mappings = payload.get("paths", {}).get("series_root_mappings", [])
+    paths_section = payload.get("paths", {})
 
-    if isinstance(mappings, list):
-        for item in mappings:
-            if not isinstance(item, dict):
-                continue
-            for key in ("nested_root", "shadow_root"):
-                value = str(item.get(key, "")).strip()
-                if value.startswith("/data/"):
-                    collected.append(Path(value))
+    collected.extend(
+        _extract_data_paths(
+            paths_section.get("series_root_mappings", []),
+            ("nested_root", "shadow_root"),
+        )
+    )
+    collected.extend(
+        _extract_data_paths(
+            paths_section.get("movie_root_mappings", []),
+            ("managed_root", "library_root"),
+        )
+    )
 
     ordered: list[Path] = []
     seen: set[str] = set()
@@ -74,6 +95,22 @@ def _ensure_and_chown(path: Path, uid: int, gid: int) -> tuple[bool, bool]:
     return created, chowned
 
 
+def _recursive_chown(root: Path, uid: int, gid: int) -> int:
+    """Recursively chown all files and directories under *root*."""
+    fixed = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in dirnames + filenames:
+            entry = Path(dirpath) / name
+            try:
+                stat = entry.lstat()
+                if stat.st_uid != uid or stat.st_gid != gid:
+                    os.lchown(entry, uid, gid)
+                    fixed += 1
+            except OSError:
+                pass
+    return fixed
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 
@@ -84,6 +121,7 @@ def main() -> None:
 
     created_count = 0
     chowned_count = 0
+    fixed_count = 0
 
     for target_path in target_paths:
         try:
@@ -92,16 +130,19 @@ def main() -> None:
                 created_count += 1
             if chowned:
                 chowned_count += 1
+            fixed_count += _recursive_chown(target_path, uid, gid)
         except PermissionError:
             LOG.warning("Skipping %s due to permission constraints", target_path)
         except OSError as exc:
             LOG.warning("Skipping %s due to OS error: %s", target_path, exc)
 
     LOG.info(
-        "Media permission repair completed (paths=%s created=%s chowned=%s uid=%s gid=%s)",
+        "Media permission repair completed "
+        "(paths=%s created=%s chowned=%s fixed=%s uid=%s gid=%s)",
         len(target_paths),
         created_count,
         chowned_count,
+        fixed_count,
         uid,
         gid,
     )

@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
+
+LOG = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -70,9 +73,18 @@ class RadarrWebhookQueue:
                 self._events_by_movie_id.pop(movie_id, None)
             self._events_by_movie_id[movie_id] = event
 
+            dropped_now = 0
             while len(self._events_by_movie_id) > self.max_items:
                 self._events_by_movie_id.popitem(last=False)
                 self._dropped_events += 1
+                dropped_now += 1
+            if dropped_now:
+                LOG.warning(
+                    "Radarr webhook queue overflow: dropped %d event(s), "
+                    "%d total dropped — next full maintenance reconcile will catch up",
+                    dropped_now,
+                    self._dropped_events,
+                )
 
             return {
                 "queued": True,
@@ -157,9 +169,18 @@ class SonarrWebhookQueue:
                 self._events_by_series_id.pop(series_id, None)
             self._events_by_series_id[series_id] = event
 
+            dropped_now = 0
             while len(self._events_by_series_id) > self.max_items:
                 self._events_by_series_id.popitem(last=False)
                 self._dropped_events += 1
+                dropped_now += 1
+            if dropped_now:
+                LOG.warning(
+                    "Sonarr webhook queue overflow: dropped %d event(s), "
+                    "%d total dropped — next full maintenance reconcile will catch up",
+                    dropped_now,
+                    self._dropped_events,
+                )
 
             return {
                 "queued": True,

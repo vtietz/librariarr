@@ -43,8 +43,9 @@ export default function ConfigEditor({
 }: Props) {
   const [pickerRoots, setPickerRoots] = useState<string[]>([]);
   const [pickerTarget, setPickerTarget] = useState<{
+    section: "series" | "movie";
     index: number;
-    key: "nested_root" | "shadow_root";
+    key: string;
   } | null>(null);
   const [isValidating, setIsValidating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -137,10 +138,52 @@ export default function ConfigEditor({
     });
   };
 
+  const setMovieRootMapping = (index: number, key: "managed_root" | "library_root", value: string) => {
+    onChange({
+      ...draft,
+      paths: {
+        ...draft.paths,
+        movie_root_mappings: draft.paths.movie_root_mappings.map((mapping, mappingIndex) => {
+          if (mappingIndex !== index) {
+            return mapping;
+          }
+          return { ...mapping, [key]: value };
+        })
+      }
+    });
+  };
+
+  const removeMovieRootMapping = (index: number) => {
+    onChange({
+      ...draft,
+      paths: {
+        ...draft.paths,
+        movie_root_mappings: draft.paths.movie_root_mappings.filter(
+          (_, mappingIndex) => mappingIndex !== index
+        )
+      }
+    });
+  };
+
+  const addMovieRootMapping = () => {
+    onChange({
+      ...draft,
+      paths: {
+        ...draft.paths,
+        movie_root_mappings: [
+          ...draft.paths.movie_root_mappings,
+          { managed_root: "", library_root: "" }
+        ]
+      }
+    });
+  };
+
   const pickerInitialPath =
     pickerTarget == null
       ? ""
-      : draft.paths.series_root_mappings[pickerTarget.index]?.[pickerTarget.key] ?? "";
+      : pickerTarget.section === "series"
+        ? draft.paths.series_root_mappings[pickerTarget.index]?.[pickerTarget.key as "nested_root" | "shadow_root"] ?? ""
+        : draft.paths.movie_root_mappings[pickerTarget.index]?.[pickerTarget.key as "managed_root" | "library_root"] ?? "";
 
   const parseActionError = (error: unknown): string => {
     if (typeof error !== "object" || error === null) {
@@ -289,7 +332,12 @@ export default function ConfigEditor({
         onAddMapping={addRootMapping}
         onRemoveMapping={removeRootMapping}
         onSetMapping={setRootMapping}
-        onOpenPicker={(index, key) => setPickerTarget({ index, key })}
+        onOpenPicker={(index, key) => setPickerTarget({ section: "series", index, key })}
+        movieMappings={draft.paths.movie_root_mappings}
+        onAddMovieMapping={addMovieRootMapping}
+        onRemoveMovieMapping={removeMovieRootMapping}
+        onSetMovieMapping={setMovieRootMapping}
+        onOpenMoviePicker={(index, key) => setPickerTarget({ section: "movie", index, key })}
         onExcludePathsChange={(excludePaths) =>
           onChange({
             ...draft,
@@ -327,7 +375,11 @@ export default function ConfigEditor({
           if (!pickerTarget) {
             return;
           }
-          setRootMapping(pickerTarget.index, pickerTarget.key, path);
+          if (pickerTarget.section === "series") {
+            setRootMapping(pickerTarget.index, pickerTarget.key as "nested_root" | "shadow_root", path);
+          } else {
+            setMovieRootMapping(pickerTarget.index, pickerTarget.key as "managed_root" | "library_root", path);
+          }
           setPickerTarget(null);
         }}
       />

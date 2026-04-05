@@ -48,8 +48,7 @@ Direct `npm`/`npx` usage is forbidden in commands you run manually; usage inside
 - `quality`
 - `quality-autofix`
 - `dev-up`
-- `dev-bootstrap`
-- `dev-seed`
+- `dev-reset`
 - `dev-down`
 - `dev-logs`
 - `dev-shell`
