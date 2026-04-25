@@ -47,7 +47,6 @@ class RuntimeConfig:
     debounce_seconds: int = 8
     maintenance_interval_minutes: int = 1440
     arr_root_poll_interval_minutes: int = 1
-    auto_add_batch_size: int = 150
     scan_video_extensions: list[str] | None = field(
         default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
     )

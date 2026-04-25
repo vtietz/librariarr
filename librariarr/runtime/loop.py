@@ -73,7 +73,7 @@ class RuntimeSyncLoop:
         nested_roots: list[Path],
         shadow_roots: list[Path],
         schedule: ReconcileSchedule,
-        reconcile: Callable[[set[Path] | None], bool],
+        reconcile: Callable[..., bool],
         on_reconcile_error: Callable[[Exception], None],
         logger: logging.Logger,
         poll_reconcile_trigger: Callable[[], bool] | None = None,
@@ -116,7 +116,14 @@ class RuntimeSyncLoop:
             self.log.info("Runtime observer mode: polling")
 
         try:
-            self._run_reconcile_with_handling("Initial reconcile failed")
+            if self.status_tracker is not None:
+                self.status_tracker.mark_reconcile_started(
+                    trigger_source="startup", phase="startup_full_reconcile"
+                )
+                self.status_tracker.update_reconcile_phase("running")
+            self._run_reconcile_with_handling(
+                "Startup Full Reconcile failed", force_full_scope=True
+            )
             while stop_event is None or not stop_event.is_set():
                 poll_triggered = self._poll_reconcile_trigger_safe()
                 self._run_due_reconcile_cycle(poll_triggered)
@@ -354,11 +361,16 @@ class RuntimeSyncLoop:
         self,
         error_log_message: str,
         affected_paths: set[Path] | None = None,
+        *,
+        force_full_scope: bool = False,
     ) -> bool:
         # Preserve existing semantics: sync time updates when a reconcile attempt starts.
         self.schedule.mark_sync()
         try:
-            followup_pending = self.reconcile(affected_paths)
+            if force_full_scope:
+                followup_pending = self.reconcile(affected_paths, force_full_scope=True)
+            else:
+                followup_pending = self.reconcile(affected_paths)
             if self.on_reconcile_complete is not None:
                 try:
                     self.on_reconcile_complete()

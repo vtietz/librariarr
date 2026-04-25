@@ -286,6 +286,16 @@ export const runMaintenanceReconcile = async (params?: { path?: string }) => {
   return data;
 };
 
+export const runFullReconcile = async () => {
+  const { data } = await api.post<{
+    ok: boolean;
+    queued: boolean;
+    job_id: string;
+    message: string;
+  }>("/maintenance/full-reconcile");
+  return data;
+};
+
 export const waitForJobCompletion = async (jobId: string, options?: { timeoutMs?: number; pollIntervalMs?: number }) => {
   const timeoutMs = options?.timeoutMs ?? 180000;
   const pollIntervalMs = options?.pollIntervalMs ?? 1000;
@@ -405,6 +415,7 @@ export type RuntimeStatusResponse = {
     matched_series?: number;
     unmatched_series?: number;
     affected_paths_count?: number | null;
+    full_reconcile_stats?: Record<string, number | string> | null;
   } | null;
   known_links_in_memory?: number;
   mapped_cache?: {

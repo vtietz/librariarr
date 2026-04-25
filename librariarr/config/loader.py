@@ -359,7 +359,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),
         maintenance_interval_minutes=int(periodic_reconcile_minutes),
         arr_root_poll_interval_minutes=int(runtime_raw.get("arr_root_poll_interval_minutes", 1)),
-        auto_add_batch_size=max(1, int(runtime_raw.get("auto_add_batch_size", 150))),
         scan_video_extensions=normalized_scan_video_extensions,
     )
 

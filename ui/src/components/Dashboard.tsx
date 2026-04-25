@@ -1,6 +1,6 @@
 import { Badge, Button, Card, Group, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
-import { getDiscoveryWarnings, runMaintenanceReconcile } from "../api/client";
+import { getDiscoveryWarnings, runFullReconcile } from "../api/client";
 import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
 import {
   badgeForTask,
@@ -95,7 +95,7 @@ export default function Dashboard({
   const handleRunReconcile = async () => {
     setRunningReconcile(true);
     try {
-      await runMaintenanceReconcile();
+      await runFullReconcile();
     } catch (error) {
       console.error("[Dashboard] Failed to queue maintenance reconcile", error);
     } finally {
@@ -125,7 +125,7 @@ export default function Dashboard({
   };
 
   const filesystemTask = findPendingTask((task) => task.id === "filesystem-debounce");
-  const manualReconcileTask = findPendingTask((task) => task.name.toLowerCase().includes("manual reconcile"));
+  const manualReconcileTask = findPendingTask((task) => task.name.toLowerCase().includes("full reconcile"));
   const mappedRefreshTask = findPendingTask((task) => task.name.toLowerCase().includes("refresh mapped"));
   const discoverySnapshotTask = findPendingTask((task) => task.name.toLowerCase().includes("discovery snapshot rebuild"));
   const reconcileCycleTask = findPendingTask((task) => task.name.toLowerCase().includes("reconcile cycle"));
@@ -200,10 +200,10 @@ export default function Dashboard({
 
   const manualReconcileSlot: TaskSlot = {
     id: "manual-reconcile",
-    name: "Manual Reconcile Job",
+    name: "Full Reconcile Job",
     source: "job-manager",
     status: manualReconcileTask?.status ?? "idle",
-    detail: manualReconcileTask?.detail ?? "On-demand full library reconcile",
+    detail: manualReconcileTask?.detail ?? "On-demand full reconcile (all media)",
     queuedAt: manualReconcileTask ? formatTaskQueuedAt(manualReconcileTask) : "-",
     duration: manualReconcileTask ? formatTaskDuration(manualReconcileTask) : "-",
   };
@@ -370,7 +370,7 @@ export default function Dashboard({
               loading={runningReconcile}
               onClick={() => void handleRunReconcile()}
             >
-              Run Reconcile
+              Run Full Reconcile
             </Button>
           </Group>
           <Text size="sm" c="dimmed">

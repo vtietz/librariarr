@@ -14,6 +14,7 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
 from ..runtime import get_runtime_status_tracker
 from .discovery_cache import get_discovery_warnings_cache
+from .full_reconcile_ops import queue_full_reconcile
 from .log_buffer import LogRingBuffer, get_log_buffer
 from .maintenance_ops import queue_maintenance_reconcile
 from .mapped_arr_state import enrich_mapped_directories_with_radarr_state
@@ -24,6 +25,7 @@ from .request_helpers import job_manager_or_http, load_config_or_http, read_conf
 from .routers import (
     build_arr_router,
     build_fs_router,
+    build_full_reconcile_router,
     build_jobs_router,
     build_logs_router,
     build_maintenance_router,
@@ -342,6 +344,14 @@ def build_operations_router() -> APIRouter:
     router.include_router(
         build_maintenance_router(
             queue_maintenance_reconcile_fn=queue_maintenance_reconcile,
+            runtime_status=runtime_status,
+            mapped_cache=mapped_cache,
+            discovery_cache=discovery_cache,
+        )
+    )
+    router.include_router(
+        build_full_reconcile_router(
+            queue_full_reconcile_fn=queue_full_reconcile,
             runtime_status=runtime_status,
             mapped_cache=mapped_cache,
             discovery_cache=discovery_cache,
