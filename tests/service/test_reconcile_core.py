@@ -163,8 +163,8 @@ def test_reconcile_logs_scope_resolution_for_webhook_movie_scope(tmp_path: Path,
     service.reconcile()
 
     assert "Reconcile scope resolved:" in caplog.text
-    assert "movie_scope_kind=scoped" in caplog.text
-    assert "movie_ids_webhook_count=1" in caplog.text
+    assert "movie_scope=scoped" in caplog.text
+    assert "movie_count=1" in caplog.text
     assert "Projection dispatch: arr=radarr" in caplog.text
 
     queue.consume_movie_ids()

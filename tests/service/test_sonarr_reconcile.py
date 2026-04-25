@@ -279,8 +279,8 @@ def test_reconcile_logs_scope_resolution_for_sonarr_webhook_scope(tmp_path: Path
     service.reconcile()
 
     assert "Reconcile scope resolved:" in caplog.text
-    assert "series_scope_kind=scoped" in caplog.text
-    assert "series_ids_webhook_count=1" in caplog.text
+    assert "series_scope=scoped" in caplog.text
+    assert "series_count=1" in caplog.text
     assert "Projection dispatch: arr=sonarr" in caplog.text
 
 

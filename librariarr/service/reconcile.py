@@ -610,8 +610,8 @@ class ServiceReconcileMixin:
             if isinstance(movie_id, int):
                 added_movie_ids.add(movie_id)
                 LOG.info(
-                    "Queued movie_id=%s for movie projection after Radarr path reconciliation: "
-                    "managed_root=%s folder=%s",
+                    "Queued movie_id=%s for immediate movie projection after Radarr path "
+                    "reconciliation: discovered_managed_root=%s discovered_folder=%s",
                     movie_id,
                     managed_root,
                     folder,
@@ -681,8 +681,8 @@ class ServiceReconcileMixin:
             if isinstance(series_id, int):
                 added_series_ids.add(series_id)
                 LOG.info(
-                    "Queued series_id=%s for series projection after Sonarr path reconciliation: "
-                    "managed_root=%s folder=%s",
+                    "Queued series_id=%s for immediate series projection after Sonarr path "
+                    "reconciliation: discovered_managed_root=%s discovered_folder=%s",
                     series_id,
                     managed_root,
                     folder,

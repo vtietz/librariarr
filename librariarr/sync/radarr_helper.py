@@ -460,6 +460,7 @@ class RadarrSyncHelper:
         if existing_movie is not None:
             existing_path = str(existing_movie.get("path") or "").strip()
             target_path = str(target_folder)
+            path_updated = False
             if existing_path != target_path:
                 # Deterministic tie-break: only update the Arr path when the
                 # new folder has equal or higher priority (lower config index)
@@ -473,7 +474,7 @@ class RadarrSyncHelper:
                     and new_priority is not None
                     and new_priority > existing_priority
                 ):
-                    self.log.info(
+                    self.log.debug(
                         "Skipping path update for movie_id=%s; existing path has "
                         "higher root priority (existing_idx=%s new_idx=%s) "
                         "folder=%s existing_path=%s",
@@ -488,28 +489,32 @@ class RadarrSyncHelper:
                 try:
                     self._radarr().update_movie_path(existing_movie, target_path)
                     existing_movie["path"] = target_path
+                    path_updated = True
                     self.log.info(
-                        "Updated existing Radarr movie path for folder=%s canonical=%s movie_id=%s",
-                        target_folder,
-                        canonical_name,
+                        "Radarr path reconciliation updated movie_id=%s canonical=%s from=%s to=%s",
                         existing_movie.get("id"),
+                        canonical_name,
+                        existing_path,
+                        target_folder,
                     )
                 except requests.RequestException as exc:
                     self.log.warning(
-                        "Failed to update existing Radarr movie path for "
-                        "folder=%s canonical=%s movie_id=%s: %s",
-                        target_folder,
-                        canonical_name,
+                        "Radarr path reconciliation failed for movie_id=%s canonical=%s "
+                        "from=%s to=%s: %s",
                         existing_movie.get("id"),
+                        canonical_name,
+                        existing_path,
+                        target_folder,
                         exc,
                     )
                     return None
-            self.log.info(
-                "Movie already present in Radarr; skipping auto-add for "
-                "folder=%s canonical=%s movie_id=%s",
-                target_folder,
-                canonical_name,
+            self.log.debug(
+                "Radarr movie already exists; auto-add skipped movie_id=%s canonical=%s "
+                "path_reconciled=%s effective_path=%s",
                 existing_movie.get("id"),
+                canonical_name,
+                path_updated,
+                existing_movie.get("path"),
             )
             return existing_movie
 

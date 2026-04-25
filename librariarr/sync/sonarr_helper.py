@@ -297,6 +297,7 @@ class SonarrSyncHelper:
         if existing_series is not None:
             existing_path = str(existing_series.get("path") or "").strip()
             target_path = str(target_folder)
+            path_updated = False
             if existing_path != target_path:
                 # Deterministic tie-break: only update the Arr path when the
                 # new folder has equal or higher priority (lower config index)
@@ -308,7 +309,7 @@ class SonarrSyncHelper:
                     and new_priority is not None
                     and new_priority > existing_priority
                 ):
-                    self.log.info(
+                    self.log.debug(
                         "Skipping path update for series_id=%s; existing path has "
                         "higher root priority (existing_idx=%s new_idx=%s) "
                         "folder=%s existing_path=%s",
@@ -323,29 +324,33 @@ class SonarrSyncHelper:
                 try:
                     self._sonarr().update_series_path(existing_series, target_path)
                     existing_series["path"] = target_path
+                    path_updated = True
                     self.log.info(
-                        "Updated existing Sonarr series path for folder=%s canonical=%s "
-                        "series_id=%s",
-                        target_folder,
-                        canonical_name,
+                        "Sonarr path reconciliation updated series_id=%s canonical=%s "
+                        "from=%s to=%s",
                         existing_series.get("id"),
+                        canonical_name,
+                        existing_path,
+                        target_folder,
                     )
                 except requests.RequestException as exc:
                     self.log.warning(
-                        "Failed to update existing Sonarr series path for folder=%s canonical=%s "
-                        "series_id=%s: %s",
-                        target_folder,
-                        canonical_name,
+                        "Sonarr path reconciliation failed for series_id=%s canonical=%s "
+                        "from=%s to=%s: %s",
                         existing_series.get("id"),
+                        canonical_name,
+                        existing_path,
+                        target_folder,
                         exc,
                     )
                     return None
-            self.log.info(
-                "Series already present in Sonarr; skipping auto-add for folder=%s canonical=%s "
-                "series_id=%s",
-                target_folder,
-                canonical_name,
+            self.log.debug(
+                "Sonarr series already exists; auto-add skipped series_id=%s canonical=%s "
+                "path_reconciled=%s effective_path=%s",
                 existing_series.get("id"),
+                canonical_name,
+                path_updated,
+                existing_series.get("path"),
             )
             return existing_series
 
