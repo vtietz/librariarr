@@ -64,7 +64,13 @@ def _projection_state_db_path() -> Path:
     configured = str(os.getenv("LIBRARIARR_PROJECTION_STATE_PATH", "")).strip()
     if configured:
         return Path(configured)
+
     config_dir = Path("/config")
-    if config_dir.is_dir():
+    if config_dir.is_dir() and os.access(config_dir, os.W_OK | os.X_OK):
         return config_dir / "librariarr-state.db"
-    return Path("librariarr-state.db")
+
+    cwd = Path.cwd()
+    if os.access(cwd, os.W_OK | os.X_OK):
+        return cwd / "librariarr-state.db"
+
+    return Path("/tmp") / "librariarr-state.db"
