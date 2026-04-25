@@ -2,6 +2,7 @@ import { Badge, Button, Card, Group, ScrollArea, SimpleGrid, Stack, Table, Text,
 import { useEffect, useState } from "react";
 import { getDiscoveryWarnings, runMaintenanceReconcile } from "../api/client";
 import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
+import { badgeForTask, formatAge, formatTaskDuration, formatTaskQueuedAt } from "./dashboardFormatters";
 
 type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
 
@@ -60,64 +61,34 @@ export default function Dashboard({
   const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
   const knownLinksInMemory =
     runtimeStatus?.known_links_in_memory ?? runtimeStatus?.mapped_cache?.entries_total ?? 0;
+  const mappedEntriesTotal = runtimeStatus?.mapped_cache?.entries_total ?? knownLinksInMemory;
+  const lastMatchedMovies = runtimeStatus?.last_reconcile?.matched_movies;
+  const lastUnmatchedMovies = runtimeStatus?.last_reconcile?.unmatched_movies;
+  const lastMatchedSeries = runtimeStatus?.last_reconcile?.matched_series;
+  const lastUnmatchedSeries = runtimeStatus?.last_reconcile?.unmatched_series;
+  const lastCreatedLinks = runtimeStatus?.last_reconcile?.created_links ?? 0;
+  const movieCountKnown =
+    typeof lastMatchedMovies === "number" || typeof lastUnmatchedMovies === "number";
+  const seriesCountKnown =
+    typeof lastMatchedSeries === "number" || typeof lastUnmatchedSeries === "number";
+
+  const formatCoverage = (matched: number | undefined, unmatched: number | undefined) => {
+    const matchedValue = typeof matched === "number" ? matched : 0;
+    const unmatchedValue = typeof unmatched === "number" ? unmatched : 0;
+    const total = matchedValue + unmatchedValue;
+    if (total <= 0) {
+      return "n/a";
+    }
+    const pct = Math.round((matchedValue / total) * 100);
+    return `${pct}% (${matchedValue}/${total})`;
+  };
+
+  const movieCoverage = formatCoverage(lastMatchedMovies, lastUnmatchedMovies);
+  const seriesCoverage = formatCoverage(lastMatchedSeries, lastUnmatchedSeries);
   const healthStatus = runtimeStatus?.health?.status ?? "starting";
   const healthBadgeColor =
     healthStatus === "ok" ? "green" : healthStatus === "degraded" ? "yellow" : "gray";
   const primaryHealthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for snapshot";
-
-  const formatAge = (timestamp: number | null | undefined) => {
-    if (typeof timestamp !== "number") {
-      return "-";
-    }
-    const seconds = Math.max(0, Math.round(Date.now() / 1000 - timestamp));
-    if (seconds < 60) {
-      return `${seconds}s ago`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) {
-      return `${minutes}m ago`;
-    }
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ago`;
-  };
-
-  const formatTaskDuration = (task: {
-    duration_seconds?: number | null;
-    started_at?: number | null;
-  }) => {
-    if (typeof task.duration_seconds === "number") {
-      return `${task.duration_seconds.toFixed(1)}s`;
-    }
-    if (typeof task.started_at === "number") {
-      const now = Date.now() / 1000;
-      return `${Math.max(0, now - task.started_at).toFixed(1)}s`;
-    }
-    return "-";
-  };
-
-  const formatTaskQueuedAt = (task: { queued_at?: number | null; next_run_at?: number | null }) => {
-    if (typeof task.queued_at === "number") {
-      return formatAge(task.queued_at);
-    }
-    if (typeof task.next_run_at === "number") {
-      const dueIn = Math.max(0, Math.round(task.next_run_at - Date.now() / 1000));
-      return `in ${dueIn}s`;
-    }
-    return "-";
-  };
-
-  const badgeForTask = (status: string) => {
-    if (status === "running") {
-      return "blue";
-    }
-    if (status === "queued") {
-      return "yellow";
-    }
-    if (status === "error") {
-      return "red";
-    }
-    return "gray";
-  };
 
   const handleRunReconcile = async () => {
     setRunningReconcile(true);
@@ -369,9 +340,9 @@ export default function Dashboard({
       </SimpleGrid>
 
       <Text fw={600} size="sm" c="dimmed">Pipeline & Caches</Text>
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
+      <SimpleGrid cols={{ base: 1, md: 4 }}>
         <Card withBorder h={146}>
-          <Text fw={600}>Queue</Text>
+          <Text fw={600}>Filesystem Queue</Text>
           <Text size="sm" c="dimmed">
             {totalQueue} pending ({queuedChanges} fs changes)
           </Text>
@@ -380,9 +351,9 @@ export default function Dashboard({
           </Text>
         </Card>
         <Card withBorder h={146}>
-          <Text fw={600}>Known Links (Memory)</Text>
+          <Text fw={600}>Mapped Index Entries</Text>
           <Text size="sm" c="dimmed">
-            {knownLinksInMemory} links currently indexed
+            {mappedEntriesTotal} mapped directories in cache
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
             mapped cache {runtimeStatus?.mapped_cache?.building ? "rebuilding" : "ready"}
@@ -408,6 +379,24 @@ export default function Dashboard({
             folders M/S {runtimeStatus?.last_reconcile?.movie_folders_seen ?? 0}/
             {runtimeStatus?.last_reconcile?.series_folders_seen ?? 0} · created links
             {` ${runtimeStatus?.last_reconcile?.created_links ?? 0}`}
+          </Text>
+        </Card>
+        <Card withBorder h={146}>
+          <Text fw={600}>Arr Match Snapshot</Text>
+          <Text size="sm" c="dimmed">
+            Movies {movieCoverage}
+            {movieCountKnown
+              ? ` · unmatched ${typeof lastUnmatchedMovies === "number" ? lastUnmatchedMovies : 0}`
+              : " · unmatched n/a"}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Series {seriesCoverage}
+            {seriesCountKnown
+              ? ` · unmatched ${typeof lastUnmatchedSeries === "number" ? lastUnmatchedSeries : 0}`
+              : " · unmatched n/a"}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Created links in last run: {lastCreatedLinks}
           </Text>
         </Card>
       </SimpleGrid>
