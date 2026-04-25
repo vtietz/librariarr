@@ -1,11 +1,18 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from pathlib import Path
 
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .common import LOG
+from .reconcile_helpers import (
+    current_reconcile_source,
+    discover_unmatched_folders,
+    folder_matches_affected_paths,
+    resolve_managed_root_for_folder,
+)
 from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
 
 
@@ -22,7 +29,7 @@ class ServiceReconcileMixin:
             incremental_mode = bool(affected_paths)
             reconcile_mode = "incremental" if incremental_mode else "full"
             affected_paths_count: int | str = len(affected_paths) if incremental_mode else "all"
-            trigger_source = self._current_reconcile_source()
+            trigger_source = current_reconcile_source(getattr(self, "runtime_status_tracker", None))
             trigger_path = first_path(affected_paths)
             LOG.info(
                 "Reconcile started: source=%s mode=%s affected_paths=%s trigger_path=%s",
@@ -45,7 +52,40 @@ class ServiceReconcileMixin:
                 )
 
             ingested_movie_ids = self._ingest_movies_from_library_roots(affected_paths)
-            auto_added_movie_ids = self._auto_add_unmatched_movies(affected_paths)
+            immediate_projected_movie_ids: set[int] = set()
+
+            def _project_movie_immediately(movie_id: int) -> None:
+                if not self.radarr_enabled:
+                    return
+                if self.movie_projection is None:
+                    return
+
+                self.movie_projection.radarr = self.radarr
+                log_projection_dispatch(
+                    arr="radarr",
+                    trigger_source=trigger_source,
+                    reconcile_mode=reconcile_mode,
+                    scope_kind="scoped_immediate",
+                    full_scope_reason="-",
+                    scoped_ids={movie_id},
+                )
+                try:
+                    self.movie_projection.reconcile({movie_id})
+                except Exception as exc:
+                    self._log_sync_config_hint(exc)
+                    LOG.warning(
+                        "Failed immediate movie projection for movie_id=%s during auto-add "
+                        "reconciliation: %s",
+                        movie_id,
+                        exc,
+                    )
+                else:
+                    immediate_projected_movie_ids.add(movie_id)
+
+            auto_added_movie_ids = self._auto_add_unmatched_movies(
+                affected_paths,
+                on_movie_id_added=_project_movie_immediately,
+            )
             auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
 
             scoped_movie_ids: set[int] | None = None
@@ -54,17 +94,25 @@ class ServiceReconcileMixin:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if not force_full_scope and queued_movie_ids:
                     scoped_movie_ids = queued_movie_ids
+            deferred_auto_added_movie_ids = auto_added_movie_ids - immediate_projected_movie_ids
             if not force_full_scope:
                 if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
                     if scoped_movie_ids is None:
                         scoped_movie_ids = set(ingested_movie_ids)
                     else:
                         scoped_movie_ids.update(ingested_movie_ids)
-                if auto_added_movie_ids and (incremental_mode or scoped_movie_ids is not None):
+                if deferred_auto_added_movie_ids and (
+                    incremental_mode or scoped_movie_ids is not None
+                ):
                     if scoped_movie_ids is None:
-                        scoped_movie_ids = set(auto_added_movie_ids)
+                        scoped_movie_ids = set(deferred_auto_added_movie_ids)
                     else:
-                        scoped_movie_ids.update(auto_added_movie_ids)
+                        scoped_movie_ids.update(deferred_auto_added_movie_ids)
+
+                if incremental_mode and scoped_movie_ids is None and immediate_projected_movie_ids:
+                    # Avoid an unnecessary full projection fallback when all newly discovered
+                    # IDs were already projected immediately in this reconcile cycle.
+                    scoped_movie_ids = set()
 
             movie_scope_kind = "scoped" if scoped_movie_ids is not None else "full"
             if movie_scope_kind == "scoped":
@@ -391,7 +439,7 @@ class ServiceReconcileMixin:
 
         if not source_folder.exists() or not source_folder.is_dir():
             return None
-        if not self._folder_matches_affected_paths(source_folder, affected_paths):
+        if not folder_matches_affected_paths(source_folder, affected_paths):
             return None
 
         destination_folder = managed_root / relative_folder
@@ -489,7 +537,12 @@ class ServiceReconcileMixin:
         )
         return None
 
-    def _auto_add_unmatched_movies(self, affected_paths: set[Path] | None) -> set[int]:
+    def _auto_add_unmatched_movies(
+        self,
+        affected_paths: set[Path] | None,
+        *,
+        on_movie_id_added: Callable[[int], None] | None = None,
+    ) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):
             return set()
 
@@ -509,18 +562,20 @@ class ServiceReconcileMixin:
             if path_raw
         }
 
-        unmatched_folders = self._discover_unmatched_folders(
+        unmatched_folders = discover_unmatched_folders(
             mappings=self.movie_root_mappings,
             existing_paths=existing_paths,
             affected_paths=affected_paths,
             discover_fn=discover_movie_folders,
+            video_exts=self.video_exts,
+            scan_exclude_paths=self.scan_exclude_paths,
         )
         if not unmatched_folders:
             return set()
 
         added_movie_ids: set[int] = set()
         for folder in unmatched_folders:
-            managed_root = self._resolve_managed_root_for_folder(folder, self.movie_root_mappings)
+            managed_root = resolve_managed_root_for_folder(folder, self.movie_root_mappings)
             if managed_root is None:
                 continue
             if getattr(self, "runtime_status_tracker", None) is not None:
@@ -540,6 +595,8 @@ class ServiceReconcileMixin:
                     managed_root,
                     folder,
                 )
+                if on_movie_id_added is not None:
+                    on_movie_id_added(movie_id)
 
         LOG.info(
             "Radarr auto-add processed: added=%s total_unmatched=%s",
@@ -570,18 +627,20 @@ class ServiceReconcileMixin:
             if path_raw
         }
 
-        unmatched_folders = self._discover_unmatched_folders(
+        unmatched_folders = discover_unmatched_folders(
             mappings=self.series_root_mappings,
             existing_paths=existing_paths,
             affected_paths=affected_paths,
             discover_fn=discover_series_folders,
+            video_exts=self.video_exts,
+            scan_exclude_paths=self.scan_exclude_paths,
         )
         if not unmatched_folders:
             return set()
 
         added_series_ids: set[int] = set()
         for folder in unmatched_folders:
-            managed_root = self._resolve_managed_root_for_folder(folder, self.series_root_mappings)
+            managed_root = resolve_managed_root_for_folder(folder, self.series_root_mappings)
             if managed_root is None:
                 continue
             if getattr(self, "runtime_status_tracker", None) is not None:
@@ -608,83 +667,6 @@ class ServiceReconcileMixin:
             len(unmatched_folders),
         )
         return added_series_ids
-
-    def _discover_unmatched_folders(
-        self,
-        *,
-        mappings: list[tuple[Path, Path]],
-        existing_paths: set[Path],
-        affected_paths: set[Path] | None,
-        discover_fn,
-    ) -> list[Path]:
-        discovered_folders: set[Path] = set()
-        for managed_root, _library_root in mappings:
-            discovered_folders.update(
-                discover_fn(managed_root, self.video_exts, self.scan_exclude_paths)
-            )
-
-        return sorted(
-            folder
-            for folder in discovered_folders
-            if folder.resolve(strict=False) not in existing_paths
-            and self._folder_matches_affected_paths(folder, affected_paths)
-        )
-
-    def _folder_matches_affected_paths(
-        self,
-        folder: Path,
-        affected_paths: set[Path] | None,
-    ) -> bool:
-        if not affected_paths:
-            return True
-
-        folder_resolved = folder.resolve(strict=False)
-        for candidate in affected_paths:
-            candidate_resolved = candidate.resolve(strict=False)
-            if folder_resolved == candidate_resolved:
-                return True
-            if candidate_resolved in folder_resolved.parents:
-                return True
-            if folder_resolved in candidate_resolved.parents:
-                return True
-        return False
-
-    def _resolve_managed_root_for_folder(
-        self,
-        folder: Path,
-        mappings: list[tuple[Path, Path]],
-    ) -> Path | None:
-        sorted_mappings = sorted(mappings, key=lambda item: len(item[0].parts), reverse=True)
-        for managed_root, _library_root in sorted_mappings:
-            try:
-                folder.relative_to(managed_root)
-            except ValueError:
-                continue
-            return managed_root
-        return None
-
-    def _current_reconcile_source(self) -> str:
-        runtime_status_tracker = getattr(self, "runtime_status_tracker", None)
-        if runtime_status_tracker is None:
-            return "direct"
-
-        try:
-            snapshot = runtime_status_tracker.snapshot()
-        except Exception:
-            return "direct"
-
-        if not isinstance(snapshot, dict):
-            return "direct"
-
-        current_task = snapshot.get("current_task")
-        if not isinstance(current_task, dict):
-            return "direct"
-
-        trigger_source = current_task.get("trigger_source")
-        if isinstance(trigger_source, str) and trigger_source.strip():
-            return trigger_source
-
-        return "direct"
 
     def reconcile_full(self) -> bool:
         return self.reconcile(affected_paths=None, force_full_scope=True)

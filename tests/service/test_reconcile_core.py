@@ -196,6 +196,57 @@ def test_reconcile_auto_adds_unmatched_movie_folder_when_enabled(tmp_path: Path)
     assert service.radarr.added_movies[0]["quality_profile_id"] == 7
 
 
+def test_reconcile_projects_auto_added_movies_immediately_in_incremental_mode(
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Auto Add (2017)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "Fixture.Auto.Add.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        managed_root,
+        library_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[],
+        quality_profiles=[{"id": 7, "name": "1080p"}],
+        lookup_results=[{"title": "Fixture Auto Add", "year": 2017, "tmdbId": 1001}],
+        add_movie_result={
+            "id": 42,
+            "title": "Fixture Auto Add",
+            "year": 2017,
+            "path": str(movie_dir),
+            "movieFile": {"id": 420},
+            "monitored": True,
+        },
+    )
+
+    projection_calls: list[set[int] | None] = []
+
+    def _capture_projection(scoped_movie_ids: set[int] | None) -> dict[str, int]:
+        projection_calls.append(None if scoped_movie_ids is None else set(scoped_movie_ids))
+        return {
+            "scoped_movie_count": len(scoped_movie_ids or set()),
+            "planned_movies": 0,
+            "skipped_movies": 0,
+            "projected_files": 0,
+            "unchanged_files": 0,
+            "skipped_files": 0,
+        }
+
+    service.movie_projection.reconcile = _capture_projection
+
+    service.reconcile(affected_paths={movie_dir})
+
+    assert projection_calls[0] == {42}
+    assert None not in projection_calls
+
+
 def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"
