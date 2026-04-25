@@ -177,6 +177,12 @@ def _canonical_name_from_seeded_series(series: dict) -> str:
     return title
 
 
+def _get_series_path(session: requests.Session, base_url: str, series_id: int) -> str:
+    resp = session.get(f"{base_url}/api/v3/series/{series_id}", timeout=10)
+    resp.raise_for_status()
+    return str(resp.json().get("path") or "")
+
+
 def _update_sonarr_series_path(
     session: requests.Session,
     base_url: str,
@@ -191,6 +197,11 @@ def _update_sonarr_series_path(
     payload["rootFolderPath"] = str(new_path.parent)
     put_resp = session.put(f"{base_url}/api/v3/series/{series_id}", json=payload, timeout=20)
     put_resp.raise_for_status()
+    _wait_for_condition(
+        lambda: _get_series_path(session, base_url, series_id) == str(new_path),
+        timeout_seconds=10,
+        error_message=f"Sonarr did not persist path update to {new_path} within timeout",
+    )
 
 
 def _build_service_config(

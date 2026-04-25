@@ -18,9 +18,18 @@ Without synchronization, this causes:
 
 LibrariArr bridges that gap and keeps both sides aligned.
 
+## Status
+
+LibrariArr is a personal project built to scratch a real itch. It runs on an actual media library and is developed iteratively — which means it works, but it is not hardened software with enterprise guarantees.
+
+**Use at your own risk.** Before pointing it at a library you care about, take a backup. Hardlinks are non-destructive by nature, but path updates and ingest moves are real filesystem operations. The authors make no warranty, express or implied.
+
+A fair portion of this codebase was shaped through conversational AI collaboration — what some call vibe coding. The architecture was designed deliberately, the logic was reasoned through carefully, and the tests exist for a reason. But if something goes sideways in an unexpected corner case, that's between you and the universe.
+
 ## Core Features
 
 - Continuous projection sync for Radarr and Sonarr using filesystem events plus scheduled maintenance reconciles.
+- Startup Full Reconcile on every launch and on-demand via the admin UI to bring the library to a consistent state in one pass.
 - Embedded web UI for visual config editing, mapping exploration, diagnostics, and dry-runs.
 - Movie projection mappings (`paths.movie_root_mappings`) and series projection mappings (`paths.series_root_mappings`).
 - Hardlink projection for managed video files plus allowlisted extras.
