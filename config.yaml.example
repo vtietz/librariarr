@@ -184,6 +184,15 @@ runtime:
   # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts", ".m4v", ".mpg", ".mpeg"]
 
+ingest:
+  # Promote folders that Radarr points to under library roots (.librariarr)
+  # back into the configured managed roots, then queue projection.
+  enabled: true
+  # Collision handling when target managed folder already exists:
+  #   skip    -> keep source in library root and leave movie path unchanged
+  #   qualify -> move into a unique suffixed folder name (default)
+  collision_strategy: "qualify"
+
 analysis:
   # Include NFO text in quality detection.
   use_nfo: false

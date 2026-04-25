@@ -165,3 +165,69 @@ def test_reconcile_auto_adds_unmatched_movie_folder_when_enabled(tmp_path: Path)
 
     assert service.radarr.added_movies
     assert service.radarr.added_movies[0]["quality_profile_id"] == 7
+
+
+def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    incoming = library_root / "Fixture Ingest (2024)"
+    incoming.mkdir(parents=True)
+    incoming_file = incoming / "Fixture.Ingest.2024.1080p.x265.mkv"
+    incoming_file.write_text("x", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(
+                77,
+                "Fixture Ingest",
+                2024,
+                incoming,
+            )
+        ]
+    )
+
+    service.reconcile()
+
+    moved_folder = managed_root / "Fixture Ingest (2024)"
+    moved_file = moved_folder / "Fixture.Ingest.2024.1080p.x265.mkv"
+    projected_file = _projected_file(
+        library_root,
+        "Fixture Ingest (2024)",
+        "Fixture.Ingest.2024.1080p.x265.mkv",
+    )
+
+    assert moved_folder.exists()
+    assert moved_file.exists()
+    assert projected_file.exists()
+    assert projected_file.samefile(moved_file)
+    assert service.radarr.updated_paths == [(77, str(moved_folder))]
+
+
+def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    existing_managed = managed_root / "Fixture Ingest (2024)"
+    existing_managed.mkdir(parents=True)
+    (existing_managed / "existing.mkv").write_text("old", encoding="utf-8")
+
+    incoming = library_root / "Fixture Ingest (2024)"
+    incoming.mkdir(parents=True)
+    incoming_file = incoming / "incoming.mkv"
+    incoming_file.write_text("new", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    config.ingest.collision_strategy = "skip"
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(77, "Fixture Ingest", 2024, incoming)],
+    )
+
+    service.reconcile()
+
+    assert incoming.exists()
+    assert incoming_file.exists()
+    assert existing_managed.exists()
+    assert service.radarr.updated_paths == []

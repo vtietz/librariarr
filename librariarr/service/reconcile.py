@@ -41,6 +41,7 @@ class ServiceReconcileMixin:
                     force=self._arr_root_poll_interval is None,
                 )
 
+            ingested_movie_ids = self._ingest_movies_from_library_roots(affected_paths)
             auto_added_movie_ids = self._auto_add_unmatched_movies(affected_paths)
             auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
 
@@ -49,6 +50,11 @@ class ServiceReconcileMixin:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if queued_movie_ids:
                     scoped_movie_ids = queued_movie_ids
+            if ingested_movie_ids:
+                if scoped_movie_ids is None:
+                    scoped_movie_ids = set(ingested_movie_ids)
+                else:
+                    scoped_movie_ids.update(ingested_movie_ids)
             if auto_added_movie_ids:
                 if scoped_movie_ids is None:
                     scoped_movie_ids = set(auto_added_movie_ids)
@@ -196,6 +202,183 @@ class ServiceReconcileMixin:
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("completed")
             return had_projection_error
+
+    def _ingest_movies_from_library_roots(self, affected_paths: set[Path] | None) -> set[int]:
+        if not (self.radarr_enabled and self.sync_enabled and self.config.ingest.enabled):
+            return set()
+
+        try:
+            movies = self.radarr.get_movies()
+        except Exception as exc:
+            self._log_sync_config_hint(exc)
+            LOG.warning("Skipping ingest scan because Radarr movie inventory fetch failed: %s", exc)
+            return set()
+
+        strategy = str(self.config.ingest.collision_strategy).strip().lower()
+        moved_movie_ids: set[int] = set()
+
+        for movie in movies:
+            moved_movie_id = self._ingest_movie_if_needed(
+                movie,
+                affected_paths=affected_paths,
+                strategy=strategy,
+            )
+            if moved_movie_id is not None:
+                moved_movie_ids.add(moved_movie_id)
+
+        return moved_movie_ids
+
+    def _ingest_movie_if_needed(
+        self,
+        movie: dict,
+        *,
+        affected_paths: set[Path] | None,
+        strategy: str,
+    ) -> int | None:
+        movie_id = movie.get("id")
+        movie_path_raw = str(movie.get("path") or "").strip()
+        if not isinstance(movie_id, int) or not movie_path_raw:
+            return None
+
+        source_folder = Path(movie_path_raw)
+        destination_info = self._resolve_ingest_target(
+            source_folder,
+            affected_paths=affected_paths,
+            strategy=strategy,
+        )
+        if destination_info is None:
+            return None
+
+        managed_root, resolved_destination = destination_info
+        if not self._move_and_update_movie_path(movie, source_folder, resolved_destination):
+            return None
+
+        LOG.info(
+            "Ingest moved movie folder from library root to managed root: movie_id=%s "
+            "source=%s destination=%s",
+            movie_id,
+            source_folder,
+            resolved_destination,
+        )
+        LOG.info(
+            "Queued movie_id=%s for movie projection after ingest move: managed_root=%s folder=%s",
+            movie_id,
+            managed_root,
+            resolved_destination,
+        )
+        return movie_id
+
+    def _resolve_ingest_target(
+        self,
+        source_folder: Path,
+        *,
+        affected_paths: set[Path] | None,
+        strategy: str,
+    ) -> tuple[Path, Path] | None:
+        mapping_and_relative = self._resolve_ingest_mapping_for_folder(source_folder)
+        if mapping_and_relative is None:
+            return None
+        managed_root, _library_root, relative_folder = mapping_and_relative
+
+        if not source_folder.exists() or not source_folder.is_dir():
+            return None
+        if not self._folder_matches_affected_paths(source_folder, affected_paths):
+            return None
+
+        destination_folder = managed_root / relative_folder
+        if destination_folder.resolve(strict=False) == source_folder.resolve(strict=False):
+            return None
+
+        resolved_destination = self._resolve_ingest_destination(
+            destination_folder,
+            strategy=strategy,
+        )
+        if resolved_destination is None:
+            return None
+        return managed_root, resolved_destination
+
+    def _move_and_update_movie_path(
+        self,
+        movie: dict,
+        source_folder: Path,
+        resolved_destination: Path,
+    ) -> bool:
+        resolved_destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            source_folder.rename(resolved_destination)
+        except OSError as exc:
+            LOG.warning(
+                "Ingest move failed: source=%s destination=%s error=%s",
+                source_folder,
+                resolved_destination,
+                exc,
+            )
+            return False
+
+        try:
+            self.radarr.update_movie_path(movie, str(resolved_destination))
+        except Exception as exc:
+            try:
+                resolved_destination.rename(source_folder)
+            except OSError as rollback_exc:
+                LOG.error(
+                    "Ingest path update failed and rollback failed: source=%s destination=%s "
+                    "update_error=%s rollback_error=%s",
+                    source_folder,
+                    resolved_destination,
+                    exc,
+                    rollback_exc,
+                )
+            else:
+                LOG.warning(
+                    "Ingest path update failed; restored original folder: source=%s "
+                    "destination=%s error=%s",
+                    source_folder,
+                    resolved_destination,
+                    exc,
+                )
+            return False
+
+        return True
+
+    def _resolve_ingest_mapping_for_folder(
+        self,
+        folder: Path,
+    ) -> tuple[Path, Path, Path] | None:
+        sorted_mappings = sorted(
+            self.movie_root_mappings,
+            key=lambda item: len(item[1].parts),
+            reverse=True,
+        )
+        for managed_root, library_root in sorted_mappings:
+            try:
+                relative_folder = folder.relative_to(library_root)
+            except ValueError:
+                continue
+            return managed_root, library_root, relative_folder
+        return None
+
+    def _resolve_ingest_destination(self, destination: Path, *, strategy: str) -> Path | None:
+        if not destination.exists():
+            return destination
+
+        if strategy == "skip":
+            LOG.warning(
+                "Ingest collision detected; skipping move because destination exists: %s",
+                destination,
+            )
+            return None
+
+        for index in range(2, 1000):
+            candidate = destination.with_name(f"{destination.name} ({index})")
+            if not candidate.exists():
+                return candidate
+
+        LOG.warning(
+            "Ingest collision detected; no free qualified destination found for: %s",
+            destination,
+        )
+        return None
 
     def _auto_add_unmatched_movies(self, affected_paths: set[Path] | None) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):

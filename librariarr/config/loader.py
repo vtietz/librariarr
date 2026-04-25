@@ -12,6 +12,7 @@ from .models import (
     AppConfig,
     CleanupConfig,
     CustomFormatRule,
+    IngestConfig,
     MovieRootMapping,
     PathsConfig,
     ProfileRule,
@@ -369,8 +370,16 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         media_probe_bin=str(analysis_raw.get("media_probe_bin", "ffprobe")),
     )
 
-    if "ingest" in raw:
-        raise ValueError("ingest section is no longer supported in projection-only mode")
+    ingest_raw = raw.get("ingest", {})
+    if not isinstance(ingest_raw, dict):
+        raise ValueError("ingest must be a mapping")
+    ingest_collision_strategy = str(ingest_raw.get("collision_strategy", "qualify")).strip().lower()
+    if ingest_collision_strategy not in {"skip", "qualify"}:
+        raise ValueError("ingest.collision_strategy must be one of: skip, qualify")
+    ingest = IngestConfig(
+        enabled=bool(ingest_raw.get("enabled", True)),
+        collision_strategy=ingest_collision_strategy,
+    )
 
     return AppConfig(
         paths=PathsConfig(
@@ -455,5 +464,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             missing_grace_seconds=missing_grace_seconds,
         ),
         runtime=runtime,
+        ingest=ingest,
         analysis=analysis,
     )

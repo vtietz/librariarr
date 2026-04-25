@@ -15,8 +15,9 @@ This document describes the **current** runtime behavior.
   - Projection mode: hardlink managed episode files + allowlisted extras
   - Trigger model: Sonarr webhook queue + periodic/full reconcile
 
-Important: legacy Sonarr link matching/path-update/cleanup and ingest flows are removed from the
-runtime reconcile path.
+Important: legacy Sonarr link matching/path-update/cleanup flows are removed from the
+runtime reconcile path. Movie ingest is available as an optional reconciliation step via
+`ingest.enabled`.
 
 ## Terms
 
@@ -36,6 +37,10 @@ On each reconcile cycle, LibrariArr performs:
 4. Run movie projection from Radarr movie inventory + movie root mappings.
 5. Run series projection from Sonarr series inventory + series root mappings.
 6. Publish reconcile metrics/status.
+
+When `ingest.enabled=true`, a movie pre-step moves movie folders that currently resolve under
+movie library roots back into their managed roots, updates Radarr movie paths, and scopes those
+movie ids for projection.
 
 ## Trigger Sources
 
@@ -90,7 +95,7 @@ On each reconcile cycle, LibrariArr performs:
 - projection creates expected hardlink layout,
 - projection respects movie root mappings,
 - projection scopes to webhook movie ids,
-- projection-only runtime does not perform legacy ingest moves.
+- projection runtime performs optional movie ingest moves when enabled.
 
 ### Radarr E2E
 

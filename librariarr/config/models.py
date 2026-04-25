@@ -54,6 +54,12 @@ class RuntimeConfig:
 
 
 @dataclass
+class IngestConfig:
+    enabled: bool = True
+    collision_strategy: str = "qualify"
+
+
+@dataclass
 class AnalysisConfig:
     use_nfo: bool = False
     use_media_probe: bool = False
@@ -161,6 +167,7 @@ class AppConfig:
     radarr: RadarrConfig
     cleanup: CleanupConfig
     runtime: RuntimeConfig
+    ingest: IngestConfig = field(default_factory=IngestConfig)
     sonarr: SonarrConfig = field(default_factory=SonarrConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
 

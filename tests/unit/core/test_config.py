@@ -335,7 +335,7 @@ def test_load_config_rejects_non_list_scan_video_extensions(tmp_path: Path) -> N
         load_config(config_path)
 
 
-def test_load_config_rejects_ingest_section(tmp_path: Path) -> None:
+def test_load_config_reads_ingest_section(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
@@ -357,7 +357,35 @@ def test_load_config_rejects_ingest_section(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="ingest section is no longer supported"):
+    config = load_config(config_path)
+
+    assert config.ingest.enabled is True
+    assert config.ingest.collision_strategy == "qualify"
+
+
+def test_load_config_rejects_invalid_ingest_collision_strategy(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+            "ingest:\n"
+            "  collision_strategy: invalid\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ingest.collision_strategy must be one of"):
         load_config(config_path)
 
 
