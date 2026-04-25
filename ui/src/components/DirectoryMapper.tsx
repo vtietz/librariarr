@@ -192,7 +192,7 @@ export default function DirectoryMapper() {
 
   const mappedRootOptions = useMemo(
     () => [
-      { label: "All shadow roots", value: "all" },
+      { label: "All library roots and series shadow roots", value: "all" },
       ...mappedRoots.map((root) => ({ label: root, value: root }))
     ],
     [mappedRoots]
@@ -382,7 +382,7 @@ export default function DirectoryMapper() {
               onChange={(event) => setMappedSearch(event.currentTarget.value)}
             />
             <Select
-              label="Shadow root filter"
+              label="Library root and series shadow root filter"
               data={mappedRootOptions}
               value={mappedRootFilter}
               onChange={(value: string | null) => setMappedRootFilter(value ?? "all")}
