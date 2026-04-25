@@ -1,6 +1,6 @@
 # LibrariArr
 
-LibrariArr keeps real media folders in your preferred nested structure while continuously syncing flat library views for Radarr and Sonarr.
+LibrariArr keeps real media folders in your preferred nested structure while continuously syncing library views for Radarr and Sonarr.
 
 It solves the path drift problem between your filesystem and *arr apps by projecting managed
 media into curated library roots with hardlinks.
@@ -48,17 +48,46 @@ flowchart LR
 
 ## How It Works
 
-Example movie projection:
+Example managed-to-projected movie layout (path-preserving mode):
+
+This example shows the same files in two places:
+- Managed source tree (where you organize media).
+- Projected Radarr library tree (hardlink view that Radarr reads).
+
+In this example, projection preserves relative subfolders because it assumes:
+- `radarr.projection.movie_folder_name_source=managed`
+- a broad mapping like `/data/movies -> /data/radarr_library`
+
+If you want a flatter projected layout, use narrower root mappings (for example one mapping per age bucket) and/or set `movie_folder_name_source` to Arr title-based naming.
 
 ```text
+[MAPPING USED IN THIS EXAMPLE]
+/data/movies  ->  /data/radarr_library
+
+[MANAGED SOURCE]
 /data/movies/
   age_12/Studio/Foo (2020)/Foo.2020.1080p.x265.mkv
   age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
 
+[PROJECTED LIBRARY VIEW]
 /data/radarr_library/
   age_12/Studio/Foo (2020)/Foo.2020.1080p.x265.mkv
   age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
+
+NOTE: In path-preserving mode, the relative subpath (age_12/Studio/...) is intentionally the same.
+Only the root changes from /data/movies to /data/radarr_library.
+
+[FLATTER ALTERNATIVE EXAMPLE]
+Mappings:
+  /data/movies/age_12 -> /data/radarr_library/age_12
+  /data/movies/age_16 -> /data/radarr_library/age_16
+
+Projected:
+  /data/radarr_library/age_12/Foo (2020)/Foo.2020.1080p.x265.mkv
+  /data/radarr_library/age_16/Bar (2011)/Bar.2011.2160p.REMUX.mkv
 ```
+
+The projected files are hardlinks to the managed files (same content, different path entry).
 
 On reconcile, LibrariArr:
 
@@ -85,12 +114,6 @@ On reconcile, LibrariArr:
 
 - Events are detected and reconciled, but the folder identity often remains unchanged.
 - You may still see a reconcile run in logs even if resulting projected-file changes are zero.
-
-### Why logs may show large `affected_paths`
-
-- `affected_paths` is the raw number of changed paths collected during debounce, not the number of projected items.
-- Single large copy/move operations can generate many filesystem events.
-- Incremental scope resolution then narrows this to scan targets before link/match actions are applied.
 
 ## Quick Start (Users: Docker Compose)
 
