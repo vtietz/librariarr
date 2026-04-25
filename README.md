@@ -210,8 +210,8 @@ docker compose -f docker-compose.full-stack.example.yml down
 ```yaml
 paths:
   movie_root_mappings:
-    - managed_root: "/data/radarr_library/age_12"
-      library_root: "/data/movies/age_12"
+    - managed_root: "/data/movies/age_12"
+      library_root: "/data/radarr_library/age_12"
   series_root_mappings:
     - nested_root: "/data/series/age_12"
       shadow_root: "/data/sonarr_library/age_12"
