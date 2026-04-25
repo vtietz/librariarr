@@ -9,9 +9,9 @@ import {
   formatTaskDuration,
   formatTaskQueuedAt,
 } from "./dashboardFormatters";
+import PerRootInsightsCard from "./dashboard/PerRootInsightsCard";
 
 type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
-
 export default function Dashboard({
   hasUnsavedChanges,
   runtimeStatus,
@@ -21,7 +21,6 @@ export default function Dashboard({
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
   const [runningReconcile, setRunningReconcile] = useState(false);
-
   useEffect(() => {
     let active = true;
     let inFlight = false;
@@ -53,11 +52,9 @@ export default function Dashboard({
       window.clearInterval(interval);
     };
   }, []);
-
   const excludedCandidates = discoveryWarnings?.summary.excluded_movie_candidates ?? 0;
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
   const hasDiscoveryWarnings = excludedCandidates > 0 || duplicateCandidates > 0;
-
   const taskState = runtimeStatus?.current_task.state ?? "idle";
   const taskBadgeColor =
     taskState === "running" ? "blue" : taskState === "error" ? "red" : "gray";
@@ -412,6 +409,8 @@ export default function Dashboard({
           </Text>
         </Card>
       </SimpleGrid>
+
+      <PerRootInsightsCard />
 
       <Card withBorder>
         <Group justify="space-between" mb="xs">
