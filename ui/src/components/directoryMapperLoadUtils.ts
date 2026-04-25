@@ -41,20 +41,25 @@ export const mergeMappedDirectoriesByVirtualPath = (
   baseItems: MappedDirectory[],
   enrichedItems: MappedDirectory[]
 ) => {
-  const enrichedByVirtualPath = new Map(
-    enrichedItems.map((item) => [item.virtual_path, item] as const)
-  );
+  const mergedByVirtualPath = new Map<string, MappedDirectory>();
 
-  return baseItems.map((item) => {
-    const enriched = enrichedByVirtualPath.get(item.virtual_path);
-    if (!enriched) {
-      return item;
+  for (const item of baseItems) {
+    mergedByVirtualPath.set(item.virtual_path, item);
+  }
+
+  for (const enriched of enrichedItems) {
+    const existing = mergedByVirtualPath.get(enriched.virtual_path);
+    if (!existing) {
+      mergedByVirtualPath.set(enriched.virtual_path, enriched);
+      continue;
     }
-    return {
-      ...item,
+    mergedByVirtualPath.set(enriched.virtual_path, {
+      ...existing,
       ...enriched
-    };
-  });
+    });
+  }
+
+  return Array.from(mergedByVirtualPath.values());
 };
 
 export const mappedCacheStatusText = (params: {

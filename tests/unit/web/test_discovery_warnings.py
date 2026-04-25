@@ -9,9 +9,12 @@ def _write_config_with_trailer_excludes(path: Path, nested_root: Path, shadow_ro
     path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             f"    - nested_root: {nested_root}\n"
             f"      shadow_root: {shadow_root}\n"
+            "  movie_root_mappings:\n"
+            f"    - managed_root: {nested_root}\n"
+            f"      library_root: {shadow_root}\n"
             "  exclude_paths:\n"
             "    - '*-trailer.*'\n"
             "radarr:\n"

@@ -286,6 +286,16 @@ export const runMaintenanceReconcile = async (params?: { path?: string }) => {
   return data;
 };
 
+export const runFullReconcile = async () => {
+  const { data } = await api.post<{
+    ok: boolean;
+    queued: boolean;
+    job_id: string;
+    message: string;
+  }>("/maintenance/full-reconcile");
+  return data;
+};
+
 export const waitForJobCompletion = async (jobId: string, options?: { timeoutMs?: number; pollIntervalMs?: number }) => {
   const timeoutMs = options?.timeoutMs ?? 180000;
   const pollIntervalMs = options?.pollIntervalMs ?? 1000;
@@ -364,6 +374,21 @@ export const cancelJob = async (jobId: string) => {
   return data;
 };
 
+type ReconcileProgressFields = {
+  movie_folders_seen?: number;
+  series_folders_seen?: number;
+  movie_items_targeted?: number | null;
+  series_items_targeted?: number | null;
+  movie_items_projected?: number;
+  series_items_projected?: number;
+  created_links?: number;
+  matched_movies?: number;
+  unmatched_movies?: number;
+  matched_series?: number;
+  unmatched_series?: number;
+  affected_paths_count?: number | null;
+};
+
 export type RuntimeStatusResponse = {
   runtime_running: boolean;
   watched_nested_roots: number;
@@ -380,11 +405,9 @@ export type RuntimeStatusResponse = {
     started_at: number | null;
     updated_at: number | null;
     error: string | null;
-    pending_ingest_dirs?: number;
-    movie_folders_seen?: number;
-    series_folders_seen?: number;
-    affected_paths_count?: number | null;
-  };
+    active_movie_root?: string | null;
+    active_series_root?: string | null;
+  } & ReconcileProgressFields;
   last_reconcile: {
     state: "ok" | "error";
     trigger_source: string | null;
@@ -392,19 +415,12 @@ export type RuntimeStatusResponse = {
     started_at: number | null;
     finished_at: number | null;
     duration_seconds: number | null;
-    ingest_pending: boolean;
+    followup_pending?: boolean;
     error: string | null;
-    movie_folders_seen?: number;
-    series_folders_seen?: number;
-    created_links?: number;
-    matched_movies?: number;
-    unmatched_movies?: number;
-    matched_series?: number;
-    unmatched_series?: number;
-    ingested_dirs?: number;
-    pending_ingest_dirs?: number;
-    affected_paths_count?: number | null;
-  } | null;
+    active_movie_root?: string | null;
+    active_series_root?: string | null;
+    full_reconcile_stats?: Record<string, number | string> | null;
+  } & ReconcileProgressFields | null;
   known_links_in_memory?: number;
   mapped_cache?: {
     ready: boolean;

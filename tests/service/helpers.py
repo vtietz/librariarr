@@ -3,7 +3,7 @@ from pathlib import Path
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
-    IngestConfig,
+    MovieRootMapping,
     PathsConfig,
     QualityRule,
     RadarrConfig,
@@ -141,14 +141,17 @@ def make_config(
     shadow_root: Path,
     sync_enabled: bool = True,
     radarr_enabled: bool = True,
-    radarr_action_on_missing: str = "unmonitor",
     auto_add_unmatched: bool = False,
     auto_add_quality_profile_id: int | None = None,
-    path_update_match_policy: str = "default",
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))]
+            series_root_mappings=[
+                RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))
+            ],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(nested_root), library_root=str(shadow_root))
+            ],
         ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
@@ -157,14 +160,12 @@ def make_config(
             sync_enabled=sync_enabled,
             auto_add_unmatched=auto_add_unmatched,
             auto_add_quality_profile_id=auto_add_quality_profile_id,
-            path_update_match_policy=path_update_match_policy,
             mapping=RadarrMappingConfig(
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
         cleanup=CleanupConfig(
             remove_orphaned_links=True,
-            radarr_action_on_missing=radarr_action_on_missing,
             missing_grace_seconds=0,
         ),
         runtime=RuntimeConfig(
@@ -172,5 +173,4 @@ def make_config(
             maintenance_interval_minutes=60,
             arr_root_poll_interval_minutes=0,
         ),
-        ingest=IngestConfig(),
     )

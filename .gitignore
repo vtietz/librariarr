@@ -7,3 +7,4 @@ config.yaml
 ui/node_modules/
 ui/dist/
 data/
+*.db

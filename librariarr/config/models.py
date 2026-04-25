@@ -38,7 +38,6 @@ class SonarrMappingConfig:
 @dataclass
 class CleanupConfig:
     remove_orphaned_links: bool = True
-    radarr_action_on_missing: str = "unmonitor"
     sonarr_action_on_missing: str = "unmonitor"
     missing_grace_seconds: int = 3600
 
@@ -54,18 +53,16 @@ class RuntimeConfig:
 
 
 @dataclass
+class IngestConfig:
+    enabled: bool = True
+    collision_strategy: str = "qualify"
+
+
+@dataclass
 class AnalysisConfig:
     use_nfo: bool = False
     use_media_probe: bool = False
     media_probe_bin: str = "ffprobe"
-
-
-@dataclass
-class IngestConfig:
-    enabled: bool = False
-    min_age_seconds: int = 30
-    collision_policy: str = "qualify"
-    quarantine_root: str = ""
 
 
 @dataclass
@@ -82,7 +79,7 @@ class RadarrConfig:
     request_timeout_seconds: int = 30
     request_retry_attempts: int = 2
     request_retry_backoff_seconds: float = 0.5
-    path_update_match_policy: str = "default"
+    projection: RadarrProjectionConfig = field(default_factory=lambda: RadarrProjectionConfig())
     mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 
 
@@ -102,6 +99,7 @@ class SonarrConfig:
     request_timeout_seconds: int = 30
     request_retry_attempts: int = 2
     request_retry_backoff_seconds: float = 0.5
+    projection: SonarrProjectionConfig = field(default_factory=lambda: SonarrProjectionConfig())
     mapping: SonarrMappingConfig = field(default_factory=SonarrMappingConfig)
 
 
@@ -112,8 +110,53 @@ class RootMapping:
 
 
 @dataclass
+class MovieRootMapping:
+    managed_root: str
+    library_root: str
+
+
+@dataclass
+class RadarrProjectionConfig:
+    managed_video_extensions: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
+    )
+    managed_extras_allowlist: list[str] = field(
+        default_factory=lambda: ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
+    )
+    preserve_unknown_files: bool = True
+    delete_managed_files: bool = True
+    provenance_file: str = ".librariarr-provenance.json"
+    hash_max_file_size_mb: int = 256
+    movie_folder_name_source: str = "managed"
+
+
+@dataclass
+class SonarrProjectionConfig:
+    managed_video_extensions: list[str] = field(
+        default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
+    )
+    managed_extras_allowlist: list[str] = field(
+        default_factory=lambda: [
+            "*.srt",
+            "*.ass",
+            "*.sub",
+            "series.nfo",
+            "tvshow.nfo",
+            "poster.jpg",
+            "fanart.jpg",
+        ]
+    )
+    preserve_unknown_files: bool = True
+    delete_managed_files: bool = True
+    provenance_file: str = ".librariarr-sonarr-provenance.json"
+    hash_max_file_size_mb: int = 256
+    series_folder_name_source: str = "managed"
+
+
+@dataclass
 class PathsConfig:
-    root_mappings: list[RootMapping] = field(default_factory=list)
+    series_root_mappings: list[RootMapping] = field(default_factory=list)
+    movie_root_mappings: list[MovieRootMapping] = field(default_factory=list)
     exclude_paths: list[str] = field(default_factory=list)
 
 
@@ -123,9 +166,9 @@ class AppConfig:
     radarr: RadarrConfig
     cleanup: CleanupConfig
     runtime: RuntimeConfig
+    ingest: IngestConfig = field(default_factory=IngestConfig)
     sonarr: SonarrConfig = field(default_factory=SonarrConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
-    ingest: IngestConfig = field(default_factory=IngestConfig)
 
     def effective_radarr_quality_map(self) -> list[QualityRule]:
         return self.radarr.mapping.quality_map

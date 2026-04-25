@@ -43,7 +43,7 @@ def build_dry_run_router(
             movie_folder_count = 0
             series_folder_count = 0
 
-            for mapping in config.paths.root_mappings:
+            for mapping in config.paths.series_root_mappings:
                 nested_root = Path(mapping.nested_root)
                 if config.radarr.enabled:
                     movie_folder_count += len(
@@ -67,7 +67,7 @@ def build_dry_run_router(
                 "summary": {
                     "movie_folders_detected": movie_folder_count,
                     "series_folders_detected": series_folder_count,
-                    "root_mappings": len(config.paths.root_mappings),
+                    "series_root_mappings": len(config.paths.series_root_mappings),
                 },
                 "issues": [],
                 "mode": "read-only",

@@ -6,9 +6,12 @@ from librariarr.config import DEFAULT_SCAN_VIDEO_EXTENSIONS, load_config
 
 CONFIG_CONTENT = (
     "paths:\n"
-    "  root_mappings:\n"
+    "  series_root_mappings:\n"
     "    - nested_root: /data/movies/one\n"
     "      shadow_root: /data/radarr_library/one\n"
+    "  movie_root_mappings:\n"
+    "    - managed_root: /data/movies/one\n"
+    "      library_root: /data/radarr_library/one\n"
     "radarr:\n"
     "  url: http://radarr:7878\n"
     "  api_key: test-key\n"
@@ -41,9 +44,9 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
 
     config = load_config(config_path)
 
-    assert len(config.paths.root_mappings) == 1
-    assert config.paths.root_mappings[0].nested_root == "/data/movies/one"
-    assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/one"
+    assert len(config.paths.series_root_mappings) == 1
+    assert config.paths.series_root_mappings[0].nested_root == "/data/movies/one"
+    assert config.paths.series_root_mappings[0].shadow_root == "/data/radarr_library/one"
     assert config.radarr.enabled is True
     assert config.radarr.url == "http://radarr:7878"
     assert config.radarr.api_key == "test-key"
@@ -52,13 +55,11 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.radarr.auto_add_quality_profile_id is None
     assert config.radarr.auto_add_search_on_add is False
     assert config.radarr.auto_add_monitored is True
-    assert config.radarr.path_update_match_policy == "default"
     assert config.sonarr.enabled is False
     assert config.sonarr.sync_enabled is False
     assert config.sonarr.url == ""
     assert config.sonarr.api_key == ""
     assert config.radarr.mapping.quality_map[0].target_id == 7
-    assert config.cleanup.radarr_action_on_missing == "unmonitor"
     assert config.cleanup.sonarr_action_on_missing == "unmonitor"
     assert config.cleanup.missing_grace_seconds == 3600
     assert config.runtime.arr_root_poll_interval_minutes == 1
@@ -87,22 +88,27 @@ def test_only_radarr_url_and_api_key_env_overrides_are_applied(tmp_path: Path, m
     assert config.radarr.api_key == "env-key"
     assert config.sonarr.url == "http://sonarr.local:8989"
     assert config.sonarr.api_key == "sonarr-env-key"
-    assert len(config.paths.root_mappings) == 1
+    assert len(config.paths.series_root_mappings) == 1
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
     assert config.analysis.media_probe_bin == "ffprobe"
 
 
-def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
+def test_load_config_reads_multiple_series_root_mappings(tmp_path: Path, monkeypatch) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/age_06\n"
             "      shadow_root: /data/radarr_library/age_06\n"
             "    - nested_root: /data/movies/age_12\n"
             "      shadow_root: /data/radarr_library/age_12\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/age_06\n"
+            "      library_root: /data/radarr_library/age_06\n"
+            "    - managed_root: /data/movies/age_12\n"
+            "      library_root: /data/radarr_library/age_12\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -116,9 +122,9 @@ def test_load_config_reads_root_mappings(tmp_path: Path, monkeypatch) -> None:
 
     config = load_config(config_path)
 
-    assert len(config.paths.root_mappings) == 2
-    assert config.paths.root_mappings[0].nested_root == "/data/movies/age_06"
-    assert config.paths.root_mappings[0].shadow_root == "/data/radarr_library/age_06"
+    assert len(config.paths.series_root_mappings) == 2
+    assert config.paths.series_root_mappings[0].nested_root == "/data/movies/age_06"
+    assert config.paths.series_root_mappings[0].shadow_root == "/data/radarr_library/age_06"
 
 
 def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
@@ -126,9 +132,12 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/age_12\n"
             "      shadow_root: /data/radarr_library/age_12\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/age_12\n"
+            "      library_root: /data/radarr_library/age_12\n"
             "  exclude_paths:\n"
             "    - .deletedByTMM/\n"
             "    - '.librariarr/**'\n"
@@ -146,7 +155,7 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
     assert config.paths.exclude_paths == [".deletedByTMM/", ".librariarr/**"]
 
 
-def test_load_config_rejects_missing_root_mappings(tmp_path: Path) -> None:
+def test_load_config_rejects_missing_series_root_mappings(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
@@ -154,16 +163,45 @@ def test_load_config_rejects_missing_root_mappings(tmp_path: Path) -> None:
             "  nested_roots:\n"
             "    - /data/movies/other\n"
             "radarr:\n"
+            "  enabled: false\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
             "cleanup: {}\n"
             "runtime: {}\n"
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(ValueError, match="paths.root_mappings is required"):
+    with pytest.raises(ValueError, match="paths.series_root_mappings is required"):
         load_config(config_path)
+
+
+def test_load_config_reads_series_root_mappings(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/series/age_12\n"
+            "      shadow_root: /data/sonarr_library/age_12\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert len(config.paths.series_root_mappings) == 1
+    assert config.paths.series_root_mappings[0].nested_root == "/data/series/age_12"
 
 
 def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monkeypatch) -> None:
@@ -171,9 +209,12 @@ def test_load_config_allows_disabling_maintenance_interval(tmp_path: Path, monke
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -197,9 +238,12 @@ def test_load_config_reads_arr_root_poll_interval(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -220,9 +264,12 @@ def test_load_config_normalizes_dotless_scan_video_extensions(tmp_path: Path) ->
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -243,9 +290,12 @@ def test_load_config_uses_default_scan_video_extensions_when_not_set(tmp_path: P
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -265,9 +315,12 @@ def test_load_config_rejects_non_list_scan_video_extensions(tmp_path: Path) -> N
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -282,28 +335,17 @@ def test_load_config_rejects_non_list_scan_video_extensions(tmp_path: Path) -> N
         load_config(config_path)
 
 
-def test_load_config_ingest_defaults(tmp_path: Path, monkeypatch) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(CONFIG_CONTENT, encoding="utf-8")
-
-    monkeypatch.delenv("LIBRARIARR_RADARR_URL", raising=False)
-    monkeypatch.delenv("LIBRARIARR_RADARR_API_KEY", raising=False)
-
-    config = load_config(config_path)
-
-    assert config.ingest.enabled is False
-    assert config.ingest.min_age_seconds == 30
-    assert config.ingest.collision_policy == "qualify"
-
-
-def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
+def test_load_config_reads_ingest_section(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -311,17 +353,40 @@ def test_load_config_rejects_deprecated_ingest_selector(tmp_path: Path) -> None:
             "runtime: {}\n"
             "ingest:\n"
             "  enabled: true\n"
-            "  selector: first\n"
         ),
         encoding="utf-8",
     )
 
-    try:
+    config = load_config(config_path)
+
+    assert config.ingest.enabled is True
+    assert config.ingest.collision_strategy == "qualify"
+
+
+def test_load_config_rejects_invalid_ingest_collision_strategy(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+            "ingest:\n"
+            "  collision_strategy: invalid\n"
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="ingest.collision_strategy must be one of"):
         load_config(config_path)
-    except ValueError as exc:
-        assert "ingest.selector is no longer supported" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for deprecated ingest.selector")
 
 
 def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
@@ -329,9 +394,12 @@ def test_load_config_reads_radarr_auto_add_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -360,7 +428,7 @@ def test_load_config_disables_radarr_when_enabled_false(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
             "radarr:\n"
@@ -387,9 +455,12 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -411,19 +482,21 @@ def test_load_config_reads_custom_format_map(tmp_path: Path) -> None:
     assert config.radarr.mapping.custom_format_map[0].format_id == 42
 
 
-def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
+def test_load_config_reads_cleanup_grace(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
             "cleanup:\n"
-            "  radarr_action_on_missing: none\n"
             "  missing_grace_seconds: 7200\n"
             "runtime: {}\n"
         ),
@@ -432,7 +505,6 @@ def test_load_config_reads_cleanup_action_and_grace(tmp_path: Path) -> None:
 
     config = load_config(config_path)
 
-    assert config.cleanup.radarr_action_on_missing == "none"
     assert config.cleanup.missing_grace_seconds == 7200
 
 
@@ -441,9 +513,12 @@ def test_load_config_reads_sonarr_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/series/one\n"
             "      shadow_root: /data/sonarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/series/one\n"
+            "      library_root: /data/sonarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -487,9 +562,12 @@ def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> No
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -504,36 +582,17 @@ def test_load_config_rejects_invalid_sonarr_cleanup_action(tmp_path: Path) -> No
         load_config(config_path)
 
 
-def test_load_config_rejects_invalid_cleanup_action(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/movies/one\n"
-            "      shadow_root: /data/radarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "cleanup:\n"
-            "  radarr_action_on_missing: pause\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="cleanup.radarr_action_on_missing"):
-        load_config(config_path)
-
-
 def test_load_config_reads_namespaced_radarr_mapping(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -556,144 +615,3 @@ def test_load_config_reads_namespaced_radarr_mapping(tmp_path: Path) -> None:
     assert config.radarr.mapping.custom_format_map[0].format_id == 42
     assert config.effective_radarr_quality_map()[0].target_id == 9
     assert config.effective_radarr_custom_format_map()[0].format_id == 42
-
-
-def test_load_config_rejects_legacy_top_level_quality_map(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/movies/one\n"
-            "      shadow_root: /data/radarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "  mapping:\n"
-            "    quality_map:\n"
-            "      - match: [2160p]\n"
-            "        target_id: 19\n"
-            "quality_map:\n"
-            "  - match: [1080p]\n"
-            "    target_id: 9\n"
-            "cleanup: {}\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="Top-level quality_map/custom_format_map"):
-        load_config(config_path)
-
-
-def test_load_config_reads_namespaced_sonarr_mapping(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/series/one\n"
-            "      shadow_root: /data/sonarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "sonarr:\n"
-            "  enabled: true\n"
-            "  url: http://sonarr:8989\n"
-            "  api_key: sonarr-key\n"
-            "  mapping:\n"
-            "    quality_profile_map:\n"
-            "      - match: [1080p]\n"
-            "        profile_id: 8\n"
-            "    language_profile_map:\n"
-            "      - match: [lang-de]\n"
-            "        profile_id: 4\n"
-            "cleanup: {}\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    config = load_config(config_path)
-
-    assert config.sonarr.mapping.quality_profile_map[0].profile_id == 8
-    assert config.sonarr.mapping.language_profile_map[0].profile_id == 4
-
-
-def test_load_config_rejects_legacy_radarr_quality_map_id_key(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/movies/one\n"
-            "      shadow_root: /data/radarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "  mapping:\n"
-            "    quality_map:\n"
-            "      - match: [1080p]\n"
-            "        id: 9\n"
-            "cleanup: {}\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="quality_map entries must define target_id"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_legacy_radarr_custom_format_format_key(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/movies/one\n"
-            "      shadow_root: /data/radarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "  mapping:\n"
-            "    custom_format_map:\n"
-            "      - match: [german]\n"
-            "        format: 42\n"
-            "cleanup: {}\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="custom_format_map entries must define format_id"):
-        load_config(config_path)
-
-
-def test_load_config_rejects_legacy_sonarr_profile_id_alias(tmp_path: Path) -> None:
-    config_path = tmp_path / "config.yaml"
-    config_path.write_text(
-        (
-            "paths:\n"
-            "  root_mappings:\n"
-            "    - nested_root: /data/series/one\n"
-            "      shadow_root: /data/sonarr_library/one\n"
-            "radarr:\n"
-            "  url: http://radarr:7878\n"
-            "  api_key: test-key\n"
-            "sonarr:\n"
-            "  enabled: true\n"
-            "  url: http://sonarr:8989\n"
-            "  api_key: sonarr-key\n"
-            "  mapping:\n"
-            "    quality_profile_map:\n"
-            "      - match: [1080p]\n"
-            "        id: 8\n"
-            "cleanup: {}\n"
-            "runtime: {}\n"
-        ),
-        encoding="utf-8",
-    )
-
-    with pytest.raises(ValueError, match="quality_profile_map entries must define profile_id"):
-        load_config(config_path)

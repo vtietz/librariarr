@@ -6,6 +6,7 @@ from librariarr.config import (
     AppConfig,
     CleanupConfig,
     CustomFormatRule,
+    MovieRootMapping,
     PathsConfig,
     QualityRule,
     RadarrConfig,
@@ -25,19 +26,26 @@ class FakeRadarr:
         parse_results: dict[str, dict] | None = None,
         lookup_results: list[dict] | None = None,
         add_movie_result: dict | None = None,
+        movies: list[dict] | None = None,
     ) -> None:
         self.quality_profiles = quality_profiles or []
         self.quality_definitions = quality_definitions or []
         self.parse_results = parse_results or {}
         self.lookup_results = lookup_results or []
         self.add_movie_result = add_movie_result or {}
+        self.movies = movies or []
         self.lookup_terms: list[str] = []
+        self.add_calls: list[dict] = []
+        self.update_calls: list[tuple[int, str]] = []
 
     def get_quality_profiles(self) -> list[dict]:
         return self.quality_profiles
 
     def get_quality_definitions(self) -> list[dict]:
         return self.quality_definitions
+
+    def get_movies(self) -> list[dict]:
+        return self.movies
 
     def parse_title(self, title: str) -> dict:
         return self.parse_results.get(title, {})
@@ -55,13 +63,24 @@ class FakeRadarr:
         monitored: bool,
         search_for_movie: bool,
     ) -> dict:
-        del lookup_movie
-        del path
-        del root_folder_path
-        del quality_profile_id
-        del monitored
-        del search_for_movie
+        self.add_calls.append(
+            {
+                "lookup_movie": lookup_movie,
+                "path": path,
+                "root_folder_path": root_folder_path,
+                "quality_profile_id": quality_profile_id,
+                "monitored": monitored,
+                "search_for_movie": search_for_movie,
+            }
+        )
         return self.add_movie_result
+
+    def update_movie_path(self, movie: dict, new_path: str) -> bool:
+        self.update_calls.append((int(movie.get("id") or 0), new_path))
+        if str(movie.get("path") or "").strip() == new_path:
+            return False
+        movie["path"] = new_path
+        return True
 
 
 def _make_config(
@@ -77,7 +96,7 @@ def _make_config(
 
     return AppConfig(
         paths=PathsConfig(
-            root_mappings=[
+            series_root_mappings=[
                 RootMapping(
                     nested_root=str(nested_root),
                     shadow_root=str(shadow_root),
@@ -335,3 +354,224 @@ def test_auto_add_retries_no_safe_lookup_when_folder_changes(tmp_path: Path) -> 
         "unknown title 2020",
         "unknown title 2020",
     ]
+
+
+def test_auto_add_movie_uses_managed_source_path(tmp_path: Path) -> None:
+    managed_root = tmp_path / "movies"
+    folder = managed_root / "Fixture Movie (2022)"
+    folder.mkdir(parents=True)
+
+    config = _make_config(tmp_path)
+    config.radarr.auto_add_quality_profile_id = 7
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        add_movie_result={"id": 999, "path": str(folder)},
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    added = helper.auto_add_movie_for_folder(folder, managed_root)
+
+    assert isinstance(added, dict)
+    assert len(fake.add_calls) == 1
+    assert fake.add_calls[0]["path"] == str(folder)
+    assert fake.add_calls[0]["root_folder_path"] == str(managed_root)
+
+
+def test_auto_add_movie_skips_add_when_movie_already_exists(tmp_path: Path) -> None:
+    managed_root = tmp_path / "movies"
+    folder = managed_root / "Fixture Movie (2022)"
+    folder.mkdir(parents=True)
+
+    existing = {
+        "id": 77,
+        "title": "Fixture Movie",
+        "tmdbId": 1203,
+        "path": str(folder),
+    }
+    config = _make_config(tmp_path)
+    config.radarr.auto_add_quality_profile_id = 7
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        movies=[existing],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    added = helper.auto_add_movie_for_folder(folder, managed_root)
+
+    assert added == existing
+    assert fake.add_calls == []
+    assert fake.update_calls == []
+
+
+def test_auto_add_movie_updates_existing_movie_path_when_mismatched(tmp_path: Path) -> None:
+    managed_root = tmp_path / "movies"
+    folder = managed_root / "Fixture Movie (2022)"
+    folder.mkdir(parents=True)
+
+    existing = {
+        "id": 77,
+        "title": "Fixture Movie",
+        "tmdbId": 1203,
+        "path": "/data/radarr_library/age_06/Fixture Movie (2022)",
+    }
+    config = _make_config(tmp_path)
+    config.radarr.auto_add_quality_profile_id = 7
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        movies=[existing],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    added = helper.auto_add_movie_for_folder(folder, managed_root)
+
+    assert isinstance(added, dict)
+    assert added.get("path") == str(folder)
+    assert fake.add_calls == []
+    assert fake.update_calls == [(77, str(folder))]
+
+
+def _make_multi_root_config(tmp_path: Path) -> AppConfig:
+    """Config with two movie managed roots in priority order: age_00 > age_06."""
+    age_00 = tmp_path / "movies" / "age_00"
+    age_06 = tmp_path / "movies" / "age_06"
+    lib_00 = tmp_path / "library" / "age_00"
+    lib_06 = tmp_path / "library" / "age_06"
+    for d in (age_00, age_06, lib_00, lib_06):
+        d.mkdir(parents=True, exist_ok=True)
+
+    return AppConfig(
+        paths=PathsConfig(
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(age_00), library_root=str(lib_00)),
+                MovieRootMapping(managed_root=str(age_06), library_root=str(lib_06)),
+            ],
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test-key",
+            sync_enabled=True,
+            auto_add_unmatched=True,
+        ),
+        cleanup=CleanupConfig(),
+        runtime=RuntimeConfig(),
+    )
+
+
+def test_auto_add_skips_path_update_when_existing_has_higher_root_priority(
+    tmp_path: Path,
+) -> None:
+    """When the movie already points to a higher-priority root (age_00), a
+    duplicate folder in age_06 must NOT flip the path."""
+    config = _make_multi_root_config(tmp_path)
+    age_00_folder = tmp_path / "movies" / "age_00" / "Fixture Movie (2022)"
+    age_06_folder = tmp_path / "movies" / "age_06" / "Fixture Movie (2022)"
+    age_00_folder.mkdir(parents=True)
+    age_06_folder.mkdir(parents=True)
+
+    existing = {
+        "id": 77,
+        "title": "Fixture Movie",
+        "tmdbId": 1203,
+        "path": str(age_00_folder),
+    }
+    config.radarr.auto_add_quality_profile_id = 7
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        movies=[existing],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    # Try to auto-add from the lower-priority root (age_06).
+    result = helper.auto_add_movie_for_folder(age_06_folder, age_06_folder.parent)
+
+    assert isinstance(result, dict)
+    # Path should NOT have been updated; it stays at age_00.
+    assert result.get("path") == str(age_00_folder)
+    assert fake.update_calls == []
+    assert fake.add_calls == []
+
+
+def test_auto_add_updates_path_when_new_folder_has_higher_root_priority(
+    tmp_path: Path,
+) -> None:
+    """When the movie currently points to age_06 but the canonical age_00 folder
+    appears, the path SHOULD be updated to the higher-priority root."""
+    config = _make_multi_root_config(tmp_path)
+    age_00_folder = tmp_path / "movies" / "age_00" / "Fixture Movie (2022)"
+    age_06_folder = tmp_path / "movies" / "age_06" / "Fixture Movie (2022)"
+    age_00_folder.mkdir(parents=True)
+    age_06_folder.mkdir(parents=True)
+
+    existing = {
+        "id": 77,
+        "title": "Fixture Movie",
+        "tmdbId": 1203,
+        "path": str(age_06_folder),
+    }
+    config.radarr.auto_add_quality_profile_id = 7
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        movies=[existing],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    # Auto-add from the higher-priority root (age_00).
+    result = helper.auto_add_movie_for_folder(age_00_folder, age_00_folder.parent)
+
+    assert isinstance(result, dict)
+    assert result.get("path") == str(age_00_folder)
+    assert fake.update_calls == [(77, str(age_00_folder))]
+    assert fake.add_calls == []
+
+
+def test_auto_add_updates_path_when_existing_path_not_in_managed_root(
+    tmp_path: Path,
+) -> None:
+    """When the existing path is outside all managed roots, any managed folder
+    should be allowed to claim ownership."""
+    config = _make_multi_root_config(tmp_path)
+    age_06_folder = tmp_path / "movies" / "age_06" / "Fixture Movie (2022)"
+    age_06_folder.mkdir(parents=True)
+
+    existing = {
+        "id": 77,
+        "title": "Fixture Movie",
+        "tmdbId": 1203,
+        "path": "/external/somewhere/Fixture Movie (2022)",
+    }
+    config.radarr.auto_add_quality_profile_id = 7
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        movies=[existing],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    result = helper.auto_add_movie_for_folder(age_06_folder, age_06_folder.parent)
+
+    assert isinstance(result, dict)
+    assert result.get("path") == str(age_06_folder)
+    assert fake.update_calls == [(77, str(age_06_folder))]

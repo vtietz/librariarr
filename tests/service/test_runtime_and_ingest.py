@@ -3,7 +3,7 @@ from pathlib import Path
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
-    IngestConfig,
+    MovieRootMapping,
     PathsConfig,
     QualityRule,
     RadarrConfig,
@@ -16,13 +16,21 @@ from tests.service.helpers import make_config
 
 
 def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    nested_root.mkdir(parents=True)
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    managed_root.mkdir(parents=True)
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))]
+            series_root_mappings=[
+                RootMapping(
+                    nested_root=str(managed_root),
+                    shadow_root=str(library_root),
+                )
+            ],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
+            ],
         ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
@@ -41,44 +49,14 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
     assert service._maintenance_interval is None
 
 
-def test_ingest_moves_real_shadow_folder_to_nested_and_replaces_symlink(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    incoming = shadow_root / "Incoming Movie (2024)"
+def test_reconcile_does_not_ingest_shadow_folder_when_projection_only(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    incoming = library_root / "Incoming Movie (2024)"
     incoming.mkdir(parents=True)
     (incoming / "Incoming.Movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
 
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    config.ingest = IngestConfig(enabled=True, min_age_seconds=0)
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    destination = nested_root / "Incoming Movie (2024)"
-    shadow_link = shadow_root / "Incoming Movie (2024)"
-    assert destination.exists()
-    assert shadow_link.is_symlink()
-    assert shadow_link.resolve(strict=False) == destination
-
-    service.reconcile()
-    assert shadow_link.is_symlink()
-    assert shadow_link.resolve(strict=False) == destination
-
-
-def test_ingest_collision_skip_policy_leaves_source_untouched(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-
-    existing = nested_root / "Collision Movie (2024)"
-    existing.mkdir(parents=True)
-    (existing / "Collision.Movie.2024.1080p.mkv").write_text("x", encoding="utf-8")
-
-    incoming = shadow_root / "Collision Movie (2024)"
-    incoming.mkdir(parents=True)
-    (incoming / "Collision.Movie.2024.2160p.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    config.ingest = IngestConfig(enabled=True, min_age_seconds=0, collision_policy="skip")
+    config = make_config(managed_root, library_root, sync_enabled=False, radarr_enabled=False)
     service = LibrariArrService(config)
 
     service.reconcile()
@@ -86,44 +64,24 @@ def test_ingest_collision_skip_policy_leaves_source_untouched(tmp_path: Path) ->
     assert incoming.exists()
     assert incoming.is_dir()
     assert not incoming.is_symlink()
+    assert not (managed_root / "Incoming Movie (2024)").exists()
 
 
-def test_ingest_collision_qualify_policy_uses_suffix(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-
-    existing = nested_root / "Collision Movie (2024)"
-    existing.mkdir(parents=True)
-    (existing / "existing.mkv").write_text("x", encoding="utf-8")
-
-    incoming = shadow_root / "Collision Movie (2024)"
-    incoming.mkdir(parents=True)
-    (incoming / "incoming.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    config.ingest = IngestConfig(enabled=True, min_age_seconds=0, collision_policy="qualify")
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    qualified_destination = nested_root / "Collision Movie (2024) [ingest-2]"
-    shadow_link = shadow_root / "Collision Movie (2024)"
-    assert qualified_destination.exists()
-    assert shadow_link.is_symlink()
-    assert shadow_link.resolve(strict=False) == qualified_destination
-
-
-def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None:
-    shadow_root = tmp_path / "radarr_library"
-    nested_a = tmp_path / "nested_a"
-    nested_b = tmp_path / "nested_b"
+def test_service_no_longer_fails_on_ambiguous_ingest_root_mappings(tmp_path: Path) -> None:
+    library_root = tmp_path / "library"
+    managed_a = tmp_path / "managed_a"
+    managed_b = tmp_path / "managed_b"
 
     config = AppConfig(
         paths=PathsConfig(
-            root_mappings=[
-                RootMapping(nested_root=str(nested_a), shadow_root=str(shadow_root)),
-                RootMapping(nested_root=str(nested_b), shadow_root=str(shadow_root)),
-            ]
+            series_root_mappings=[
+                RootMapping(nested_root=str(managed_a), shadow_root=str(library_root)),
+                RootMapping(nested_root=str(managed_b), shadow_root=str(library_root)),
+            ],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(managed_a), library_root=str(library_root)),
+                MovieRootMapping(managed_root=str(managed_b), library_root=str(library_root)),
+            ],
         ),
         radarr=RadarrConfig(
             url="http://radarr:7878",
@@ -135,12 +93,7 @@ def test_ingest_requires_one_to_one_shadow_root_mappings(tmp_path: Path) -> None
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
-        ingest=IngestConfig(enabled=True, min_age_seconds=0),
     )
 
-    try:
-        LibrariArrService(config)
-    except ValueError as exc:
-        assert "Ingest requires a 1:1 mapping" in str(exc)
-    else:
-        raise AssertionError("Expected ValueError for ambiguous ingest root mappings")
+    service = LibrariArrService(config)
+    assert service is not None

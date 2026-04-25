@@ -150,7 +150,7 @@ class RuntimeStatusTracker:
         self,
         *,
         success: bool,
-        ingest_pending: bool,
+        followup_pending: bool = False,
         error: str | None = None,
     ) -> None:
         with self._lock:
@@ -172,7 +172,7 @@ class RuntimeStatusTracker:
                 "started_at": started_at,
                 "finished_at": now,
                 "duration_seconds": duration_seconds,
-                "ingest_pending": bool(ingest_pending),
+                "followup_pending": bool(followup_pending),
                 "error": error,
                 "task_id": task_id,
             }

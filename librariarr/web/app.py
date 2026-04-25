@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fcntl
 import hashlib
 import io
 import logging
@@ -25,6 +26,7 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
 from ..quality import VIDEO_EXTENSIONS
 from ..runtime import get_runtime_status_tracker
+from ..service import LibrariArrService
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .dashboard_read_model import DashboardReadModel
 from .discovery_cache import get_discovery_warnings_cache, warmup_discovery_warnings_cache
@@ -37,6 +39,7 @@ from .routers import (
     build_config_router,
     build_diagnostics_router,
     build_dry_run_router,
+    build_hooks_router,
     build_metadata_router,
 )
 from .runtime_supervisor import RuntimeSupervisor
@@ -69,10 +72,37 @@ def _config_backup_path(config_path: Path) -> Path:
     return config_path.with_name(f"{config_path.name}.bak")
 
 
+def _atomic_write(target: Path, content: str) -> None:
+    fd = None
+    tmp_path = None
+    try:
+        fd = NamedTemporaryFile(
+            "w",
+            dir=str(target.parent),
+            prefix=f".{target.name}.",
+            suffix=".tmp",
+            delete=False,
+            encoding="utf-8",
+        )
+        tmp_path = Path(fd.name)
+        fd.write(content)
+        fd.flush()
+        os.fsync(fd.fileno())
+        fd.close()
+        fd = None
+        os.replace(str(tmp_path), str(target))
+        tmp_path = None
+    finally:
+        if fd is not None:
+            fd.close()
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
+
+
 def _write_config_with_backup(config_path: Path, previous_yaml: str, next_yaml: str) -> None:
     backup_path = _config_backup_path(config_path)
-    backup_path.write_text(previous_yaml, encoding="utf-8")
-    config_path.write_text(next_yaml, encoding="utf-8")
+    _atomic_write(backup_path, previous_yaml)
+    _atomic_write(config_path, next_yaml)
 
 
 def _is_permission_error(exc: OSError) -> bool:
@@ -162,9 +192,12 @@ def _to_yaml_text(payload: Any, base_yaml_text: str) -> str:
 
 def _allowed_roots(config: AppConfig) -> list[Path]:
     roots: set[Path] = set()
-    for mapping in config.paths.root_mappings:
+    for mapping in config.paths.series_root_mappings:
         roots.add(Path(mapping.nested_root))
         roots.add(Path(mapping.shadow_root))
+    for mapping in config.paths.movie_root_mappings:
+        roots.add(Path(mapping.managed_root))
+        roots.add(Path(mapping.library_root))
     return sorted(roots)
 
 
@@ -200,11 +233,45 @@ def _default_state_path(config_path: Path) -> Path:
     return config_path.with_name("librariarr-state.json")
 
 
+def _runtime_lock_path() -> Path:
+    configured = str(os.getenv("LIBRARIARR_RUNTIME_LOCK_PATH", "")).strip()
+    if configured:
+        return Path(configured)
+    return Path("/tmp/librariarr_runtime.lock")
+
+
+def _try_acquire_runtime_lock(lock_path: Path):
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    handle = lock_path.open("a+", encoding="utf-8")
+    try:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        handle.close()
+        return None
+
+    handle.seek(0)
+    handle.truncate(0)
+    handle.write(f"{os.getpid()}\n")
+    handle.flush()
+    return handle
+
+
+def _release_runtime_lock(lock_handle) -> None:
+    if lock_handle is None:
+        return
+    try:
+        fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+    except OSError:
+        pass
+    lock_handle.close()
+
+
 def create_app(  # noqa: C901
     *,
     config_path: str | Path | None = None,
     ui_dist_path: str | Path | None = None,
     runtime_supervisor: RuntimeSupervisor | None = None,
+    run_runtime_loop: bool = True,
 ) -> FastAPI:
     if config_path is None:
         config_path = os.getenv("LIBRARIARR_CONFIG_PATH", "/config/config.yaml")
@@ -231,14 +298,55 @@ def create_app(  # noqa: C901
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
+        runtime_thread = None
+        runtime_stop_event = None
+        runtime_lock_handle = None
         job_manager.start()
         warmup_mapped_directories_cache(config_path)
         warmup_discovery_warnings_cache(config_path)
         dashboard_read_model.start()
         dashboard_read_model.refresh_now()
+
+        if run_runtime_loop:
+            lock_path = _runtime_lock_path()
+            runtime_lock_handle = _try_acquire_runtime_lock(lock_path)
+            _app.state.runtime_lock_path = str(lock_path)
+            _app.state.runtime_lock_acquired = runtime_lock_handle is not None
+            _app.state.runtime_lock_handle = runtime_lock_handle
+
+            if runtime_lock_handle is not None:
+                try:
+                    runtime_config = load_config(config_path)
+                    service = LibrariArrService(runtime_config)
+                    runtime_stop_event = threading.Event()
+                    runtime_thread = threading.Thread(
+                        target=service.run,
+                        kwargs={"stop_event": runtime_stop_event},
+                        daemon=True,
+                        name="librariarr-runtime-sync",
+                    )
+                    runtime_thread.start()
+                    _app.state.runtime = runtime_thread
+                    _app.state.runtime_stop_event = runtime_stop_event
+                    LOG.info("Started runtime loop in active API worker")
+                except Exception:
+                    LOG.exception("Failed to start background runtime loop")
+            else:
+                LOG.info("Skipped runtime loop startup in this worker (runtime lock already held)")
+
         try:
             yield
         finally:
+            stop_event = getattr(_app.state, "runtime_stop_event", None)
+            thread = getattr(_app.state, "runtime", None)
+            if isinstance(stop_event, threading.Event):
+                stop_event.set()
+            if isinstance(thread, threading.Thread) and thread.is_alive():
+                thread.join(timeout=30)
+            _release_runtime_lock(getattr(_app.state, "runtime_lock_handle", None))
+            _app.state.runtime = None
+            _app.state.runtime_stop_event = None
+            _app.state.runtime_lock_handle = None
             dashboard_read_model.stop()
             job_manager.stop()
 
@@ -252,7 +360,15 @@ def create_app(  # noqa: C901
         dashboard_read_model=dashboard_read_model,
     )
     app.state.web = state
+    app.state.job_manager = job_manager
+    app.state.runtime_status = runtime_status_tracker
+    app.state.runtime = None
+    app.state.runtime_stop_event = None
+    app.state.runtime_lock_handle = None
+    app.state.runtime_lock_path = str(_runtime_lock_path())
+    app.state.runtime_lock_acquired = False
     app.include_router(build_operations_router())
+    app.include_router(build_hooks_router())
 
     if ui_dist_path is None:
         ui_dist_path = os.getenv("LIBRARIARR_UI_DIST", "/app/ui/dist")
@@ -361,14 +477,5 @@ def run_web_app(
     log_level: str,
     run_runtime_loop: bool = True,
 ) -> None:
-    runtime_supervisor: RuntimeSupervisor | None = None
-    if run_runtime_loop:
-        runtime_supervisor = RuntimeSupervisor(config_path=Path(config_path))
-        runtime_supervisor.start()
-
-    app = create_app(config_path=config_path, runtime_supervisor=runtime_supervisor)
-    try:
-        uvicorn.run(app, host=host, port=port, log_level=log_level.lower())
-    finally:
-        if runtime_supervisor is not None:
-            runtime_supervisor.stop()
+    app = create_app(config_path=config_path, run_runtime_loop=run_runtime_loop)
+    uvicorn.run(app, host=host, port=port, log_level=log_level.lower())

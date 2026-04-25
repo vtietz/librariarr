@@ -1,12 +1,21 @@
 paths:
-  # Map nested source roots to shadow roots used by Radarr and/or Sonarr.
-  root_mappings:
-    - nested_root: "/data/movies/age_06"
-      shadow_root: "/data/radarr_library/age_06"
-    - nested_root: "/data/movies/age_12"
-      shadow_root: "/data/radarr_library/age_12"
-    - nested_root: "/data/movies/age_16"
-      shadow_root: "/data/radarr_library/age_16"
+  # Radarr movie projection mappings (managed_root -> curated library_root).
+  movie_root_mappings:
+    - managed_root: "/data/movies/age_06"
+      library_root: "/data/radarr_library/age_06"
+    - managed_root: "/data/movies/age_12"
+      library_root: "/data/radarr_library/age_12"
+    - managed_root: "/data/movies/age_16"
+      library_root: "/data/radarr_library/age_16"
+
+  # Sonarr projection mappings (optional; required only when sonarr.enabled=true).
+  series_root_mappings:
+    - nested_root: "/data/series/age_06"      # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_06" # Sonarr library root
+    - nested_root: "/data/series/age_12"      # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_12" # Sonarr library root
+    - nested_root: "/data/series/age_16"      # Sonarr managed root
+      shadow_root: "/data/sonarr_library/age_16" # Sonarr library root
   # Optional gitignore-style patterns (relative to each nested_root) to skip
   # during movie/series discovery. Matching is case-insensitive.
   # Useful for trash/temp folders like TMM deletes.
@@ -49,10 +58,19 @@ radarr:
   request_retry_attempts: 2
   # Exponential backoff base delay (seconds): delay = base * 2^attempt.
   request_retry_backoff_seconds: 0.5
-  # Path update policy:
-  #   default            -> allow external IDs, exact title/year, existing link/name, fuzzy
-  #   external_ids_only  -> only allow external-ID matches (plus auto-added movies)
-  path_update_match_policy: default
+  projection:
+    managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
+    managed_extras_allowlist:
+      - "*.srt"
+      - "*.sub"
+      - "movie.nfo"
+      - "poster.jpg"
+      - "fanart.jpg"
+    preserve_unknown_files: true
+    delete_managed_files: true
+    provenance_file: ".librariarr-provenance.json"
+    hash_max_file_size_mb: 256
+    movie_folder_name_source: "managed"
 
   mapping:
     # Optional fallback map for quality-definition IDs.
@@ -80,7 +98,7 @@ radarr:
         format_id: 99
 
 sonarr:
-  # Disabled by default. Enable for series path syncing.
+  # Disabled by default. Enable for series projection.
   enabled: false
   # Env overrides: LIBRARIARR_SONARR_URL, LIBRARIARR_SONARR_API_KEY.
   url: "http://sonarr:8989"
@@ -105,6 +123,21 @@ sonarr:
   request_retry_attempts: 2
   # Exponential backoff base delay (seconds): delay = base * 2^attempt.
   request_retry_backoff_seconds: 0.5
+  projection:
+    managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
+    managed_extras_allowlist:
+      - "*.srt"
+      - "*.ass"
+      - "*.sub"
+      - "series.nfo"
+      - "tvshow.nfo"
+      - "poster.jpg"
+      - "fanart.jpg"
+    preserve_unknown_files: true
+    delete_managed_files: true
+    provenance_file: ".librariarr-sonarr-provenance.json"
+    hash_max_file_size_mb: 256
+    series_folder_name_source: "managed"
 
   mapping:
     # Optional: token-based quality profile selection for Sonarr auto-add.
@@ -123,24 +156,8 @@ sonarr:
       - match: ["lang-de", "lang-en"]
         profile_id: 6
 
-ingest:
-  # Move real folders from shadow roots back into nested roots.
-  # Requires a 1:1 mapping between each shadow_root and nested_root.
-  enabled: true
-  # Minimum stable age before ingest.
-  min_age_seconds: 300
-  # Collision policy: qualify appends [ingest-N], skip leaves source in shadow.
-  collision_policy: "qualify"
-  # Optional path for failed ingest recovery.
-  quarantine_root: "/data/movies/.librariarr/quarantine"
-
 cleanup:
   remove_orphaned_links: true
-  # What to do in Radarr when a source folder is missing:
-  #   none      -> do not touch Radarr state (recommended for transient outages/renames)
-  #   unmonitor -> unmonitor after grace window
-  #   delete    -> delete from Radarr after grace window
-  radarr_action_on_missing: "none"
   # What to do in Sonarr when a source folder is missing:
   #   none      -> do not touch Sonarr state (recommended for transient outages/renames)
   #   unmonitor -> unmonitor after grace window
@@ -151,15 +168,30 @@ cleanup:
 
 runtime:
   # Debounce window for filesystem event bursts (seconds).
-  debounce_seconds: 8
+  # Lower values improve "time to first visible result" after new files appear.
+  # Recommended responsive range: 2-4.
+  debounce_seconds: 3
   # Minutes between full maintenance reconciles (0 = startup-only + events).
-  # Note: ingest min_age deferrals still schedule temporary debounced retries.
   maintenance_interval_minutes: 0
   # Minutes between Arr root-folder checks used to auto-trigger reconcile when
-  # configured shadow roots are added later in Radarr/Sonarr (0 disables polling).
+  # configured managed roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
+  # Max unmatched folders processed per reconcile cycle across roots (movies/series each).
+  # Lower = faster visible progress, higher = better backlog throughput.
+  # Recommended responsive range: 5-25 (common default: 10).
+  # For large one-time backlog imports, temporarily raise to 50-100.
+  auto_add_batch_size: 10
   # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts", ".m4v", ".mpg", ".mpeg"]
+
+ingest:
+  # Promote folders that Radarr points to under library roots (.librariarr)
+  # back into the configured managed roots, then queue projection.
+  enabled: true
+  # Collision handling when target managed folder already exists:
+  #   skip    -> keep source in library root and leave movie path unchanged
+  #   qualify -> move into a unique suffixed folder name (default)
+  collision_strategy: "qualify"
 
 analysis:
   # Include NFO text in quality detection.

@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 import requests
 
+from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from .common import LOG
 
 
@@ -269,13 +270,25 @@ class ServicePreflightMixin:
             )
 
     def _poll_arr_root_reconcile_trigger(self) -> bool:
-        return self._update_arr_root_folder_availability(force=False)
+        radarr_queue_pending = get_radarr_webhook_queue().has_pending()
+        sonarr_queue_pending = get_sonarr_webhook_queue().has_pending()
+        root_poll_triggered = self._update_arr_root_folder_availability(force=False)
+        return radarr_queue_pending or sonarr_queue_pending or root_poll_triggered
 
     def _normalize_arr_root_path(self, value: str) -> str:
         return str(value).strip().rstrip("/\\")
 
-    def _configured_shadow_root_paths(self) -> set[str]:
-        return {self._normalize_arr_root_path(str(root)) for root in self.shadow_roots}
+    def _configured_sonarr_managed_root_paths(self) -> set[str]:
+        return {
+            self._normalize_arr_root_path(str(managed_root))
+            for managed_root, _ in self.series_root_mappings
+        }
+
+    def _configured_radarr_root_paths(self) -> set[str]:
+        return {
+            self._normalize_arr_root_path(str(managed_root))
+            for managed_root, _ in self.movie_root_mappings
+        }
 
     def _extract_arr_root_paths(self, payload: list[dict]) -> set[str]:
         out: set[str] = set()
@@ -324,41 +337,41 @@ class ServicePreflightMixin:
 
     def _refresh_radarr_missing_roots(self) -> bool:
         if not self.sync_enabled:
-            self._radarr_missing_shadow_roots = set()
+            self._radarr_missing_managed_roots = set()
             return False
 
         try:
-            configured = self._configured_shadow_root_paths()
+            configured = self._configured_radarr_root_paths()
             available = self._extract_arr_root_paths(self.radarr.get_root_folders())
         except Exception as exc:
             self._log_sync_config_hint(exc)
             return False
 
         missing = configured - available
-        self._radarr_missing_shadow_roots, became_available = self._update_missing_roots_state(
+        self._radarr_missing_managed_roots, became_available = self._update_missing_roots_state(
             "Radarr",
             missing,
-            self._radarr_missing_shadow_roots,
+            self._radarr_missing_managed_roots,
         )
         return became_available
 
     def _refresh_sonarr_missing_roots(self) -> bool:
         if not self.sonarr_sync_enabled:
-            self._sonarr_missing_shadow_roots = set()
+            self._sonarr_missing_managed_roots = set()
             return False
 
         try:
-            configured = self._configured_shadow_root_paths()
+            configured = self._configured_sonarr_managed_root_paths()
             available = self._extract_arr_root_paths(self.sonarr.get_root_folders())
         except Exception as exc:
             self._log_sonarr_sync_config_hint(exc)
             return False
 
         missing = configured - available
-        self._sonarr_missing_shadow_roots, became_available = self._update_missing_roots_state(
+        self._sonarr_missing_managed_roots, became_available = self._update_missing_roots_state(
             "Sonarr",
             missing,
-            self._sonarr_missing_shadow_roots,
+            self._sonarr_missing_managed_roots,
         )
         return became_available
 

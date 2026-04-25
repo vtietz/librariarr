@@ -15,9 +15,14 @@ ENV_PATH = Path("/app/.env")
 RADARR_CONFIG_XML = Path("/radarr-config/config.xml")
 SONARR_CONFIG_XML = Path("/sonarr-config/config.xml")
 
-DEFAULT_ROOT_MAPPINGS = [
-    {"nested_root": "/data/movies", "shadow_root": "/data/radarr_library"},
+DEFAULT_SERIES_ROOT_MAPPINGS = [
     {"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"},
+]
+
+DEFAULT_MOVIE_ROOT_MAPPINGS = [
+    {"managed_root": "/data/movies/age_06", "library_root": "/data/radarr_library/age_06"},
+    {"managed_root": "/data/movies/age_12", "library_root": "/data/radarr_library/age_12"},
+    {"managed_root": "/data/movies/age_16", "library_root": "/data/radarr_library/age_16"},
 ]
 
 
@@ -147,6 +152,141 @@ def _normalize_path(path: str) -> str:
     return normalized if normalized else "/"
 
 
+_RADARR_MANAGED_ROOT = "/data/movies"
+_SONARR_MANAGED_ROOT = "/data/series"
+
+DEV_MOVIES = [
+    {"title": "Toy Story", "year": 1995, "tmdbId": 862, "root": f"{_RADARR_MANAGED_ROOT}/age_06"},
+]
+
+DEV_SERIES = [
+    {"title": "Bluey", "year": 2018, "tvdbId": 354974, "root": f"{_SONARR_MANAGED_ROOT}/age_06"},
+]
+
+
+def _seed_arr_entries(
+    radarr_url: str,
+    radarr_session: requests.Session,
+    sonarr_url: str,
+    sonarr_session: requests.Session,
+) -> None:
+    """Add well-known movies/series directly to Radarr/Sonarr via their APIs."""
+    try:
+        _seed_radarr_movies(radarr_url, radarr_session)
+    except Exception:
+        LOG.warning("Failed to seed Radarr movies — continuing", exc_info=True)
+
+    try:
+        _seed_sonarr_series(sonarr_url, sonarr_session)
+    except Exception:
+        LOG.warning("Failed to seed Sonarr series — continuing", exc_info=True)
+
+
+def _seed_radarr_movies(base_url: str, session: requests.Session) -> None:
+    profiles_resp = session.get(f"{base_url}/api/v3/qualityprofile", timeout=15)
+    profiles_resp.raise_for_status()
+    profiles = profiles_resp.json()
+    if not profiles:
+        LOG.warning("Radarr has no quality profiles — skipping movie seeding")
+        return
+    quality_profile_id: int = profiles[0]["id"]
+
+    movies_resp = session.get(f"{base_url}/api/v3/movie", timeout=15)
+    movies_resp.raise_for_status()
+    existing_tmdb_ids: set[int] = {
+        m["tmdbId"] for m in movies_resp.json() if isinstance(m, dict) and "tmdbId" in m
+    }
+
+    for entry in DEV_MOVIES:
+        if entry["tmdbId"] in existing_tmdb_ids:
+            LOG.info(
+                "Radarr already has %s (tmdbId=%s) — skipping",
+                entry["title"],
+                entry["tmdbId"],
+            )
+            continue
+
+        payload = {
+            "title": entry["title"],
+            "year": entry["year"],
+            "tmdbId": entry["tmdbId"],
+            "rootFolderPath": entry["root"],
+            "qualityProfileId": quality_profile_id,
+            "monitored": False,
+            "addOptions": {"searchForMovie": False},
+        }
+        resp = session.post(f"{base_url}/api/v3/movie", json=payload, timeout=15)
+        if resp.status_code >= 400:
+            LOG.warning(
+                "Failed to add %s to Radarr (status=%s body=%s)",
+                entry["title"],
+                resp.status_code,
+                resp.text[:200],
+            )
+            continue
+        LOG.info("Added %s (tmdbId=%s) to Radarr", entry["title"], entry["tmdbId"])
+
+
+def _seed_sonarr_series(base_url: str, session: requests.Session) -> None:
+    profiles_resp = session.get(f"{base_url}/api/v3/qualityprofile", timeout=15)
+    profiles_resp.raise_for_status()
+    profiles = profiles_resp.json()
+    if not profiles:
+        LOG.warning("Sonarr has no quality profiles — skipping series seeding")
+        return
+    quality_profile_id: int = profiles[0]["id"]
+
+    language_profile_id: int | None = None
+    try:
+        lang_resp = session.get(f"{base_url}/api/v3/languageprofile", timeout=15)
+        if lang_resp.status_code == 200:
+            lang_profiles = lang_resp.json()
+            if lang_profiles:
+                language_profile_id = lang_profiles[0]["id"]
+    except Exception:
+        LOG.debug("Language profiles not available — omitting from payload")
+
+    series_resp = session.get(f"{base_url}/api/v3/series", timeout=15)
+    series_resp.raise_for_status()
+    existing_tvdb_ids: set[int] = {
+        s["tvdbId"] for s in series_resp.json() if isinstance(s, dict) and "tvdbId" in s
+    }
+
+    for entry in DEV_SERIES:
+        if entry["tvdbId"] in existing_tvdb_ids:
+            LOG.info(
+                "Sonarr already has %s (tvdbId=%s) — skipping",
+                entry["title"],
+                entry["tvdbId"],
+            )
+            continue
+
+        payload: dict[str, Any] = {
+            "title": entry["title"],
+            "year": entry["year"],
+            "tvdbId": entry["tvdbId"],
+            "rootFolderPath": entry["root"],
+            "qualityProfileId": quality_profile_id,
+            "monitored": False,
+            "seasonFolder": True,
+            "addOptions": {"searchForMissingEpisodes": False},
+        }
+        if language_profile_id is not None:
+            payload["languageProfileId"] = language_profile_id
+
+        resp = session.post(f"{base_url}/api/v3/series", json=payload, timeout=15)
+        if resp.status_code >= 400:
+            LOG.info(
+                "Sonarr rejected %s (tvdbId=%s) — this is expected on fresh instances "
+                "where TVDB metadata has not synced yet (status=%s)",
+                entry["title"],
+                entry["tvdbId"],
+                resp.status_code,
+            )
+            continue
+        LOG.info("Added %s (tvdbId=%s) to Sonarr", entry["title"], entry["tvdbId"])
+
+
 def _ensure_root_folders(
     base_url: str,
     session: requests.Session,
@@ -186,20 +326,12 @@ def _ensure_root_folders(
         LOG.info("Added %s root folder: %s", label, root_path)
 
 
-def _safe_shadow_roots(root_mappings: list[dict[str, Any]]) -> list[str]:
-    shadow_roots: list[str] = []
-    for mapping in root_mappings:
-        shadow_root = str(mapping.get("shadow_root", "")).strip()
-        if not shadow_root:
-            continue
-        if shadow_root not in shadow_roots:
-            shadow_roots.append(shadow_root)
-    return shadow_roots
-
-
-def _ensure_container_paths(root_mappings: list[dict[str, Any]]) -> None:
-    for mapping in root_mappings:
-        for key in ("nested_root", "shadow_root"):
+def _ensure_container_paths(
+    mappings: list[dict[str, Any]],
+    keys: tuple[str, ...] = ("nested_root", "shadow_root"),
+) -> None:
+    for mapping in mappings:
+        for key in keys:
             path_text = str(mapping.get(key, "")).strip()
             if not path_text.startswith("/data/"):
                 continue
@@ -216,19 +348,14 @@ def _is_non_empty_mapping_list(value: Any) -> bool:
     return isinstance(value, list) and any(isinstance(item, dict) for item in value)
 
 
-def _pick_roots_for_service(shadow_roots: list[str], service_hint: str, fallback: str) -> list[str]:
-    selected = [path for path in shadow_roots if service_hint in path.lower()]
-    if selected:
-        return selected
-    return [fallback]
-
-
-def _ensure_dev_sonarr_mappings(root_mappings: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _ensure_dev_sonarr_mappings(
+    series_root_mappings: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     existing_pairs: set[tuple[str, str]] = set()
     radarr_candidates: list[tuple[str, str]] = []
     has_sonarr_mapping = False
 
-    for mapping in root_mappings:
+    for mapping in series_root_mappings:
         nested_root = str(mapping.get("nested_root", "")).strip()
         shadow_root = str(mapping.get("shadow_root", "")).strip()
         if not nested_root or not shadow_root:
@@ -243,7 +370,7 @@ def _ensure_dev_sonarr_mappings(root_mappings: list[dict[str, Any]]) -> list[dic
             radarr_candidates.append((nested_root, shadow_root))
 
     if has_sonarr_mapping:
-        return root_mappings
+        return series_root_mappings
 
     additions: list[dict[str, str]] = []
     for nested_root, shadow_root in radarr_candidates:
@@ -265,10 +392,105 @@ def _ensure_dev_sonarr_mappings(root_mappings: list[dict[str, Any]]) -> list[dic
         additions.append({"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"})
 
     if additions:
-        root_mappings.extend(additions)
+        series_root_mappings.extend(additions)
         LOG.info("Added %s Sonarr root mapping(s) for dev mode", len(additions))
 
-    return root_mappings
+    return series_root_mappings
+
+
+def _query_arr_ids(
+    base_url: str,
+    session: requests.Session,
+    label: str,
+) -> dict[str, set[int]]:
+    ids: dict[str, set[int]] = {
+        "quality_profile_ids": set(),
+        "quality_definition_ids": set(),
+        "custom_format_ids": set(),
+        "language_profile_ids": set(),
+    }
+
+    def _fetch_ids(endpoint: str, key: str) -> set[int]:
+        try:
+            resp = session.get(f"{base_url}/api/v3/{endpoint}", timeout=15)
+            if resp.status_code == 404:
+                return set()
+            resp.raise_for_status()
+            data = resp.json()
+            if isinstance(data, list):
+                return {item["id"] for item in data if isinstance(item, dict) and "id" in item}
+        except Exception:
+            LOG.warning("Failed to query %s %s — skipping", label, endpoint)
+        return set()
+
+    if "radarr" in label.lower():
+        ids["quality_profile_ids"] = _fetch_ids("qualityprofile", "quality_profile_ids")
+        ids["quality_definition_ids"] = _fetch_ids("qualitydefinition", "quality_definition_ids")
+        ids["custom_format_ids"] = _fetch_ids("customformat", "custom_format_ids")
+    elif "sonarr" in label.lower():
+        ids["quality_profile_ids"] = _fetch_ids("qualityprofile", "quality_profile_ids")
+        ids["language_profile_ids"] = _fetch_ids("languageprofile", "language_profile_ids")
+
+    return ids
+
+
+def _filter_mapping_list(
+    mapping_section: dict[str, Any],
+    list_key: str,
+    id_key: str,
+    valid_ids: set[int],
+    label: str,
+) -> None:
+    entries = mapping_section.get(list_key)
+    if not isinstance(entries, list):
+        return
+    kept: list[Any] = []
+    for entry in entries:
+        if not isinstance(entry, dict) or entry.get(id_key) in valid_ids:
+            kept.append(entry)
+        else:
+            LOG.info("Removed %s %s entry with %s=%s", label, list_key, id_key, entry.get(id_key))
+    mapping_section[list_key] = kept
+
+
+def _repair_mapping_ids(
+    payload: dict[str, Any],
+    radarr_ids: dict[str, set[int]],
+    sonarr_ids: dict[str, set[int]],
+) -> None:
+    radarr_mapping = payload.get("radarr", {}).get("mapping", {})
+    if isinstance(radarr_mapping, dict):
+        _filter_mapping_list(
+            radarr_mapping,
+            "custom_format_map",
+            "format_id",
+            radarr_ids["custom_format_ids"],
+            "Radarr",
+        )
+        _filter_mapping_list(
+            radarr_mapping,
+            "quality_map",
+            "target_id",
+            radarr_ids["quality_definition_ids"],
+            "Radarr",
+        )
+
+    sonarr_mapping = payload.get("sonarr", {}).get("mapping", {})
+    if isinstance(sonarr_mapping, dict):
+        _filter_mapping_list(
+            sonarr_mapping,
+            "quality_profile_map",
+            "profile_id",
+            sonarr_ids["quality_profile_ids"],
+            "Sonarr",
+        )
+        _filter_mapping_list(
+            sonarr_mapping,
+            "language_profile_map",
+            "profile_id",
+            sonarr_ids["language_profile_ids"],
+            "Sonarr",
+        )
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
@@ -324,22 +546,30 @@ def _sync_config_yaml(
     sonarr_url: str,
     radarr_api_key: str,
     sonarr_api_key: str,
-) -> list[dict[str, Any]]:
+    radarr_ids: dict[str, set[int]] | None = None,
+    sonarr_ids: dict[str, set[int]] | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     payload = _load_yaml(CONFIG_PATH)
 
     radarr_section = payload.setdefault("radarr", {})
     sonarr_section = payload.setdefault("sonarr", {})
     paths_section = payload.setdefault("paths", {})
 
-    root_mappings = paths_section.get("root_mappings")
-    if not _is_non_empty_mapping_list(root_mappings):
-        root_mappings = list(DEFAULT_ROOT_MAPPINGS)
-        paths_section["root_mappings"] = root_mappings
+    series_root_mappings = paths_section.get("series_root_mappings")
+    if not _is_non_empty_mapping_list(series_root_mappings):
+        series_root_mappings = list(DEFAULT_SERIES_ROOT_MAPPINGS)
     else:
-        root_mappings = [item for item in root_mappings if isinstance(item, dict)]
-        paths_section["root_mappings"] = root_mappings
+        series_root_mappings = [item for item in series_root_mappings if isinstance(item, dict)]
 
-    root_mappings = _ensure_dev_sonarr_mappings(root_mappings)
+    series_root_mappings = _ensure_dev_sonarr_mappings(series_root_mappings)
+    paths_section["series_root_mappings"] = series_root_mappings
+
+    movie_root_mappings = paths_section.get("movie_root_mappings")
+    if not _is_non_empty_mapping_list(movie_root_mappings):
+        movie_root_mappings = list(DEFAULT_MOVIE_ROOT_MAPPINGS)
+    else:
+        movie_root_mappings = [item for item in movie_root_mappings if isinstance(item, dict)]
+    paths_section["movie_root_mappings"] = movie_root_mappings
 
     radarr_section["enabled"] = True
     radarr_section["sync_enabled"] = True
@@ -351,10 +581,16 @@ def _sync_config_yaml(
     sonarr_section["url"] = sonarr_url
     sonarr_section["api_key"] = sonarr_api_key
 
+    if radarr_ids is not None and sonarr_ids is not None:
+        _repair_mapping_ids(payload, radarr_ids, sonarr_ids)
+
     _save_yaml(CONFIG_PATH, payload)
     LOG.info("Synchronized %s with dev Arr URLs and API keys", CONFIG_PATH)
 
-    return [item for item in root_mappings if isinstance(item, dict)]
+    return (
+        [item for item in series_root_mappings if isinstance(item, dict)],
+        [item for item in movie_root_mappings if isinstance(item, dict)],
+    )
 
 
 def main() -> None:
@@ -391,25 +627,30 @@ def main() -> None:
     radarr_effective_url = radarr_bootstrap_url
     sonarr_effective_url = sonarr_bootstrap_url
 
-    root_mappings = _sync_config_yaml(
+    radarr_ids = _query_arr_ids(radarr_effective_url, radarr_session, "Radarr")
+    sonarr_ids = _query_arr_ids(sonarr_effective_url, sonarr_session, "Sonarr")
+
+    series_root_mappings, movie_root_mappings = _sync_config_yaml(
         radarr_url=radarr_effective_url,
         sonarr_url=sonarr_effective_url,
         radarr_api_key=radarr_api_key,
         sonarr_api_key=sonarr_api_key,
+        radarr_ids=radarr_ids,
+        sonarr_ids=sonarr_ids,
     )
-    _ensure_container_paths(root_mappings)
+    _ensure_container_paths(series_root_mappings)
+    _ensure_container_paths(movie_root_mappings, keys=("managed_root", "library_root"))
 
-    shadow_roots = _safe_shadow_roots(root_mappings)
-    radarr_roots = _pick_roots_for_service(
-        shadow_roots,
-        service_hint="radarr",
-        fallback="/data/radarr_library",
-    )
-    sonarr_roots = _pick_roots_for_service(
-        shadow_roots,
-        service_hint="sonarr",
-        fallback="/data/sonarr_library",
-    )
+    radarr_roots = [
+        str(m.get("managed_root", "")).strip()
+        for m in movie_root_mappings
+        if str(m.get("managed_root", "")).strip()
+    ] or ["/data/movies"]
+    sonarr_roots = [
+        str(m.get("nested_root", "")).strip()
+        for m in series_root_mappings
+        if str(m.get("nested_root", "")).strip()
+    ] or ["/data/series"]
 
     _sync_env_file(
         radarr_url=radarr_effective_url,
@@ -420,6 +661,13 @@ def main() -> None:
 
     _ensure_root_folders(radarr_effective_url, radarr_session, "Radarr", radarr_roots)
     _ensure_root_folders(sonarr_effective_url, sonarr_session, "Sonarr", sonarr_roots)
+
+    _seed_arr_entries(
+        radarr_url=radarr_effective_url,
+        radarr_session=radarr_session,
+        sonarr_url=sonarr_effective_url,
+        sonarr_session=sonarr_session,
+    )
 
     LOG.info("Dev bootstrap completed")
 

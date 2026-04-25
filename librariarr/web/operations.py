@@ -14,16 +14,18 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
 from ..runtime import get_runtime_status_tracker
 from .discovery_cache import get_discovery_warnings_cache
+from .full_reconcile_ops import queue_full_reconcile
 from .log_buffer import LogRingBuffer, get_log_buffer
 from .maintenance_ops import queue_maintenance_reconcile
 from .mapped_arr_state import enrich_mapped_directories_with_radarr_state
 from .mapped_cache import get_mapped_directories_cache
-from .mapped_cache import shadow_roots as _shadow_roots
+from .mapped_cache import library_roots as _library_roots
 from .path_mapping_status import apply_path_mapping_outcomes
 from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 from .routers import (
     build_arr_router,
     build_fs_router,
+    build_full_reconcile_router,
     build_jobs_router,
     build_logs_router,
     build_maintenance_router,
@@ -347,6 +349,14 @@ def build_operations_router() -> APIRouter:
             discovery_cache=discovery_cache,
         )
     )
+    router.include_router(
+        build_full_reconcile_router(
+            queue_full_reconcile_fn=queue_full_reconcile,
+            runtime_status=runtime_status,
+            mapped_cache=mapped_cache,
+            discovery_cache=discovery_cache,
+        )
+    )
     router.include_router(build_jobs_router(job_manager_or_http_fn=job_manager_or_http))
     router.include_router(build_runtime_router(runtime_status=runtime_status))
     router.include_router(
@@ -356,7 +366,7 @@ def build_operations_router() -> APIRouter:
             job_manager_or_http_fn=job_manager_or_http,
             mapped_cache=mapped_cache,
             discovery_cache=discovery_cache,
-            shadow_roots_fn=_shadow_roots,
+            shadow_roots_fn=_library_roots,
             enrich_mapped_directories_with_radarr_state_fn=enrich_mapped_directories_with_radarr_state,
             apply_path_mapping_outcomes_fn=apply_path_mapping_outcomes,
         )

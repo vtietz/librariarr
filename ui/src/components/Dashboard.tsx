@@ -1,7 +1,14 @@
 import { Badge, Button, Card, Group, ScrollArea, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
-import { getDiscoveryWarnings, runMaintenanceReconcile } from "../api/client";
+import { getDiscoveryWarnings, runFullReconcile } from "../api/client";
 import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
+import {
+  badgeForTask,
+  formatAge,
+  formatCoverage,
+  formatTaskDuration,
+  formatTaskQueuedAt,
+} from "./dashboardFormatters";
 
 type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
 
@@ -54,79 +61,41 @@ export default function Dashboard({
   const taskState = runtimeStatus?.current_task.state ?? "idle";
   const taskBadgeColor =
     taskState === "running" ? "blue" : taskState === "error" ? "red" : "gray";
-  const pendingIngest =
-    runtimeStatus?.current_task.pending_ingest_dirs ??
-    runtimeStatus?.last_reconcile?.pending_ingest_dirs ??
-    0;
   const queuedChanges = runtimeStatus?.dirty_paths_queued ?? 0;
-  const totalQueue = queuedChanges + pendingIngest;
+  const totalQueue = queuedChanges;
   const activeJobs = jobsSummary?.active ?? 0;
   const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
   const knownLinksInMemory =
     runtimeStatus?.known_links_in_memory ?? runtimeStatus?.mapped_cache?.entries_total ?? 0;
+  const mappedEntriesTotal = runtimeStatus?.mapped_cache?.entries_total ?? knownLinksInMemory;
+  const snapshotMetrics =
+    taskState === "running" ? runtimeStatus?.current_task : runtimeStatus?.last_reconcile;
+  const snapshotMatchedMovies = snapshotMetrics?.matched_movies;
+  const snapshotUnmatchedMovies = snapshotMetrics?.unmatched_movies;
+  const snapshotMatchedSeries = snapshotMetrics?.matched_series;
+  const snapshotUnmatchedSeries = snapshotMetrics?.unmatched_series;
+  const snapshotCreatedLinks =
+    snapshotMetrics?.created_links ?? runtimeStatus?.last_reconcile?.created_links ?? 0;
+  const snapshotMoviePending =
+    typeof snapshotMetrics?.movie_items_targeted === "number" &&
+    typeof snapshotMetrics?.movie_items_projected === "number"
+      ? Math.max(0, snapshotMetrics.movie_items_targeted - snapshotMetrics.movie_items_projected)
+      : null;
+  const snapshotSeriesPending =
+    typeof snapshotMetrics?.series_items_targeted === "number" &&
+    typeof snapshotMetrics?.series_items_projected === "number"
+      ? Math.max(0, snapshotMetrics.series_items_targeted - snapshotMetrics.series_items_projected)
+      : null;
+  const movieCoverage = formatCoverage(snapshotMatchedMovies, snapshotUnmatchedMovies);
+  const seriesCoverage = formatCoverage(snapshotMatchedSeries, snapshotUnmatchedSeries);
   const healthStatus = runtimeStatus?.health?.status ?? "starting";
   const healthBadgeColor =
     healthStatus === "ok" ? "green" : healthStatus === "degraded" ? "yellow" : "gray";
   const primaryHealthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for snapshot";
-
-  const formatAge = (timestamp: number | null | undefined) => {
-    if (typeof timestamp !== "number") {
-      return "-";
-    }
-    const seconds = Math.max(0, Math.round(Date.now() / 1000 - timestamp));
-    if (seconds < 60) {
-      return `${seconds}s ago`;
-    }
-    const minutes = Math.floor(seconds / 60);
-    if (minutes < 60) {
-      return `${minutes}m ago`;
-    }
-    const hours = Math.floor(minutes / 60);
-    return `${hours}h ago`;
-  };
-
-  const formatTaskDuration = (task: {
-    duration_seconds?: number | null;
-    started_at?: number | null;
-  }) => {
-    if (typeof task.duration_seconds === "number") {
-      return `${task.duration_seconds.toFixed(1)}s`;
-    }
-    if (typeof task.started_at === "number") {
-      const now = Date.now() / 1000;
-      return `${Math.max(0, now - task.started_at).toFixed(1)}s`;
-    }
-    return "-";
-  };
-
-  const formatTaskQueuedAt = (task: { queued_at?: number | null; next_run_at?: number | null }) => {
-    if (typeof task.queued_at === "number") {
-      return formatAge(task.queued_at);
-    }
-    if (typeof task.next_run_at === "number") {
-      const dueIn = Math.max(0, Math.round(task.next_run_at - Date.now() / 1000));
-      return `in ${dueIn}s`;
-    }
-    return "-";
-  };
-
-  const badgeForTask = (status: string) => {
-    if (status === "running") {
-      return "blue";
-    }
-    if (status === "queued") {
-      return "yellow";
-    }
-    if (status === "error") {
-      return "red";
-    }
-    return "gray";
-  };
-
   const handleRunReconcile = async () => {
     setRunningReconcile(true);
     try {
-      await runMaintenanceReconcile();
+      await runFullReconcile();
     } catch (error) {
       console.error("[Dashboard] Failed to queue maintenance reconcile", error);
     } finally {
@@ -145,13 +114,6 @@ export default function Dashboard({
     duration: string;
   };
 
-  const toDashboardTaskStatus = (status: string): DashboardTaskStatus => {
-    if (status === "queued" || status === "running" || status === "error") {
-      return status;
-    }
-    return "idle";
-  };
-
   const pendingTasks = runtimeStatus?.pending_tasks ?? [];
   const consumedTaskIds = new Set<string>();
   const findPendingTask = (predicate: (task: (typeof pendingTasks)[number]) => boolean) => {
@@ -163,19 +125,13 @@ export default function Dashboard({
   };
 
   const filesystemTask = findPendingTask((task) => task.id === "filesystem-debounce");
-  const manualReconcileTask = findPendingTask((task) =>
-    task.name.toLowerCase().includes("manual reconcile")
-  );
-  const mappedRefreshTask = findPendingTask((task) =>
-    task.name.toLowerCase().includes("refresh mapped")
-  );
+  const manualReconcileTask = findPendingTask((task) => task.name.toLowerCase().includes("full reconcile"));
+  const mappedRefreshTask = findPendingTask((task) => task.name.toLowerCase().includes("refresh mapped"));
+  const discoverySnapshotTask = findPendingTask((task) => task.name.toLowerCase().includes("discovery snapshot rebuild"));
+  const reconcileCycleTask = findPendingTask((task) => task.name.toLowerCase().includes("reconcile cycle"));
   const runtimeTaskFromPending = findPendingTask((task) => task.source === "runtime-status");
 
-  const buildReconcileScopeSummary = (metrics: {
-    movie_folders_seen?: number;
-    series_folders_seen?: number;
-    affected_paths_count?: number | null;
-  } | undefined | null) => {
+  const buildReconcileScopeSummary = (metrics: { active_movie_root?: string | null; active_series_root?: string | null; movie_folders_seen?: number; series_folders_seen?: number; affected_paths_count?: number | null } | undefined | null) => {
     if (!metrics) {
       return null;
     }
@@ -191,7 +147,11 @@ export default function Dashboard({
         : "full";
     const movieCount = hasMovieCount ? metrics.movie_folders_seen : 0;
     const seriesCount = hasSeriesCount ? metrics.series_folders_seen : 0;
-    return `${modeText} · considered folders M/S ${movieCount}/${seriesCount}`;
+    const movieRootText = metrics.active_movie_root ? ` · movie root ${metrics.active_movie_root}` : "";
+    const seriesRootText = metrics.active_series_root
+      ? ` · series root ${metrics.active_series_root}`
+      : "";
+    return `${modeText} · considered folders M/S ${movieCount}/${seriesCount}${movieRootText}${seriesRootText}`;
   };
 
   const runtimeLoopStatus: DashboardTaskStatus =
@@ -208,7 +168,7 @@ export default function Dashboard({
       : runningScopeSummary ??
         runtimeStatus?.current_task.phase ??
         runtimeTaskFromPending?.detail ??
-        "Waiting for debounce, ingest, or manual trigger";
+        "Waiting for debounce or manual trigger";
   const runtimeLoopQueuedAt =
     runtimeLoopStatus === "error"
       ? formatAge(runtimeStatus?.current_task.updated_at ?? runtimeStatus?.last_reconcile?.finished_at)
@@ -240,10 +200,10 @@ export default function Dashboard({
 
   const manualReconcileSlot: TaskSlot = {
     id: "manual-reconcile",
-    name: "Manual Reconcile Job",
+    name: "Full Reconcile Job",
     source: "job-manager",
     status: manualReconcileTask?.status ?? "idle",
-    detail: manualReconcileTask?.detail ?? "On-demand full library reconcile",
+    detail: manualReconcileTask?.detail ?? "On-demand full reconcile (all media)",
     queuedAt: manualReconcileTask ? formatTaskQueuedAt(manualReconcileTask) : "-",
     duration: manualReconcileTask ? formatTaskDuration(manualReconcileTask) : "-",
   };
@@ -282,13 +242,29 @@ export default function Dashboard({
         : "-",
   };
 
+  const discoverySnapshotRebuildSlot: TaskSlot = {
+    id: "discovery-snapshot-rebuild", name: "Discovery Snapshot Rebuild", source: "cache",
+    status: discoverySnapshotTask?.status ?? "idle", detail: discoverySnapshotTask?.detail ?? "Ready",
+    queuedAt: discoverySnapshotTask ? formatTaskQueuedAt(discoverySnapshotTask) : "-",
+    duration: discoverySnapshotTask ? formatTaskDuration(discoverySnapshotTask) : "-",
+  };
+
+  const reconcileCycleSlot: TaskSlot = {
+    id: "reconcile-cycle", name: "Reconcile Cycle", source: "runtime", status: reconcileCycleTask?.status ?? "idle",
+    detail: reconcileCycleTask?.detail ?? (lastScopeSummary ? `Last reconcile completed · ${lastScopeSummary}` : "Waiting for next reconcile cycle"),
+    queuedAt: reconcileCycleTask ? formatTaskQueuedAt(reconcileCycleTask) : formatAge(runtimeStatus?.last_reconcile?.finished_at),
+    duration: reconcileCycleTask
+      ? formatTaskDuration(reconcileCycleTask)
+      : typeof runtimeStatus?.last_reconcile?.duration_seconds === "number" ? `${runtimeStatus.last_reconcile.duration_seconds.toFixed(1)}s` : "-",
+  };
+
   const uncategorizedTaskSlots: TaskSlot[] = pendingTasks
     .filter((task) => !consumedTaskIds.has(task.id))
     .map((task) => ({
       id: `uncategorized-${task.id}`,
       name: task.name || "Background Task",
       source: task.source || "task-manager",
-      status: toDashboardTaskStatus(task.status),
+      status: task.status === "queued" || task.status === "running" || task.status === "error" ? task.status : "idle",
       detail: task.detail || task.status,
       queuedAt: formatTaskQueuedAt(task),
       duration: formatTaskDuration(task),
@@ -300,11 +276,19 @@ export default function Dashboard({
     manualReconcileSlot,
     mappedCacheRefreshSlot,
     discoveryCacheRefreshSlot,
+    discoverySnapshotRebuildSlot,
+    reconcileCycleSlot,
     ...uncategorizedTaskSlots,
   ];
 
   const uncategorizedTaskCount = uncategorizedTaskSlots.length;
-
+  const taskColumnStyles = {
+    task: { width: "18rem" },
+    status: { width: "7.5rem" },
+    source: { width: "9rem" },
+    queued: { width: "8rem" },
+    duration: { width: "7rem" },
+  } as const;
   return (
     <Stack gap="md">
       <Title order={3}>Dashboard</Title>
@@ -342,6 +326,12 @@ export default function Dashboard({
           <Text c="dimmed" size="sm" mt="xs">
             {runtimeStatus?.current_task.trigger_source ?? "waiting"}
             {runtimeStatus?.current_task.phase ? ` · ${runtimeStatus.current_task.phase}` : ""}
+            {runtimeStatus?.current_task.active_movie_root
+              ? ` · movie root ${runtimeStatus.current_task.active_movie_root}`
+              : ""}
+            {runtimeStatus?.current_task.active_series_root
+              ? ` · series root ${runtimeStatus.current_task.active_series_root}`
+              : ""}
           </Text>
         </Card>
         <Card withBorder h={126}>
@@ -358,20 +348,20 @@ export default function Dashboard({
       </SimpleGrid>
 
       <Text fw={600} size="sm" c="dimmed">Pipeline & Caches</Text>
-      <SimpleGrid cols={{ base: 1, md: 3 }}>
+      <SimpleGrid cols={{ base: 1, md: 4 }}>
         <Card withBorder h={146}>
-          <Text fw={600}>Queue</Text>
+          <Text fw={600}>Filesystem Queue</Text>
           <Text size="sm" c="dimmed">
-            {totalQueue} pending ({queuedChanges} fs changes, {pendingIngest} ingest candidates)
+            {totalQueue} pending ({queuedChanges} fs changes)
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
             Next debounce run in {runtimeStatus?.next_event_reconcile_in_seconds ?? 0}s
           </Text>
         </Card>
         <Card withBorder h={146}>
-          <Text fw={600}>Known Links (Memory)</Text>
+          <Text fw={600}>Mapped Index Entries</Text>
           <Text size="sm" c="dimmed">
-            {knownLinksInMemory} links currently indexed
+            {mappedEntriesTotal} mapped directories in cache
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
             mapped cache {runtimeStatus?.mapped_cache?.building ? "rebuilding" : "ready"}
@@ -386,7 +376,7 @@ export default function Dashboard({
               loading={runningReconcile}
               onClick={() => void handleRunReconcile()}
             >
-              Run Reconcile
+              Run Full Reconcile
             </Button>
           </Group>
           <Text size="sm" c="dimmed">
@@ -397,6 +387,28 @@ export default function Dashboard({
             folders M/S {runtimeStatus?.last_reconcile?.movie_folders_seen ?? 0}/
             {runtimeStatus?.last_reconcile?.series_folders_seen ?? 0} · created links
             {` ${runtimeStatus?.last_reconcile?.created_links ?? 0}`}
+          </Text>
+        </Card>
+        <Card withBorder h={146}>
+          <Text fw={600}>Arr Match Snapshot</Text>
+          <Text size="sm" c="dimmed">
+            {taskState === "running" ? "live" : "last run"}
+            {taskState === "running" && runtimeStatus?.current_task.phase
+              ? ` · phase ${runtimeStatus.current_task.phase}`
+              : ""}
+          </Text>
+          <Text size="sm" c="dimmed">
+            Movies {movieCoverage} · unmatched
+            {` ${typeof snapshotUnmatchedMovies === "number" ? snapshotUnmatchedMovies : "n/a"}`}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Series {seriesCoverage} · unmatched
+            {` ${typeof snapshotUnmatchedSeries === "number" ? snapshotUnmatchedSeries : "n/a"}`}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Indexed M/S: {typeof snapshotMetrics?.movie_folders_seen === "number" ? snapshotMetrics.movie_folders_seen : "n/a"}/
+            {typeof snapshotMetrics?.series_folders_seen === "number" ? snapshotMetrics.series_folders_seen : "n/a"} · pending M/S:
+            {` ${snapshotMoviePending ?? "n/a"}/${snapshotSeriesPending ?? "n/a"} · created links ${snapshotCreatedLinks}`}
           </Text>
         </Card>
       </SimpleGrid>
@@ -413,40 +425,47 @@ export default function Dashboard({
         <Text size="sm" c="dimmed" mb="sm">
           Runtime loop and background queue are shown with the same slot layout for faster scanning.
         </Text>
-        <Table highlightOnHover withTableBorder withColumnBorders>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Task</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Source</Table.Th>
-              <Table.Th>Detail</Table.Th>
-              <Table.Th>Queued</Table.Th>
-              <Table.Th>Duration</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {taskSlots.map((slot) => (
-              <Table.Tr key={slot.id}>
-                <Table.Td>{slot.name}</Table.Td>
-                <Table.Td>
-                  <Badge color={badgeForTask(slot.status)}>{slot.status}</Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{slot.source}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed" lineClamp={2}>{slot.detail}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{slot.queuedAt}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{slot.duration}</Text>
-                </Table.Td>
+        <ScrollArea type="auto" scrollbars="x">
+          <Table highlightOnHover withTableBorder withColumnBorders style={{ tableLayout: "fixed", minWidth: "58rem" }}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th style={taskColumnStyles.task}>Task</Table.Th>
+                <Table.Th style={taskColumnStyles.status}>Status</Table.Th>
+                <Table.Th style={taskColumnStyles.source}>Source</Table.Th>
+                <Table.Th>Detail</Table.Th>
+                <Table.Th style={taskColumnStyles.queued}>Queued</Table.Th>
+                <Table.Th style={taskColumnStyles.duration}>Duration</Table.Th>
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {taskSlots.map((slot) => (
+                <Table.Tr key={slot.id}>
+                  <Table.Td style={taskColumnStyles.task}>{slot.name}</Table.Td>
+                  <Table.Td style={taskColumnStyles.status}>
+                    <Badge
+                      color={badgeForTask(slot.status)}
+                      style={{ width: "6.5rem", justifyContent: "center" }}
+                    >
+                      {slot.status}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td style={taskColumnStyles.source}>
+                    <Text size="sm" c="dimmed">{slot.source}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed" lineClamp={2}>{slot.detail}</Text>
+                  </Table.Td>
+                  <Table.Td style={taskColumnStyles.queued}>
+                    <Text size="sm" c="dimmed">{slot.queuedAt}</Text>
+                  </Table.Td>
+                  <Table.Td style={taskColumnStyles.duration}>
+                    <Text size="sm" c="dimmed">{slot.duration}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
       </Card>
 
       <Card withBorder>

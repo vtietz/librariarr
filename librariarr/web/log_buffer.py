@@ -12,6 +12,12 @@ _LOG_LEVEL_RE = re.compile(
 
 _LEVEL_NORMALIZE: dict[str, str] = {"WARN": "WARNING", "FATAL": "CRITICAL"}
 
+_NON_PROPAGATING_LOGGERS: tuple[str, ...] = (
+    "uvicorn",
+    "uvicorn.error",
+    "uvicorn.access",
+)
+
 
 def _detect_level(record: logging.LogRecord) -> str:
     return record.levelname or "UNKNOWN"
@@ -74,13 +80,37 @@ class LogRingBuffer(logging.Handler):
 _global_buffer: LogRingBuffer | None = None
 
 
+def _get_logger(name: str | None = None) -> logging.Logger:
+    if name is None:
+        return logging.getLogger()
+    return logging.getLogger(name)
+
+
+def _attach_handler_if_missing(logger: logging.Logger, handler: logging.Handler) -> None:
+    if any(existing is handler for existing in logger.handlers):
+        return
+    logger.addHandler(handler)
+
+
+def _ensure_buffer_handlers(buf: LogRingBuffer) -> None:
+    root_logger = _get_logger()
+    _attach_handler_if_missing(root_logger, buf)
+
+    for logger_name in _NON_PROPAGATING_LOGGERS:
+        logger = _get_logger(logger_name)
+        if logger.propagate:
+            continue
+        _attach_handler_if_missing(logger, buf)
+
+
 def install_log_buffer(maxlen: int = 2000) -> LogRingBuffer:
     global _global_buffer
     if _global_buffer is not None:
+        _ensure_buffer_handlers(_global_buffer)
         return _global_buffer
     buf = LogRingBuffer(maxlen=maxlen)
     buf.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s - %(message)s"))
-    logging.getLogger().addHandler(buf)
+    _ensure_buffer_handlers(buf)
     _global_buffer = buf
     return buf
 

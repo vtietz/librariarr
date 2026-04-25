@@ -72,6 +72,7 @@ def _log_quality_profile_diagnostics(
                 config.sonarr.auto_add_search_on_add,
                 config.sonarr.auto_add_season_folder,
             )
+
     except Exception as exc:
         log.warning("Unable to fetch Sonarr quality profiles: %s", exc)
 

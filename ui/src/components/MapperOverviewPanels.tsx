@@ -115,7 +115,7 @@ export default function MapperOverviewPanels({ draft }: Props) {
       <Card withBorder>
         <Stack>
           <Text fw={600}>Current Root Mappings</Text>
-          {draft.paths.root_mappings.map((mapping, index) => (
+          {draft.paths.series_root_mappings.map((mapping, index) => (
             <Text key={`mapping-${index}`} size="sm">
               {mapping.nested_root} → {mapping.shadow_root}
             </Text>

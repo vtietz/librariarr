@@ -1,664 +1,344 @@
 from pathlib import Path
-from unittest.mock import patch
 
-import requests
-
+from librariarr.projection import get_radarr_webhook_queue
 from librariarr.service import LibrariArrService
-from librariarr.sync.discovery import discover_movie_folders as discover_movie_folders_impl
 from tests.service.helpers import FakeRadarr, make_config
 
 
-def test_reconcile_creates_symlink_for_movie_folder(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie = nested_root / "Fixture Catalog A (2008)"
-    movie.mkdir(parents=True)
-    (movie / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    link = shadow_root / "Fixture Catalog A (2008)"
-    assert link.is_symlink()
-    assert link.resolve(strict=False) == movie
+def _movie(movie_id: int, title: str, year: int, path: Path) -> dict:
+    return {
+        "id": movie_id,
+        "title": title,
+        "year": year,
+        "path": str(path),
+        "movieFile": {"id": movie_id * 10},
+        "monitored": True,
+    }
 
 
-def test_reconcile_skips_movie_folders_when_radarr_disabled(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie = nested_root / "Fixture Catalog A (2008)"
-    movie.mkdir(parents=True)
-    (movie / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False, radarr_enabled=False)
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    link = shadow_root / "Fixture Catalog A (2008)"
-    assert not link.exists()
+def _projected_file(library_root: Path, folder_name: str, filename: str) -> Path:
+    return library_root / folder_name / filename
 
 
-def test_reconcile_incremental_scans_only_affected_folder(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_a = nested_root / "Fixture Catalog A (2008)"
-    movie_b = nested_root / "Fixture Catalog B (2009)"
-    movie_a.mkdir(parents=True)
-    movie_b.mkdir(parents=True)
-    (movie_a / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-    (movie_b / "Fixture.Catalog.B.2009.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    changed_file = movie_a / "notes.txt"
-    changed_file.write_text("update", encoding="utf-8")
-    scanned_roots: list[Path] = []
-
-    with patch("librariarr.service.reconcile.discover_movie_folders") as mocked_discovery:
-        mocked_discovery.side_effect = lambda root, video_exts, exclude_paths=None: (
-            scanned_roots.append(root)
-            or discover_movie_folders_impl(root, video_exts, exclude_paths)
-        )
-        service.reconcile({changed_file})
-
-    assert scanned_roots == [movie_a]
-    assert (shadow_root / "Fixture Catalog A (2008)").is_symlink()
-    assert (shadow_root / "Fixture Catalog B (2009)").is_symlink()
-
-
-def test_reconcile_shadow_only_event_skips_movie_rescan_when_ingest_enabled(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_a = nested_root / "Fixture Catalog A (2008)"
-    movie_b = nested_root / "Fixture Catalog B (2009)"
-    movie_a.mkdir(parents=True)
-    movie_b.mkdir(parents=True)
-    (movie_a / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-    (movie_b / "Fixture.Catalog.B.2009.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    config.ingest.enabled = True
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    shadow_event_path = shadow_root / "incoming"
-    scanned_roots: list[Path] = []
-
-    with patch("librariarr.service.reconcile.discover_movie_folders") as mocked_discovery:
-        mocked_discovery.side_effect = lambda root, video_exts, exclude_paths=None: (
-            scanned_roots.append(root)
-            or discover_movie_folders_impl(root, video_exts, exclude_paths)
-        )
-        service.reconcile({shadow_event_path})
-
-    assert scanned_roots == []
-
-
-def test_reconcile_shadow_only_event_skips_radarr_catalog_fetch_in_incremental_mode(
-    tmp_path: Path,
-) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie = nested_root / "Fixture Catalog A (2008)"
-    movie.mkdir(parents=True)
-    (movie / "Fixture.Catalog.A.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=True)
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 1,
-                "title": "Fixture Catalog A",
-                "year": 2008,
-                "path": str(shadow_root / "Fixture Catalog A (2008)"),
-                "movieFile": {"id": 11},
-                "monitored": True,
-            }
-        ]
-    )
-    service.radarr = fake
-
-    service.reconcile()
-    assert fake.get_movies_calls == 1
-
-    shadow_event_path = shadow_root / "incoming"
-    service.reconcile({shadow_event_path})
-
-    assert fake.get_movies_calls == 1
-
-
-def test_reconcile_removes_orphaned_symlink(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    nested_root.mkdir(parents=True)
-    shadow_root.mkdir(parents=True)
-
-    missing_target = nested_root / "Tears of Steel (2012)"
-    orphan = shadow_root / "Tears of Steel (2012)"
-    orphan.symlink_to(missing_target, target_is_directory=True)
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    assert not orphan.exists()
-
-
-def test_reconcile_syncs_radarr_when_enabled(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Catalog A (2008)"
+def test_reconcile_projects_movie_files_into_library_root(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Catalog A (2008)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
-    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    movie_file = movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv"
+    subtitle_file = movie_dir / "Big.Buck.Bunny.2008.srt"
+    movie_file.write_text("x", encoding="utf-8")
+    subtitle_file.write_text("sub", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
     service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 1,
-                "title": "Fixture Catalog A",
-                "year": 2008,
-                "path": "/old/path",
-                "movieFile": {"id": 11},
-                "monitored": True,
-            }
-        ]
+    service.radarr = FakeRadarr(
+        movies=[_movie(1, "Fixture Catalog A", 2008, movie_dir)],
     )
-    service.radarr = fake
 
     service.reconcile()
 
-    assert fake.get_movies_calls == 1
-    assert fake.updated_paths and fake.updated_paths[0][0] == 1
-    assert fake.updated_qualities == []
-    assert fake.refreshed == [1]
-
-
-def test_reconcile_continues_when_radarr_update_returns_404(tmp_path: Path, caplog) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Catalog A (2008)"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=True)
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 120,
-                "title": "Fixture Catalog A",
-                "year": 2008,
-                "path": "/old/path",
-                "movieFile": {"id": 11},
-                "monitored": True,
-            }
-        ]
+    projected_movie = _projected_file(
+        library_root,
+        "Fixture Catalog A (2008)",
+        "Big.Buck.Bunny.2008.1080p.x265.mkv",
+    )
+    projected_subtitle = _projected_file(
+        library_root,
+        "Fixture Catalog A (2008)",
+        "Big.Buck.Bunny.2008.srt",
     )
 
-    def _raise_not_found(movie: dict, new_path: str) -> bool:
-        del movie
-        del new_path
-        response = requests.Response()
-        response.status_code = 404
-        response.url = "http://radarr:7878/api/v3/movie/120"
-        raise requests.HTTPError("404 Client Error: Not Found", response=response)
-
-    fake.update_movie_path = _raise_not_found  # type: ignore[method-assign]
-    service.radarr = fake
-    caplog.set_level("WARNING", logger="librariarr.service")
-
-    service.reconcile()
-
-    link = shadow_root / "Fixture Catalog A (2008)"
-    assert link.is_symlink()
-    assert fake.refreshed == []
-    assert "Skipping Radarr sync for missing movie" in caplog.text
+    assert projected_movie.exists()
+    assert projected_subtitle.exists()
+    assert projected_movie.samefile(movie_file)
+    assert projected_subtitle.samefile(subtitle_file)
 
 
-def test_reconcile_skips_radarr_when_sync_disabled(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Catalog A (2008)"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 1,
-                "title": "Fixture Catalog A",
-                "year": 2008,
-                "path": "/old/path",
-                "movieFile": {"id": 11},
-                "monitored": True,
-            }
-        ]
-    )
-    service.radarr = fake
-
-    service.reconcile()
-
-    assert fake.get_movies_calls == 0
-    assert fake.updated_paths == []
-    assert fake.updated_qualities == []
-    assert fake.refreshed == []
-
-
-def test_reconcile_canonicalizes_suffix_folder_name_without_sync(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Sing (2016) FSK0"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Sing.2016.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=False)
-    service = LibrariArrService(config)
-
-    service.reconcile()
-
-    canonical_link = shadow_root / "Sing (2016)"
-    assert canonical_link.is_symlink()
-    assert canonical_link.resolve(strict=False) == movie_dir
-    assert not (shadow_root / "Sing (2016) FSK0").exists()
-
-
-def test_reconcile_matches_radarr_for_suffix_folder_name(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Sing (2016) FSK0"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Sing.2016.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(nested_root, shadow_root, sync_enabled=True)
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 2,
-                "title": "Sing",
-                "year": 2016,
-                "path": "/old/path",
-                "movieFile": {"id": 12},
-                "monitored": True,
-            }
-        ]
-    )
-    service.radarr = fake
-
-    service.reconcile()
-
-    assert fake.get_movies_calls == 1
-    assert fake.updated_paths and fake.updated_paths[0][0] == 2
-    assert (shadow_root / "Sing (2016)").is_symlink()
-
-
-def test_reconcile_matches_existing_radarr_movie_for_alias_title_same_year(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Title - Variant (2017)"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(
-        nested_root,
-        shadow_root,
-        sync_enabled=True,
-        auto_add_unmatched=True,
-        auto_add_quality_profile_id=7,
-    )
-    config.runtime.arr_root_poll_interval_minutes = 1
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 4,
-                "title": "Fixture Title",
-                "year": 2017,
-                "path": "/old/path",
-                "movieFile": {"id": 114},
-                "monitored": True,
-            }
-        ],
-        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
-        add_movie_result={
-            "id": 4,
-            "title": "Fixture Title",
-            "year": 2017,
-            "path": str(shadow_root / "Fixture Title (2017)"),
-            "movieFile": {"id": 114},
-            "monitored": True,
-        },
-    )
-    service.radarr = fake
-
-    service.reconcile()
-
-    assert fake.lookup_terms == []
-    assert fake.added_movies == []
-    assert fake.updated_paths and fake.updated_paths[0][0] == 4
-    # Link is named after the folder, not Radarr's canonical title.
-    assert (shadow_root / "Fixture Title - Variant (2017)").is_symlink()
-
-
-def test_reconcile_matches_existing_radarr_movie_by_tmdb_id_from_nfo(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Totally Custom Folder Name"
+def test_reconcile_uses_current_radarr_client_for_projection(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Catalog A (2008)"
     movie_dir.mkdir(parents=True)
     (movie_dir / "movie.mkv").write_text("x", encoding="utf-8")
-    (movie_dir / "movie.nfo").write_text(
-        "<movie><title>Something Else</title><tmdbid>260514</tmdbid></movie>",
-        encoding="utf-8",
-    )
 
-    config = make_config(
-        nested_root,
-        shadow_root,
-        sync_enabled=True,
-        auto_add_unmatched=True,
-        auto_add_quality_profile_id=7,
-    )
+    config = make_config(managed_root, library_root, sync_enabled=False)
     service = LibrariArrService(config)
 
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 44,
-                "title": "Fixture Title",
-                "year": 2017,
-                "tmdbId": 260514,
-                "path": "/old/path",
-                "movieFile": {"id": 144},
-                "monitored": True,
-            }
-        ],
-        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
-        add_movie_result={
-            "id": 44,
-            "title": "Fixture Title",
-            "year": 2017,
-            "path": str(shadow_root / "Fixture Title (2017)"),
-            "movieFile": {"id": 144},
-            "monitored": True,
-        },
-    )
+    fake = FakeRadarr(movies=[_movie(1, "Fixture Catalog A", 2008, movie_dir)])
     service.radarr = fake
 
     service.reconcile()
 
-    assert fake.lookup_terms == []
-    assert fake.added_movies == []
-    assert fake.updated_paths and fake.updated_paths[0][0] == 44
-    # Link is named after the folder, not the Radarr-matched movie title.
-    assert (shadow_root / "Totally Custom Folder Name").is_symlink()
+    assert fake.get_movies_calls == 1
 
 
-def test_reconcile_matches_movie_using_root_level_nfo_tmdbid_with_nested_noise(
-    tmp_path: Path,
-) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Custom Folder Without Year"
+def test_reconcile_scopes_projection_to_webhook_movie_ids(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    movie_a_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_b_dir = managed_root / "Fixture Catalog B (2009)"
+    movie_a_dir.mkdir(parents=True)
+    movie_b_dir.mkdir(parents=True)
+    (movie_a_dir / "a.mkv").write_text("a", encoding="utf-8")
+    (movie_b_dir / "b.mkv").write_text("b", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(1, "Fixture Catalog A", 2008, movie_a_dir),
+            _movie(2, "Fixture Catalog B", 2009, movie_b_dir),
+        ]
+    )
+
+    queue = get_radarr_webhook_queue()
+    queue.consume_movie_ids()
+    queue.enqueue(
+        movie_id=2,
+        event_type="Test",
+        normalized_path=str(movie_b_dir),
+    )
+
+    service.reconcile()
+
+    projected_a = _projected_file(library_root, "Fixture Catalog A (2008)", "a.mkv")
+    projected_b = _projected_file(library_root, "Fixture Catalog B (2009)", "b.mkv")
+
+    assert not projected_a.exists()
+    assert projected_b.exists()
+
+    queue.consume_movie_ids()
+
+
+def test_reconcile_logs_scope_resolution_for_webhook_movie_scope(tmp_path: Path, caplog) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    movie_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "a.mkv").write_text("a", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(2, "Fixture Catalog A", 2008, movie_dir)],
+    )
+
+    queue = get_radarr_webhook_queue()
+    queue.consume_movie_ids()
+    queue.enqueue(movie_id=2, event_type="Test", normalized_path=str(movie_dir))
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service.reconcile()
+
+    assert "Reconcile scope resolved:" in caplog.text
+    assert "movie_scope_kind=scoped" in caplog.text
+    assert "movie_ids_webhook_count=1" in caplog.text
+    assert "Projection dispatch: arr=radarr" in caplog.text
+
+    queue.consume_movie_ids()
+
+
+def test_reconcile_skips_movie_projection_when_radarr_disabled(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Catalog A (2008)"
     movie_dir.mkdir(parents=True)
     (movie_dir / "movie.mkv").write_text("x", encoding="utf-8")
-    (movie_dir / "movie.nfo").write_text(
-        """
-<movie>
-  <credits>
-    <person><tmdbid>99999999</tmdbid></person>
-  </credits>
-  <tmdbid>260514</tmdbid>
-</movie>
-""".strip(),
-        encoding="utf-8",
-    )
 
     config = make_config(
-        nested_root,
-        shadow_root,
-        sync_enabled=True,
-        auto_add_unmatched=False,
-        auto_add_quality_profile_id=7,
+        managed_root,
+        library_root,
+        sync_enabled=False,
+        radarr_enabled=False,
     )
     service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[
-            {
-                "id": 55,
-                "title": "Fixture Title",
-                "year": 2017,
-                "tmdbId": 260514,
-                "path": "/old/path",
-                "movieFile": {"id": 155},
-                "monitored": True,
-            }
-        ],
-    )
-    service.radarr = fake
 
     service.reconcile()
 
-    assert fake.updated_paths and fake.updated_paths[0][0] == 55
-    assert (shadow_root / "Custom Folder Without Year").is_symlink()
+    assert not _projected_file(library_root, "Fixture Catalog A (2008)", "movie.mkv").exists()
 
 
-def test_reconcile_auto_adds_unmatched_folder_with_canonical_link(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Title - Variant (2017)"
+def test_reconcile_auto_adds_unmatched_movie_folder_when_enabled(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Auto Add (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Auto.Add.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
-        nested_root,
-        shadow_root,
+        managed_root,
+        library_root,
         sync_enabled=True,
         auto_add_unmatched=True,
-        auto_add_quality_profile_id=7,
     )
     service = LibrariArrService(config)
-
-    fake = FakeRadarr(
+    service.radarr = FakeRadarr(
         movies=[],
-        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
+        quality_profiles=[{"id": 7, "name": "1080p"}],
+        lookup_results=[{"title": "Fixture Auto Add", "year": 2017, "tmdbId": 1001}],
         add_movie_result={
-            "id": 10,
-            "title": "Fixture Title",
+            "id": 42,
+            "title": "Fixture Auto Add",
             "year": 2017,
-            "path": str(shadow_root / "Fixture Title (2017)"),
-            "movieFile": {"id": 110},
+            "path": str(library_root / "Fixture Auto Add (2017)"),
+            "movieFile": {"id": 420},
             "monitored": True,
         },
     )
-    service.radarr = fake
 
     service.reconcile()
 
-    # Link is named after the folder, not the auto-add result title.
-    canonical_link = shadow_root / "Fixture Title - Variant (2017)"
-    assert canonical_link.is_symlink()
-    assert canonical_link.resolve(strict=False) == movie_dir
-    assert fake.lookup_terms == ["fixture title - variant 2017"]
-    assert fake.added_movies and fake.added_movies[0]["quality_profile_id"] == 7
-    # Path is updated to the folder-named link (differs from the add_movie_result path).
-    assert fake.updated_paths and fake.updated_paths[0][0] == 10
-    assert fake.updated_qualities == [(10, 7)]
-    assert fake.refreshed == [10]
+    assert service.radarr.added_movies
+    assert service.radarr.added_movies[0]["quality_profile_id"] == 7
 
 
-def test_reconcile_skips_auto_add_when_radarr_root_is_missing(tmp_path: Path, caplog) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Title (2017)"
+def test_reconcile_projects_auto_added_movies_immediately_in_incremental_mode(
+    tmp_path: Path,
+) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Auto Add (2017)"
     movie_dir.mkdir(parents=True)
-    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
+    (movie_dir / "Fixture.Auto.Add.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
 
     config = make_config(
-        nested_root,
-        shadow_root,
+        managed_root,
+        library_root,
         sync_enabled=True,
         auto_add_unmatched=True,
-        auto_add_quality_profile_id=7,
     )
     service = LibrariArrService(config)
-
-    fake = FakeRadarr(
+    service.radarr = FakeRadarr(
         movies=[],
-        root_folders=[],
-        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
+        quality_profiles=[{"id": 7, "name": "1080p"}],
+        lookup_results=[{"title": "Fixture Auto Add", "year": 2017, "tmdbId": 1001}],
         add_movie_result={
-            "id": 10,
-            "title": "Fixture Title",
+            "id": 42,
+            "title": "Fixture Auto Add",
             "year": 2017,
-            "path": str(shadow_root / "Fixture Title (2017)"),
-            "movieFile": {"id": 110},
+            "path": str(movie_dir),
+            "movieFile": {"id": 420},
             "monitored": True,
         },
     )
-    service.radarr = fake
-    service._update_arr_root_folder_availability(force=True)
 
-    caplog.set_level("DEBUG", logger="librariarr.service")
-    service.reconcile()
+    projection_calls: list[set[int] | None] = []
 
-    assert fake.lookup_terms == []
-    assert fake.added_movies == []
-    assert (shadow_root / "Fixture Title (2017)").is_symlink()
-    assert "Skipping Radarr matching/sync for shadow root not configured in Radarr" in caplog.text
-    assert "No Radarr match for folder after auto-add attempt" not in caplog.text
-
-
-def test_reconcile_preserves_existing_radarr_link_when_root_is_missing(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Fixture Title - Variant (2017)"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(
-        nested_root,
-        shadow_root,
-        sync_enabled=True,
-        auto_add_unmatched=True,
-        auto_add_quality_profile_id=7,
-    )
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(
-        movies=[],
-        root_folders=[],
-        lookup_results=[{"title": "Fixture Title", "year": 2017, "tmdbId": 260514}],
-    )
-    service.radarr = fake
-    service._update_arr_root_folder_availability(force=True)
-
-    preserved_link = shadow_root / "Fixture Canonical (2017)"
-    preserved_link.parent.mkdir(parents=True, exist_ok=True)
-    preserved_link.symlink_to(movie_dir, target_is_directory=True)
-
-    service.reconcile()
-
-    assert preserved_link.is_symlink()
-    assert not (shadow_root / "Fixture Title (2017)").exists()
-    assert fake.lookup_terms == []
-
-
-def test_poll_trigger_requests_reconcile_when_radarr_root_appears(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    config = make_config(
-        nested_root,
-        shadow_root,
-        sync_enabled=True,
-        auto_add_unmatched=True,
-    )
-    config.runtime.arr_root_poll_interval_minutes = 1
-    service = LibrariArrService(config)
-
-    fake = FakeRadarr(movies=[], root_folders=[])
-    service.radarr = fake
-
-    service._update_arr_root_folder_availability(force=True)
-    assert service._radarr_missing_shadow_roots == {str(shadow_root)}
-
-    fake.root_folders = [{"path": str(shadow_root)}]
-    service._next_arr_root_poll_at = 0.0
-    assert service._poll_arr_root_reconcile_trigger() is True
-    assert service._radarr_missing_shadow_roots == set()
-
-    service._next_arr_root_poll_at = 0.0
-    assert service._poll_arr_root_reconcile_trigger() is False
-
-
-def test_reconcile_reuses_existing_link_path_for_localized_folder_name(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "radarr_library"
-    movie_dir = nested_root / "Cap und Capper (1981) FSK0"
-    movie_dir.mkdir(parents=True)
-    (movie_dir / "Cap.und.Capper.1981.1080p.h265.AC3.mkv").write_text("x", encoding="utf-8")
-
-    config = make_config(
-        nested_root,
-        shadow_root,
-        sync_enabled=True,
-        auto_add_unmatched=True,
-        auto_add_quality_profile_id=1,
-    )
-    service = LibrariArrService(config)
-
-    canonical_link = shadow_root / "Fixture Canonical (1981)"
-    fake = FakeRadarr(
-        movies=[],
-        lookup_results=[{"title": "Fixture Canonical", "year": 1981, "tmdbId": 10957}],
-        add_movie_result={
-            "id": 21,
-            "title": "Fixture Canonical",
-            "year": 1981,
-            "path": str(canonical_link),
-            "movieFile": {"id": 121},
-            "monitored": True,
-        },
-    )
-    service.radarr = fake
-
-    service.reconcile()
-    # Link is named after the folder, not the auto-add lookup result title.
-    canonical_link = shadow_root / "Cap und Capper (1981)"
-    assert canonical_link.is_symlink()
-
-    fake.movies = [
-        {
-            "id": 21,
-            "title": "Fixture Canonical",
-            "year": 1981,
-            "path": str(canonical_link),
-            "movieFile": {"id": 121},
-            "monitored": True,
+    def _capture_projection(scoped_movie_ids: set[int] | None) -> dict[str, int]:
+        projection_calls.append(None if scoped_movie_ids is None else set(scoped_movie_ids))
+        return {
+            "scoped_movie_count": len(scoped_movie_ids or set()),
+            "planned_movies": 0,
+            "skipped_movies": 0,
+            "projected_files": 0,
+            "unchanged_files": 0,
+            "skipped_files": 0,
         }
-    ]
+
+    service.movie_projection.reconcile = _capture_projection
+
+    service.reconcile(affected_paths={movie_dir})
+
+    assert projection_calls[0] == {42}
+    assert None not in projection_calls
+
+
+def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    incoming = library_root / "Fixture Ingest (2024)"
+    incoming.mkdir(parents=True)
+    incoming_file = incoming / "Fixture.Ingest.2024.1080p.x265.mkv"
+    incoming_file.write_text("x", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(
+                77,
+                "Fixture Ingest",
+                2024,
+                incoming,
+            )
+        ]
+    )
 
     service.reconcile()
 
-    assert len(fake.added_movies) == 1
-    assert fake.updated_qualities == [(21, 7)]
-    assert canonical_link.is_symlink()
+    moved_folder = managed_root / "Fixture Ingest (2024)"
+    moved_file = moved_folder / "Fixture.Ingest.2024.1080p.x265.mkv"
+    projected_file = _projected_file(
+        library_root,
+        "Fixture Ingest (2024)",
+        "Fixture.Ingest.2024.1080p.x265.mkv",
+    )
+
+    assert moved_folder.exists()
+    assert moved_file.exists()
+    assert projected_file.exists()
+    assert projected_file.samefile(moved_file)
+    assert service.radarr.updated_paths == [(77, str(moved_folder))]
+
+
+def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    existing_managed = managed_root / "Fixture Ingest (2024)"
+    existing_managed.mkdir(parents=True)
+    (existing_managed / "existing.mkv").write_text("old", encoding="utf-8")
+
+    incoming = library_root / "Fixture Ingest (2024)"
+    incoming.mkdir(parents=True)
+    incoming_file = incoming / "incoming.mkv"
+    incoming_file.write_text("new", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    config.ingest.collision_strategy = "skip"
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(77, "Fixture Ingest", 2024, incoming)],
+    )
+
+    service.reconcile()
+
+    assert incoming.exists()
+    assert incoming_file.exists()
+    assert existing_managed.exists()
+    assert service.radarr.updated_paths == []
+
+
+def test_full_reconcile_projects_all_movies_even_with_ingest_ids(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    movie_a_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_b_dir = managed_root / "Fixture Catalog B (2009)"
+    movie_a_dir.mkdir(parents=True)
+    movie_b_dir.mkdir(parents=True)
+    (movie_a_dir / "a.mkv").write_text("a", encoding="utf-8")
+    (movie_b_dir / "b.mkv").write_text("b", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(1, "Fixture Catalog A", 2008, movie_a_dir),
+            _movie(2, "Fixture Catalog B", 2009, movie_b_dir),
+        ]
+    )
+
+    service._ingest_movies_from_library_roots = lambda _affected_paths: {1}
+
+    service.reconcile(affected_paths=None)
+
+    projected_a = _projected_file(library_root, "Fixture Catalog A (2008)", "a.mkv")
+    projected_b = _projected_file(library_root, "Fixture Catalog B (2009)", "b.mkv")
+
+    assert projected_a.exists()
+    assert projected_b.exists()

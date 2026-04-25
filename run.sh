@@ -49,10 +49,9 @@ Commands:
   fs-e2e      Run end-to-end filesystem tests in Docker
   quality     Run lint/format/complexity/LOC checks in Docker
   quality-autofix  Apply auto-fixes, then run quality checks
-  dev-up      Start dev API, UI, Sonarr, and Radarr services
-  dev-reset   Stop dev stack, wipe dev data/config, start stack, and reseed
-  dev-bootstrap  Configure dev Arr instances and sync API keys into config.yaml
-  dev-seed    Create fake movie/series folders/files in configured source roots
+  dev-up      Start dev stack with demo data (API, UI, Radarr, Sonarr)
+  dev-once    Run one reconcile cycle in the dev service container
+  dev-reset   Full reset: wipe all data + Arr state, rebuild from scratch
   dev-down    Stop dev services
   dev-logs    Tail dev service logs
   dev-shell   Open shell in dev container
@@ -156,6 +155,7 @@ case "$cmd" in
     compose_dev up -d "$DEV_SERVICE" "$DEV_UI_SERVICE" "$DEV_RADARR_SERVICE" "$DEV_SONARR_SERVICE"
     if [[ "${LIBRARIARR_DEV_BOOTSTRAP:-1}" != "0" ]]; then
       "$0" dev-bootstrap
+      "$0" dev-seed
     fi
     web_port="${LIBRARIARR_WEB_PORT:-8787}"
     radarr_port="${DEV_HOST_PORT_RADARR:-17878}"
@@ -167,18 +167,21 @@ case "$cmd" in
     echo "- Radarr admin:          http://localhost:${radarr_port}"
     echo "- Sonarr admin:          http://localhost:${sonarr_port}"
     ;;
+  dev-once)
+    "$0" setup
+    compose_dev run --rm "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.main --config /config/config.yaml --once"
+    ;;
   dev-reset)
     "$0" dev-down
-    compose_dev run --rm --user "0:0" "$DEV_SERVICE" \
-      "chown -R ${PUID:-1000}:${PGID:-1000} /data /config || true"
+    compose_dev down -v --remove-orphans 2>/dev/null || true
     mkdir -p ./data/dev-media/movies ./data/dev-media/series ./data/dev-media/radarr_library ./data/dev-media/sonarr_library ./data/dev-config
-    find ./data/dev-media/movies -mindepth 1 -delete
-    find ./data/dev-media/series -mindepth 1 -delete
-    find ./data/dev-media/radarr_library -mindepth 1 -delete
-    find ./data/dev-media/sonarr_library -mindepth 1 -delete
-    find ./data/dev-config -mindepth 1 -delete
+    find ./data/dev-media/movies -mindepth 1 -delete 2>/dev/null || true
+    find ./data/dev-media/series -mindepth 1 -delete 2>/dev/null || true
+    find ./data/dev-media/radarr_library -mindepth 1 -delete 2>/dev/null || true
+    find ./data/dev-media/sonarr_library -mindepth 1 -delete 2>/dev/null || true
+    find ./data/dev-config -mindepth 1 -delete 2>/dev/null || true
     "$0" dev-up
-    "$0" dev-seed
     ;;
   dev-bootstrap)
     "$0" setup
@@ -186,7 +189,9 @@ case "$cmd" in
       "chown -R ${PUID:-1000}:${PGID:-1000} /config && PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
     compose_dev run --rm "$DEV_SERVICE" \
       "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.bootstrap"
-    compose_dev restart "$DEV_SERVICE"
+    compose_dev run --rm --user "0:0" "$DEV_SERVICE" \
+      "PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=/app python -m librariarr.dev.media_permissions"
+    compose_dev up -d "$DEV_SERVICE"
     ;;
   dev-seed)
     "$0" setup

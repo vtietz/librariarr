@@ -2,64 +2,18 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
 from pathlib import Path
 
-import requests
-
-from ..core import (
-    MediaReconcileOutcome,
-    MediaScope,
-    ReconcilePlan,
-    build_cleanup_tasks,
-    create_reconcile_plan,
-    resolve_reconcile_mode,
-)
-from ..sync import (
-    MovieRef,
-    ShadowCleanupManager,
-    collect_current_links,
-    discover_movie_folders,
-    discover_series_folders,
-)
+from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
+from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .common import LOG
-
-
-def _summarize_path_set(paths: set[Path] | None, limit: int = 4) -> str:
-    if not paths:
-        return "-"
-
-    unique_paths = sorted({str(path) for path in paths})
-    shown = unique_paths[:limit]
-    remaining = len(unique_paths) - len(shown)
-    suffix = f" (+{remaining} more)" if remaining > 0 else ""
-    return ", ".join(shown) + suffix
-
-
-def _first_path(paths: set[Path] | None) -> str:
-    if not paths:
-        return "-"
-    return sorted(str(path) for path in paths)[0]
-
-
-@dataclass(frozen=True)
-class _MediaReconcileSpec:
-    sync_enabled: bool
-    auto_add_unmatched: bool
-    is_root_available: Callable[[Path], bool]
-    skip_log_message: str
-    post_auto_add_no_match_log_message: str
-    post_auto_add_no_match_log_level: str
-    no_match_message_when_auto_add_disabled: str
-    match_item_for_folder: Callable[
-        [Path, dict[MovieRef, dict], dict[str, dict], dict[str, dict], set[Path]],
-        dict | None,
-    ]
-    auto_add_item_for_folder: Callable[[Path, Path], dict | None]
-    sync_item_for_folder: Callable[[Path, Path, dict, bool], None]
-    index_item: Callable[[dict[MovieRef, dict], dict], None]
-    index_item_path: Callable[[dict[str, dict], dict], None]
-    index_item_external_ids: Callable[[dict[str, dict], dict], None]
+from .reconcile_helpers import (
+    current_reconcile_source,
+    discover_unmatched_folders,
+    folder_matches_affected_paths,
+    resolve_managed_root_for_folder,
+)
+from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
 
 
 class ServiceReconcileMixin:
@@ -68,12 +22,15 @@ class ServiceReconcileMixin:
         affected_paths: set[Path] | None = None,
         *,
         refresh_arr_root_availability: bool = True,
+        force_full_scope: bool = False,
     ) -> bool:
         with self._lock:
             started = time.time()
-            reconcile_mode, affected_paths_count = resolve_reconcile_mode(affected_paths)
-            trigger_source = self._current_reconcile_source()
-            trigger_path = _first_path(affected_paths)
+            incremental_mode = bool(affected_paths)
+            reconcile_mode = "incremental" if incremental_mode else "full"
+            affected_paths_count: int | str = len(affected_paths) if incremental_mode else "all"
+            trigger_source = current_reconcile_source(getattr(self, "runtime_status_tracker", None))
+            trigger_path = first_path(affected_paths)
             LOG.info(
                 "Reconcile started: source=%s mode=%s affected_paths=%s trigger_path=%s",
                 trigger_source,
@@ -81,581 +38,660 @@ class ServiceReconcileMixin:
                 affected_paths_count,
                 trigger_path,
             )
-            for shadow_root in self.shadow_roots:
-                shadow_root.mkdir(parents=True, exist_ok=True)
+
+            if force_full_scope:
+                LOG.info(
+                    "======== Full Reconcile started (source=%s) ========",
+                    trigger_source,
+                )
+                refresh_arr_root_availability = True
 
             if refresh_arr_root_availability:
                 self._update_arr_root_folder_availability(
                     force=self._arr_root_poll_interval is None,
                 )
 
-            ingested_count = self.ingestor.run() if self.config.ingest.enabled else 0
-            ingest_pending = False
-            if self.config.ingest.enabled:
-                ingest_pending = self.ingestor.last_pending_quiescent_count > 0
+            ingested_movie_ids = self._ingest_movies_from_library_roots(affected_paths)
+            immediate_projected_movie_ids: set[int] = set()
 
-            plan = self._build_reconcile_plan(
-                affected_paths=affected_paths,
+            def _project_movie_immediately(movie_id: int) -> None:
+                if not self.radarr_enabled:
+                    return
+                if self.movie_projection is None:
+                    return
+
+                self.movie_projection.radarr = self.radarr
+                log_projection_dispatch(
+                    arr="radarr",
+                    trigger_source=trigger_source,
+                    reconcile_mode=reconcile_mode,
+                    scope_kind="scoped_immediate",
+                    full_scope_reason="-",
+                    scoped_ids={movie_id},
+                )
+                try:
+                    self.movie_projection.reconcile({movie_id})
+                except Exception as exc:
+                    self._log_sync_config_hint(exc)
+                    LOG.warning(
+                        "Failed immediate movie projection for movie_id=%s during auto-add "
+                        "reconciliation: %s",
+                        movie_id,
+                        exc,
+                    )
+                else:
+                    immediate_projected_movie_ids.add(movie_id)
+
+            auto_added_movie_ids = self._auto_add_unmatched_movies(
+                affected_paths,
+                on_movie_id_added=_project_movie_immediately,
+            )
+            auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
+
+            scoped_movie_ids: set[int] | None = None
+            queued_movie_ids: set[int] = set()
+            if self.radarr_enabled:
+                queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
+                if not force_full_scope and queued_movie_ids:
+                    scoped_movie_ids = queued_movie_ids
+            deferred_auto_added_movie_ids = auto_added_movie_ids - immediate_projected_movie_ids
+            if not force_full_scope:
+                if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
+                    if scoped_movie_ids is None:
+                        scoped_movie_ids = set(ingested_movie_ids)
+                    else:
+                        scoped_movie_ids.update(ingested_movie_ids)
+                if deferred_auto_added_movie_ids and (
+                    incremental_mode or scoped_movie_ids is not None
+                ):
+                    if scoped_movie_ids is None:
+                        scoped_movie_ids = set(deferred_auto_added_movie_ids)
+                    else:
+                        scoped_movie_ids.update(deferred_auto_added_movie_ids)
+
+                if incremental_mode and scoped_movie_ids is None and immediate_projected_movie_ids:
+                    # Avoid an unnecessary full projection fallback when all newly discovered
+                    # IDs were already projected immediately in this reconcile cycle.
+                    scoped_movie_ids = set()
+
+            movie_scope_kind = "scoped" if scoped_movie_ids is not None else "full"
+            if movie_scope_kind == "scoped":
+                movie_full_scope_reason = "-"
+            elif force_full_scope:
+                movie_full_scope_reason = "force_full_scope"
+            elif not self.radarr_enabled:
+                movie_full_scope_reason = "arr_disabled_or_sync_disabled"
+            elif not incremental_mode:
+                movie_full_scope_reason = "full_mode_requested"
+            else:
+                movie_full_scope_reason = "incremental_no_ids_from_sources"
+
+            scoped_series_ids: set[int] | None = None
+            queued_series_ids: set[int] = set()
+            if self.sonarr_enabled and self.sonarr_sync_enabled:
+                queued_series_ids = get_sonarr_webhook_queue().consume_series_ids()
+                if not force_full_scope and queued_series_ids:
+                    scoped_series_ids = queued_series_ids
+            if not force_full_scope:
+                if auto_added_series_ids and (incremental_mode or scoped_series_ids is not None):
+                    if scoped_series_ids is None:
+                        scoped_series_ids = set(auto_added_series_ids)
+                    else:
+                        scoped_series_ids.update(auto_added_series_ids)
+
+            series_scope_kind = "scoped" if scoped_series_ids is not None else "full"
+            if series_scope_kind == "scoped":
+                series_full_scope_reason = "-"
+            elif force_full_scope:
+                series_full_scope_reason = "force_full_scope"
+            elif not (self.sonarr_enabled and self.sonarr_sync_enabled):
+                series_full_scope_reason = "arr_disabled_or_sync_disabled"
+            elif not incremental_mode:
+                series_full_scope_reason = "full_mode_requested"
+            else:
+                series_full_scope_reason = "incremental_no_ids_from_sources"
+
+            log_scope_resolved(
+                trigger_source=trigger_source,
                 reconcile_mode=reconcile_mode,
                 affected_paths_count=affected_paths_count,
+                trigger_path=trigger_path,
+                movie_scope_kind=movie_scope_kind,
+                movie_full_scope_reason=movie_full_scope_reason,
+                scoped_movie_ids=scoped_movie_ids,
+                queued_movie_ids=queued_movie_ids,
+                ingested_movie_ids=ingested_movie_ids,
+                auto_added_movie_ids=auto_added_movie_ids,
+                series_scope_kind=series_scope_kind,
+                series_full_scope_reason=series_full_scope_reason,
+                scoped_series_ids=scoped_series_ids,
+                queued_series_ids=queued_series_ids,
+                auto_added_series_ids=auto_added_series_ids,
             )
+
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {
+                        "movie_items_targeted": (
+                            len(scoped_movie_ids) if scoped_movie_ids is not None else None
+                        ),
+                        "series_items_targeted": (
+                            len(scoped_series_ids) if scoped_series_ids is not None else None
+                        ),
+                        "movie_items_projected": 0,
+                        "series_items_projected": 0,
+                        "created_links": 0,
+                    }
+                )
 
-            LOG.debug(
-                "Reconcile scope: source=%s mode=%s affected_paths=%s "
-                "considered_movie_folders=%s considered_series_folders=%s",
-                trigger_source,
-                plan.mode,
-                plan.affected_paths_count,
-                len(plan.movie_scope.folders),
-                len(plan.series_scope.folders),
+            had_projection_error = False
+            movie_projection_metrics = dict.fromkeys(
+                [
+                    "scoped_movie_count",
+                    "planned_movies",
+                    "skipped_movies",
+                    "projected_files",
+                    "unchanged_files",
+                    "skipped_files",
+                ],
+                0,
             )
+            if self.radarr_enabled:
+                if self.movie_projection is None:
+                    raise RuntimeError(
+                        "MovieProjectionOrchestrator is required when Radarr is enabled"
+                    )
+                self.movie_projection.radarr = self.radarr
+                log_projection_dispatch(
+                    arr="radarr",
+                    trigger_source=trigger_source,
+                    reconcile_mode=reconcile_mode,
+                    scope_kind=movie_scope_kind,
+                    full_scope_reason=movie_full_scope_reason,
+                    scoped_ids=scoped_movie_ids,
+                )
+                try:
+                    movie_projection_metrics = self.movie_projection.reconcile(scoped_movie_ids)
+                    if getattr(self, "runtime_status_tracker", None) is not None:
+                        planned_movies = int(movie_projection_metrics.get("planned_movies") or 0)
+                        skipped_movies = int(movie_projection_metrics.get("skipped_movies") or 0)
+                        self.runtime_status_tracker.update_active_reconcile_metrics(
+                            {
+                                "movie_folders_seen": planned_movies,
+                                "movie_items_projected": max(0, planned_movies - skipped_movies),
+                                "created_links": int(
+                                    movie_projection_metrics.get("projected_files") or 0
+                                ),
+                            }
+                        )
+                except Exception as exc:
+                    had_projection_error = True
+                    self._log_sync_config_hint(exc)
+                    LOG.warning(
+                        "Continuing reconcile without Radarr projection due to request failure: %s",
+                        exc,
+                    )
 
-            target_to_links = collect_current_links(self.shadow_roots)
-            if plan.fetch_movie_index:
-                movies_by_ref, movies_by_path, movies_by_external_id = self._build_movie_indices()
-            else:
-                movies_by_ref, movies_by_path, movies_by_external_id = {}, {}, {}
-            if plan.fetch_series_index:
-                series_by_ref, series_by_path, series_by_external_id = self._build_series_indices()
-            else:
-                series_by_ref, series_by_path, series_by_external_id = {}, {}, {}
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("indexed")
-            expected_links: set[Path] = set()
-            movie_created_links = 0
-            matched_movies = 0
-            unmatched_movies = 0
-            matched_movie_ids: set[int] = set()
-            if self.radarr_enabled:
-                (
-                    movie_created_links,
-                    matched_movies,
-                    unmatched_movies,
-                    matched_movie_ids,
-                ) = self._reconcile_movie_links(
-                    movie_folders=plan.movie_scope.folders,
-                    target_to_links=target_to_links,
-                    expected_links=expected_links,
-                    movies_by_ref=movies_by_ref,
-                    movies_by_path=movies_by_path,
-                    movies_by_external_id=movies_by_external_id,
-                )
-            (
-                series_created_links,
-                matched_series,
-                unmatched_series,
-                matched_series_ids,
-            ) = self._reconcile_series_links(
-                series_folders=plan.series_scope.folders,
-                target_to_links=target_to_links,
-                expected_links=expected_links,
-                series_by_ref=series_by_ref,
-                series_by_path=series_by_path,
-                series_by_external_id=series_by_external_id,
+
+            series_projection_metrics = dict.fromkeys(
+                [
+                    "scoped_series_count",
+                    "planned_series",
+                    "skipped_series",
+                    "projected_files",
+                    "unchanged_files",
+                    "skipped_files",
+                ],
+                0,
             )
-            created_links = movie_created_links + series_created_links
+            if self.sonarr_enabled and self.sonarr_sync_enabled:
+                if self.sonarr_projection is None:
+                    raise RuntimeError(
+                        "SonarrProjectionOrchestrator is required when Sonarr is enabled"
+                    )
+                self.sonarr_projection.sonarr = self.sonarr
+                log_projection_dispatch(
+                    arr="sonarr",
+                    trigger_source=trigger_source,
+                    reconcile_mode=reconcile_mode,
+                    scope_kind=series_scope_kind,
+                    full_scope_reason=series_full_scope_reason,
+                    scoped_ids=scoped_series_ids,
+                )
+                try:
+                    series_projection_metrics = self.sonarr_projection.reconcile(scoped_series_ids)
+                except Exception as exc:
+                    had_projection_error = True
+                    self._log_sonarr_sync_config_hint(exc)
+                    LOG.warning(
+                        "Continuing reconcile without Sonarr projection due to request failure: %s",
+                        exc,
+                    )
+
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("applied")
-
-            orphaned_links_removed = self._cleanup_orphans(
-                all_movie_folders=plan.movie_scope.all_folders,
-                all_series_folders=plan.series_scope.all_folders,
-                expected_links=expected_links,
-                movies_by_ref=movies_by_ref,
-                series_by_ref=series_by_ref,
-                movie_incremental_mode=plan.movie_scope.incremental_mode,
-                series_incremental_mode=plan.series_scope.incremental_mode,
-                movie_affected_targets=plan.movie_scope.affected_targets,
-                series_affected_targets=plan.series_scope.affected_targets,
-                matched_movie_ids=matched_movie_ids,
-                matched_series_ids=matched_series_ids,
-            )
-            if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("cleaned")
+
+            movie_projected_files = int(movie_projection_metrics.get("projected_files") or 0)
+            series_projected_files = int(series_projection_metrics.get("projected_files") or 0)
+            total_projected_files = movie_projected_files + series_projected_files
+            matched_movies = max(
+                0,
+                int(movie_projection_metrics.get("planned_movies") or 0)
+                - int(movie_projection_metrics.get("skipped_movies") or 0),
+            )
+            unmatched_movies = int(movie_projection_metrics.get("skipped_movies") or 0)
+            matched_series = max(
+                0,
+                int(series_projection_metrics.get("planned_series") or 0)
+                - int(series_projection_metrics.get("skipped_series") or 0),
+            )
+            unmatched_series = int(series_projection_metrics.get("skipped_series") or 0)
 
             duration_seconds = round(time.time() - started, 2)
             outcome = "updated"
             if (
-                created_links == 0
-                and orphaned_links_removed == 0
+                total_projected_files == 0
                 and matched_movies == 0
                 and unmatched_movies == 0
                 and matched_series == 0
                 and unmatched_series == 0
-                and ingested_count == 0
             ):
-                outcome = "pending_ingest" if ingest_pending else "no_changes"
+                outcome = "no_changes"
+
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_active_reconcile_metrics(
                     {
-                        "movie_folders_seen": len(plan.movie_scope.folders),
-                        "series_folders_seen": len(plan.series_scope.folders),
-                        "existing_links": sum(len(links) for links in target_to_links.values()),
-                        "created_links": created_links,
+                        "active_movie_root": None,
+                        "active_series_root": None,
+                        "movie_folders_seen": int(
+                            movie_projection_metrics.get("planned_movies") or 0
+                        ),
+                        "series_folders_seen": int(
+                            series_projection_metrics.get("planned_series") or 0
+                        ),
+                        "existing_links": 0,
+                        "created_links": total_projected_files,
                         "matched_movies": matched_movies,
                         "unmatched_movies": unmatched_movies,
                         "matched_series": matched_series,
                         "unmatched_series": unmatched_series,
-                        "removed_orphans": orphaned_links_removed,
-                        "ingested_dirs": ingested_count,
-                        "pending_ingest_dirs": self.ingestor.last_pending_quiescent_count,
-                        "ingest_pending": ingest_pending,
+                        "removed_orphans": 0,
                         "duration_seconds": duration_seconds,
                         "affected_paths_count": (
-                            int(plan.affected_paths_count)
-                            if isinstance(plan.affected_paths_count, int)
+                            int(affected_paths_count)
+                            if isinstance(affected_paths_count, int)
                             else None
                         ),
                     }
                 )
+
             LOG.info(
                 "Reconcile finished: source=%s mode=%s affected_paths=%s trigger_path=%s "
-                "outcome=%s movie_folders=%s series_folders=%s "
-                "created_links=%s matched_movies=%s matched_series=%s "
-                "removed_orphans=%s ingest_pending=%s duration_seconds=%s",
+                "outcome=%s projected_files=%s matched_movies=%s matched_series=%s "
+                "duration_seconds=%s",
                 trigger_source,
-                plan.mode,
-                plan.affected_paths_count,
+                reconcile_mode,
+                affected_paths_count,
                 trigger_path,
                 outcome,
-                len(plan.movie_scope.folders),
-                len(plan.series_scope.folders),
-                created_links,
+                total_projected_files,
                 matched_movies,
                 matched_series,
-                orphaned_links_removed,
-                ingest_pending,
                 duration_seconds,
             )
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("completed")
-            return ingest_pending
+            if force_full_scope:
+                if getattr(self, "runtime_status_tracker", None) is not None:
+                    self.runtime_status_tracker.update_active_reconcile_metrics(
+                        {
+                            "full_reconcile_stats": {
+                                "outcome": outcome,
+                                "duration_seconds": duration_seconds,
+                                "matched_movies": matched_movies,
+                                "unmatched_movies": unmatched_movies,
+                                "matched_series": matched_series,
+                                "unmatched_series": unmatched_series,
+                                "total_projected_files": total_projected_files,
+                                "auto_added_movies": len(auto_added_movie_ids),
+                                "auto_added_series": len(auto_added_series_ids),
+                                "ingested_movies": len(ingested_movie_ids),
+                                "drained_movie_queue": len(queued_movie_ids),
+                                "drained_series_queue": len(queued_series_ids),
+                            }
+                        }
+                    )
+                LOG.info(
+                    "======== Full Reconcile finished: outcome=%s duration=%.1fs "
+                    "movies(matched/unmatched)=%s/%s series(matched/unmatched)=%s/%s "
+                    "projected_files=%s auto_added_movies=%s auto_added_series=%s "
+                    "ingested=%s drained_queue(movies/series)=%s/%s ========",
+                    outcome,
+                    duration_seconds,
+                    matched_movies,
+                    unmatched_movies,
+                    matched_series,
+                    unmatched_series,
+                    total_projected_files,
+                    len(auto_added_movie_ids),
+                    len(auto_added_series_ids),
+                    len(ingested_movie_ids),
+                    len(queued_movie_ids),
+                    len(queued_series_ids),
+                )
+            return had_projection_error
 
-    def _current_reconcile_source(self) -> str:
-        runtime_status_tracker = getattr(self, "runtime_status_tracker", None)
-        if runtime_status_tracker is None:
-            return "direct"
+    def _ingest_movies_from_library_roots(self, affected_paths: set[Path] | None) -> set[int]:
+        if not (self.radarr_enabled and self.sync_enabled and self.config.ingest.enabled):
+            return set()
 
         try:
-            snapshot = runtime_status_tracker.snapshot()
-        except Exception:
-            return "direct"
+            movies = self.radarr.get_movies()
+        except Exception as exc:
+            self._log_sync_config_hint(exc)
+            LOG.warning("Skipping ingest scan because Radarr movie inventory fetch failed: %s", exc)
+            return set()
 
-        if not isinstance(snapshot, dict):
-            return "direct"
+        strategy = str(self.config.ingest.collision_strategy).strip().lower()
+        moved_movie_ids: set[int] = set()
 
-        current_task = snapshot.get("current_task")
-        if not isinstance(current_task, dict):
-            return "direct"
+        for movie in movies:
+            moved_movie_id = self._ingest_movie_if_needed(
+                movie,
+                affected_paths=affected_paths,
+                strategy=strategy,
+            )
+            if moved_movie_id is not None:
+                moved_movie_ids.add(moved_movie_id)
 
-        trigger_source = current_task.get("trigger_source")
-        if isinstance(trigger_source, str) and trigger_source.strip():
-            return trigger_source
+        return moved_movie_ids
 
-        return "direct"
-
-    def _build_reconcile_plan(
+    def _ingest_movie_if_needed(
         self,
+        movie: dict,
         *,
         affected_paths: set[Path] | None,
-        reconcile_mode: str,
-        affected_paths_count: int | str,
-    ) -> ReconcilePlan:
-        movie_scope = MediaScope(
-            folders={},
-            all_folders={},
-            affected_targets=set(),
-            incremental_mode=False,
-        )
-        if self.radarr_enabled:
-            (
-                movie_folders,
-                all_movie_folders,
-                movie_affected_targets,
-                movie_incremental_mode,
-            ) = self._resolve_reconcile_scope(
-                affected_paths,
-                known_folders=self._known_movie_folders,
-                discover=discover_movie_folders,
-            )
-            self._known_movie_folders = all_movie_folders
-            movie_scope = MediaScope(
-                folders=movie_folders,
-                all_folders=all_movie_folders,
-                affected_targets=movie_affected_targets,
-                incremental_mode=movie_incremental_mode,
-            )
+        strategy: str,
+    ) -> int | None:
+        movie_id = movie.get("id")
+        movie_path_raw = str(movie.get("path") or "").strip()
+        if not isinstance(movie_id, int) or not movie_path_raw:
+            return None
 
-        series_scope = MediaScope(
-            folders={},
-            all_folders={},
-            affected_targets=set(),
-            incremental_mode=False,
+        source_folder = Path(movie_path_raw)
+        destination_info = self._resolve_ingest_target(
+            source_folder,
+            affected_paths=affected_paths,
+            strategy=strategy,
         )
-        if self.sonarr_enabled:
-            (
-                series_folders,
-                all_series_folders,
-                series_affected_targets,
-                series_incremental_mode,
-            ) = self._resolve_reconcile_scope(
-                affected_paths,
-                known_folders=self._known_series_folders,
-                discover=discover_series_folders,
-            )
-            self._known_series_folders = all_series_folders
-            series_scope = MediaScope(
-                folders=series_folders,
-                all_folders=all_series_folders,
-                affected_targets=series_affected_targets,
-                incremental_mode=series_incremental_mode,
-            )
+        if destination_info is None:
+            return None
 
-        return create_reconcile_plan(
-            mode=reconcile_mode,
-            affected_paths_count=affected_paths_count,
-            movie_scope=movie_scope,
-            series_scope=series_scope,
-            movie_sync_enabled=self.sync_enabled,
-            series_sync_enabled=self.sonarr_sync_enabled,
+        managed_root, resolved_destination = destination_info
+        if not self._move_and_update_movie_path(movie, source_folder, resolved_destination):
+            return None
+
+        LOG.info(
+            "Ingest moved movie folder from library root to managed root: movie_id=%s "
+            "source=%s destination=%s",
+            movie_id,
+            source_folder,
+            resolved_destination,
         )
+        LOG.info(
+            "Queued movie_id=%s for movie projection after ingest move: managed_root=%s folder=%s",
+            movie_id,
+            managed_root,
+            resolved_destination,
+        )
+        return movie_id
 
-    def _reconcile_movie_links(
+    def _resolve_ingest_target(
         self,
-        movie_folders: dict[Path, Path],
-        target_to_links: dict[Path, set[Path]],
-        expected_links: set[Path],
-        movies_by_ref: dict[MovieRef, dict],
-        movies_by_path: dict[str, dict],
-        movies_by_external_id: dict[str, dict],
-    ) -> tuple[int, int, int, set[int]]:
-        def _sync_movie(folder: Path, link_path: Path, movie: dict, auto_added: bool) -> None:
-            movie_id = movie.get("id")
+        source_folder: Path,
+        *,
+        affected_paths: set[Path] | None,
+        strategy: str,
+    ) -> tuple[Path, Path] | None:
+        mapping_and_relative = self._resolve_ingest_mapping_for_folder(source_folder)
+        if mapping_and_relative is None:
+            return None
+        managed_root, _library_root, relative_folder = mapping_and_relative
+
+        if not source_folder.exists() or not source_folder.is_dir():
+            return None
+        if not folder_matches_affected_paths(source_folder, affected_paths):
+            return None
+
+        destination_folder = managed_root / relative_folder
+        if destination_folder.resolve(strict=False) == source_folder.resolve(strict=False):
+            return None
+
+        resolved_destination = self._resolve_ingest_destination(
+            destination_folder,
+            strategy=strategy,
+        )
+        if resolved_destination is None:
+            return None
+        return managed_root, resolved_destination
+
+    def _move_and_update_movie_path(
+        self,
+        movie: dict,
+        source_folder: Path,
+        resolved_destination: Path,
+    ) -> bool:
+        resolved_destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            source_folder.rename(resolved_destination)
+        except OSError as exc:
+            LOG.warning(
+                "Ingest move failed: source=%s destination=%s error=%s",
+                source_folder,
+                resolved_destination,
+                exc,
+            )
+            return False
+
+        try:
+            self.radarr.update_movie_path(movie, str(resolved_destination))
+        except Exception as exc:
             try:
-                match_strategy = self._consume_movie_match_strategy(folder, auto_added)
-                self._sync_radarr_for_folder(
-                    folder,
-                    link_path,
-                    movie,
-                    force_refresh=auto_added,
-                    apply_quality_mapping=auto_added,
-                    match_strategy=match_strategy,
+                resolved_destination.rename(source_folder)
+            except OSError as rollback_exc:
+                LOG.error(
+                    "Ingest path update failed and rollback failed: source=%s destination=%s "
+                    "update_error=%s rollback_error=%s",
+                    source_folder,
+                    resolved_destination,
+                    exc,
+                    rollback_exc,
                 )
-            except requests.RequestException as exc:
-                self._log_sync_config_hint(exc)
+            else:
                 LOG.warning(
-                    "Skipping Radarr sync for movie id=%s title=%s due to request failure: %s",
-                    movie_id,
-                    movie.get("title"),
+                    "Ingest path update failed; restored original folder: source=%s "
+                    "destination=%s error=%s",
+                    source_folder,
+                    resolved_destination,
                     exc,
                 )
+            return False
 
-        outcome = self._reconcile_links_for_kind(
-            folders=movie_folders,
-            target_to_links=target_to_links,
-            expected_links=expected_links,
-            items_by_ref=movies_by_ref,
-            items_by_path=movies_by_path,
-            items_by_external_id=movies_by_external_id,
-            spec=_MediaReconcileSpec(
-                sync_enabled=self.sync_enabled,
-                auto_add_unmatched=self.auto_add_unmatched,
-                is_root_available=self._is_radarr_root_available,
-                skip_log_message=(
-                    "Skipping Radarr matching/sync for shadow root not configured in Radarr: %s"
-                ),
-                post_auto_add_no_match_log_message=(
-                    "No Radarr match for folder after auto-add attempt: %s"
-                ),
-                post_auto_add_no_match_log_level="debug",
-                no_match_message_when_auto_add_disabled=(
-                    "No Radarr match for folder: %s "
-                    "(enable radarr.auto_add_unmatched=true to auto-create, "
-                    "or add/import in Radarr first)"
-                ),
-                match_item_for_folder=self._match_movie_for_folder,
-                auto_add_item_for_folder=self.radarr_sync.auto_add_movie_for_folder,
-                sync_item_for_folder=_sync_movie,
-                index_item=self._index_movie,
-                index_item_path=self._index_movie_path,
-                index_item_external_ids=self._index_movie_external_ids,
-            ),
-        )
-        return (
-            outcome.created_links,
-            outcome.matched_items,
-            outcome.unmatched_items,
-            outcome.matched_item_ids,
-        )
+        return True
 
-    def _reconcile_series_links(
+    def _resolve_ingest_mapping_for_folder(
         self,
-        series_folders: dict[Path, Path],
-        target_to_links: dict[Path, set[Path]],
-        expected_links: set[Path],
-        series_by_ref: dict[MovieRef, dict],
-        series_by_path: dict[str, dict],
-        series_by_external_id: dict[str, dict],
-    ) -> tuple[int, int, int, set[int]]:
-        def _sync_series(folder: Path, link_path: Path, series: dict, auto_added: bool) -> None:
-            self._sync_sonarr_for_folder(
-                folder,
-                link_path,
-                series,
-                force_refresh=auto_added,
-            )
-
-        outcome = self._reconcile_links_for_kind(
-            folders=series_folders,
-            target_to_links=target_to_links,
-            expected_links=expected_links,
-            items_by_ref=series_by_ref,
-            items_by_path=series_by_path,
-            items_by_external_id=series_by_external_id,
-            spec=_MediaReconcileSpec(
-                sync_enabled=self.sonarr_sync_enabled,
-                auto_add_unmatched=self.sonarr_auto_add_unmatched,
-                is_root_available=self._is_sonarr_root_available,
-                skip_log_message=(
-                    "Skipping Sonarr matching/sync for shadow root not configured in Sonarr: %s"
-                ),
-                post_auto_add_no_match_log_message=(
-                    "No Sonarr match for folder after auto-add attempt: %s"
-                ),
-                post_auto_add_no_match_log_level="warning",
-                no_match_message_when_auto_add_disabled=(
-                    "No Sonarr match for folder: %s "
-                    "(enable sonarr.auto_add_unmatched=true to auto-create, "
-                    "or add/import in Sonarr first)"
-                ),
-                match_item_for_folder=self._match_series_for_folder,
-                auto_add_item_for_folder=self.sonarr_sync.auto_add_series_for_folder,
-                sync_item_for_folder=_sync_series,
-                index_item=self._index_series,
-                index_item_path=self._index_series_path,
-                index_item_external_ids=self._index_series_external_ids,
-            ),
-        )
-        return (
-            outcome.created_links,
-            outcome.matched_items,
-            outcome.unmatched_items,
-            outcome.matched_item_ids,
-        )
-
-    def _reconcile_links_for_kind(
-        self,
-        *,
-        folders: dict[Path, Path],
-        target_to_links: dict[Path, set[Path]],
-        expected_links: set[Path],
-        items_by_ref: dict[MovieRef, dict],
-        items_by_path: dict[str, dict],
-        items_by_external_id: dict[str, dict],
-        spec: _MediaReconcileSpec,
-    ) -> MediaReconcileOutcome:
-        created_links = 0
-        matched_items = 0
-        unmatched_items = 0
-        auto_added_item_ids: set[int] = set()
-        matched_item_ids: set[int] = set()
-        logged_unavailable_roots: set[str] = set()
-
-        for folder, shadow_root in sorted(folders.items()):
-            existing_links = target_to_links.get(folder, set())
-            root_available, preserved_existing_link = (
-                self._resolve_root_availability_and_preserve_existing_link(
-                    sync_enabled=spec.sync_enabled,
-                    shadow_root=shadow_root,
-                    existing_links=existing_links,
-                    expected_links=expected_links,
-                    target_to_links=target_to_links,
-                    folder=folder,
-                    logged_unavailable_roots=logged_unavailable_roots,
-                    is_root_available=spec.is_root_available,
-                    skip_log_message=spec.skip_log_message,
-                )
-            )
-            if preserved_existing_link:
-                continue
-
-            item = (
-                spec.match_item_for_folder(
-                    folder,
-                    items_by_ref,
-                    items_by_path,
-                    items_by_external_id,
-                    existing_links,
-                )
-                if spec.sync_enabled and root_available
-                else None
-            )
-            attempted_auto_add = False
-            if spec.sync_enabled and root_available and item is None and spec.auto_add_unmatched:
-                attempted_auto_add = True
-                item = spec.auto_add_item_for_folder(folder, shadow_root)
-                if item is not None:
-                    self._add_movie_id_if_present(auto_added_item_ids, item)
-                    spec.index_item(items_by_ref, item)
-                    spec.index_item_path(items_by_path, item)
-                    spec.index_item_external_ids(items_by_external_id, item)
-
-            link_path, was_created = self.link_manager.ensure_link(
-                folder,
-                shadow_root,
-                existing_links,
-                item,
-            )
-            expected_links.add(link_path)
-            target_to_links.setdefault(folder, set()).add(link_path)
-            if was_created:
-                created_links += 1
-
-            if not spec.sync_enabled or not root_available:
-                continue
-
-            if item is not None:
-                item_id = self._add_movie_id_if_present(matched_item_ids, item)
-                spec.sync_item_for_folder(
-                    folder,
-                    link_path,
-                    item,
-                    item_id is not None and item_id in auto_added_item_ids,
-                )
-                matched_items += 1
-                continue
-
-            if spec.auto_add_unmatched:
-                if attempted_auto_add:
-                    if spec.post_auto_add_no_match_log_level == "debug":
-                        LOG.debug(spec.post_auto_add_no_match_log_message, folder)
-                    else:
-                        LOG.warning(spec.post_auto_add_no_match_log_message, folder)
-            else:
-                LOG.warning(spec.no_match_message_when_auto_add_disabled, folder)
-            unmatched_items += 1
-
-        return MediaReconcileOutcome(
-            created_links=created_links,
-            matched_items=matched_items,
-            unmatched_items=unmatched_items,
-            matched_item_ids=matched_item_ids,
-        )
-
-    def _existing_link_for_shadow_root(
-        self,
-        existing_links: set[Path],
-        shadow_root: Path,
-    ) -> Path | None:
-        candidates = sorted(
-            [link for link in existing_links if link.parent == shadow_root],
-            key=str,
-        )
-        if not candidates:
-            return None
-        return candidates[0]
-
-    def _resolve_root_availability_and_preserve_existing_link(
-        self,
-        *,
-        sync_enabled: bool,
-        shadow_root: Path,
-        existing_links: set[Path],
-        expected_links: set[Path],
-        target_to_links: dict[Path, set[Path]],
         folder: Path,
-        logged_unavailable_roots: set[str],
-        is_root_available: Callable[[Path], bool],
-        skip_log_message: str,
-    ) -> tuple[bool, bool]:
-        if not sync_enabled:
-            return True, False
-
-        if is_root_available(shadow_root):
-            return True, False
-
-        normalized_shadow_root = self._normalize_arr_root_path(str(shadow_root))
-        if normalized_shadow_root not in logged_unavailable_roots:
-            logged_unavailable_roots.add(normalized_shadow_root)
-            LOG.debug(skip_log_message, shadow_root)
-
-        existing_link = self._existing_link_for_shadow_root(existing_links, shadow_root)
-        if existing_link is None:
-            return False, False
-
-        expected_links.add(existing_link)
-        target_to_links.setdefault(folder, set()).add(existing_link)
-        return False, True
-
-    def _cleanup_orphans(
-        self,
-        all_movie_folders: dict[Path, Path],
-        all_series_folders: dict[Path, Path],
-        expected_links: set[Path],
-        movies_by_ref: dict[MovieRef, dict],
-        series_by_ref: dict[MovieRef, dict],
-        movie_incremental_mode: bool,
-        series_incremental_mode: bool,
-        movie_affected_targets: set[Path],
-        series_affected_targets: set[Path],
-        matched_movie_ids: set[int],
-        matched_series_ids: set[int],
-    ) -> int:
-        cleanup_tasks = build_cleanup_tasks(
-            remove_orphaned_links=self.config.cleanup.remove_orphaned_links,
-            radarr_enabled=self.radarr_enabled,
-            sonarr_enabled=self.sonarr_enabled,
-            movie_incremental_mode=movie_incremental_mode,
-            series_incremental_mode=series_incremental_mode,
-            movie_affected_targets=movie_affected_targets,
-            series_affected_targets=series_affected_targets,
-            matched_movie_ids=matched_movie_ids,
-            matched_series_ids=matched_series_ids,
+    ) -> tuple[Path, Path, Path] | None:
+        sorted_mappings = sorted(
+            self.movie_root_mappings,
+            key=lambda item: len(item[1].parts),
+            reverse=True,
         )
-        if not cleanup_tasks:
-            return 0
+        for managed_root, library_root in sorted_mappings:
+            try:
+                relative_folder = folder.relative_to(library_root)
+            except ValueError:
+                continue
+            return managed_root, library_root, relative_folder
+        return None
 
-        existing_folders = set(all_movie_folders.keys()) | set(all_series_folders.keys())
-        removed_orphans = 0
-        for task in cleanup_tasks:
-            manager = self.cleanup_manager if task.kind == "radarr" else self.sonarr_cleanup_manager
-            items_by_ref = movies_by_ref if task.kind == "radarr" else series_by_ref
-            removed_orphans += self._cleanup_with_manager(
-                manager=manager,
-                existing_folders=existing_folders,
-                items_by_ref=items_by_ref,
-                expected_links=expected_links,
-                incremental_mode=task.incremental_mode,
-                affected_targets=task.affected_targets,
-                matched_item_ids=task.matched_item_ids,
+    def _resolve_ingest_destination(self, destination: Path, *, strategy: str) -> Path | None:
+        if not destination.exists():
+            return destination
+
+        if strategy == "skip":
+            LOG.warning(
+                "Ingest collision detected; skipping move because destination exists: %s",
+                destination,
             )
+            return None
 
-        return removed_orphans
+        for index in range(2, 1000):
+            candidate = destination.with_name(f"{destination.name} ({index})")
+            if not candidate.exists():
+                return candidate
 
-    def _cleanup_with_manager(
-        self,
-        manager: ShadowCleanupManager,
-        existing_folders: set[Path],
-        items_by_ref: dict[MovieRef, dict],
-        expected_links: set[Path],
-        incremental_mode: bool,
-        affected_targets: set[Path],
-        matched_item_ids: set[int],
-    ) -> int:
-        if incremental_mode:
-            return manager.cleanup_orphans_for_targets(
-                existing_folders=existing_folders,
-                movies_by_ref=items_by_ref,
-                expected_links=expected_links,
-                affected_targets=affected_targets,
-                matched_movie_ids=matched_item_ids,
-            )
-
-        return manager.cleanup_orphans(
-            existing_folders,
-            items_by_ref,
-            expected_links,
-            matched_movie_ids=matched_item_ids,
+        LOG.warning(
+            "Ingest collision detected; no free qualified destination found for: %s",
+            destination,
         )
+        return None
+
+    def _auto_add_unmatched_movies(
+        self,
+        affected_paths: set[Path] | None,
+        *,
+        on_movie_id_added: Callable[[int], None] | None = None,
+    ) -> set[int]:
+        if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):
+            return set()
+
+        try:
+            movies = self.radarr.get_movies()
+        except Exception as exc:
+            self._log_sync_config_hint(exc)
+            LOG.warning(
+                "Skipping Radarr auto-add scan because movie inventory fetch failed: %s",
+                exc,
+            )
+            return set()
+
+        existing_paths = {
+            Path(path_raw).resolve(strict=False)
+            for path_raw in (str(movie.get("path") or "").strip() for movie in movies)
+            if path_raw
+        }
+
+        unmatched_folders = discover_unmatched_folders(
+            mappings=self.movie_root_mappings,
+            existing_paths=existing_paths,
+            affected_paths=affected_paths,
+            discover_fn=discover_movie_folders,
+            video_exts=self.video_exts,
+            scan_exclude_paths=self.scan_exclude_paths,
+        )
+        if not unmatched_folders:
+            return set()
+
+        added_movie_ids: set[int] = set()
+        for folder in unmatched_folders:
+            managed_root = resolve_managed_root_for_folder(folder, self.movie_root_mappings)
+            if managed_root is None:
+                continue
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {"active_movie_root": str(managed_root)}
+                )
+            added_movie = self.radarr_sync.auto_add_movie_for_folder(folder, managed_root)
+            if not isinstance(added_movie, dict):
+                continue
+            movie_id = added_movie.get("id")
+            if isinstance(movie_id, int):
+                added_movie_ids.add(movie_id)
+                LOG.info(
+                    "Queued movie_id=%s for movie projection after Radarr path reconciliation: "
+                    "managed_root=%s folder=%s",
+                    movie_id,
+                    managed_root,
+                    folder,
+                )
+                if on_movie_id_added is not None:
+                    on_movie_id_added(movie_id)
+
+        LOG.info(
+            "Radarr auto-add processed: added=%s total_unmatched=%s",
+            len(added_movie_ids),
+            len(unmatched_folders),
+        )
+        return added_movie_ids
+
+    def _auto_add_unmatched_series(self, affected_paths: set[Path] | None) -> set[int]:
+        if not (
+            self.sonarr_enabled and self.sonarr_sync_enabled and self.sonarr_auto_add_unmatched
+        ):
+            return set()
+
+        try:
+            series = self.sonarr.get_series()
+        except Exception as exc:
+            self._log_sonarr_sync_config_hint(exc)
+            LOG.warning(
+                "Skipping Sonarr auto-add scan because series inventory fetch failed: %s",
+                exc,
+            )
+            return set()
+
+        existing_paths = {
+            Path(path_raw).resolve(strict=False)
+            for path_raw in (str(item.get("path") or "").strip() for item in series)
+            if path_raw
+        }
+
+        unmatched_folders = discover_unmatched_folders(
+            mappings=self.series_root_mappings,
+            existing_paths=existing_paths,
+            affected_paths=affected_paths,
+            discover_fn=discover_series_folders,
+            video_exts=self.video_exts,
+            scan_exclude_paths=self.scan_exclude_paths,
+        )
+        if not unmatched_folders:
+            return set()
+
+        added_series_ids: set[int] = set()
+        for folder in unmatched_folders:
+            managed_root = resolve_managed_root_for_folder(folder, self.series_root_mappings)
+            if managed_root is None:
+                continue
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {"active_series_root": str(managed_root)}
+                )
+            added_series = self.sonarr_sync.auto_add_series_for_folder(folder, managed_root)
+            if not isinstance(added_series, dict):
+                continue
+            series_id = added_series.get("id")
+            if isinstance(series_id, int):
+                added_series_ids.add(series_id)
+                LOG.info(
+                    "Queued series_id=%s for series projection after Sonarr path reconciliation: "
+                    "managed_root=%s folder=%s",
+                    series_id,
+                    managed_root,
+                    folder,
+                )
+
+        LOG.info(
+            "Sonarr auto-add processed: added=%s total_unmatched=%s",
+            len(added_series_ids),
+            len(unmatched_folders),
+        )
+        return added_series_ids
+
+    def reconcile_full(self) -> bool:
+        return self.reconcile(affected_paths=None, force_full_scope=True)

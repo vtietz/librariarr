@@ -61,6 +61,13 @@ def main() -> None:
     service = LibrariArrService(config)
     if args.once:
         service.reconcile()
+        # Refresh caches to match runtime-loop parity (the loop triggers
+        # cache refresh via on_reconcile_complete; one-shot must do it too).
+        from .web.discovery_cache import get_discovery_warnings_cache
+        from .web.mapped_cache import get_mapped_directories_cache
+
+        get_mapped_directories_cache().request_refresh(config, force=True)
+        get_discovery_warnings_cache().request_refresh(config, force=True)
         return
     service.run()
 

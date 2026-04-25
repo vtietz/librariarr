@@ -8,6 +8,7 @@ from typing import Any
 from fastapi import HTTPException, Request
 
 from ..service import LibrariArrService
+from ..service.constants import RECONCILE_TASK_FULL_KEY, RECONCILE_TASK_INCREMENTAL_KEY
 from .path_mapping_status import build_path_mapping_outcome, record_path_mapping_outcome
 from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 
@@ -40,12 +41,15 @@ def queue_maintenance_reconcile(
         runtime_status.mark_reconcile_started(trigger_source="manual")
         try:
             service = LibrariArrService(config)
-            ingest_pending = service.reconcile(
+            followup_pending = service.reconcile(
                 affected_paths=affected_paths,
                 refresh_arr_root_availability=affected_paths is None,
             )
             duration_ms = int((time.perf_counter() - started) * 1000)
-            runtime_status.mark_reconcile_finished(success=True, ingest_pending=ingest_pending)
+            runtime_status.mark_reconcile_finished(
+                success=True,
+                followup_pending=followup_pending,
+            )
             if affected_paths is None:
                 mapped_cache.request_refresh(config, force=True)
                 mapped_cache.wait_for_build(timeout=5.0)
@@ -66,23 +70,23 @@ def queue_maintenance_reconcile(
                     outcome=path_outcome,
                 )
             LOG.info(
-                "Manual reconcile completed in %d ms (ingest_pending=%s, scoped=%s)",
+                "Manual reconcile completed in %d ms (followup_pending=%s, scoped=%s)",
                 duration_ms,
-                ingest_pending,
+                followup_pending,
                 bool(affected_paths),
             )
             return {
                 "ok": True,
                 "message": "Reconcile completed.",
                 "duration_ms": duration_ms,
-                "ingest_pending": ingest_pending,
+                "followup_pending": followup_pending,
                 "scoped": bool(affected_paths),
                 "path_outcome": path_outcome,
             }
         except Exception as exc:
             runtime_status.mark_reconcile_finished(
                 success=False,
-                ingest_pending=False,
+                followup_pending=False,
                 error=str(exc),
             )
             if path_value:
@@ -100,6 +104,11 @@ def queue_maintenance_reconcile(
             LOG.error("Manual reconcile failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
+    task_key = (
+        f"manual-{RECONCILE_TASK_INCREMENTAL_KEY}"
+        if affected_paths
+        else f"manual-{RECONCILE_TASK_FULL_KEY}"
+    )
     job_id = manager.submit(
         kind="reconcile-manual-scoped" if affected_paths else "reconcile-manual",
         name="Manual Reconcile (Scoped)" if affected_paths else "Manual Reconcile",
@@ -107,6 +116,7 @@ def queue_maintenance_reconcile(
         detail="queued",
         func=action,
         payload={"path": path_value} if path_value else None,
+        task_key=task_key,
     )
     return {
         "ok": True,

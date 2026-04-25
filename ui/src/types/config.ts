@@ -8,9 +8,15 @@ export type RootMapping = {
   shadow_root: string;
 };
 
+export type MovieRootMapping = {
+  managed_root: string;
+  library_root: string;
+};
+
 export type ConfigModel = {
   paths: {
-    root_mappings: RootMapping[];
+    movie_root_mappings: MovieRootMapping[];
+    series_root_mappings: RootMapping[];
     exclude_paths: string[];
   };
   radarr: {
@@ -47,7 +53,6 @@ export type ConfigModel = {
   };
   cleanup: {
     remove_orphaned_links: boolean;
-    radarr_action_on_missing: string;
     sonarr_action_on_missing: string;
     missing_grace_seconds: number;
   };
@@ -61,12 +66,6 @@ export type ConfigModel = {
     use_nfo: boolean;
     use_media_probe: boolean;
     media_probe_bin: string;
-  };
-  ingest: {
-    enabled: boolean;
-    min_age_seconds: number;
-    collision_policy: "qualify" | "skip";
-    quarantine_root: string;
   };
 };
 

@@ -8,9 +8,12 @@ def test_load_config_uses_default_arr_request_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -39,9 +42,12 @@ def test_load_config_reads_radarr_request_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
@@ -66,9 +72,12 @@ def test_load_config_reads_sonarr_request_settings(tmp_path: Path) -> None:
     config_path.write_text(
         (
             "paths:\n"
-            "  root_mappings:\n"
+            "  series_root_mappings:\n"
             "    - nested_root: /data/movies/one\n"
             "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
             "radarr:\n"
             "  url: http://radarr:7878\n"
             "  api_key: test-key\n"
