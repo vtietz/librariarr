@@ -10,6 +10,7 @@ import {
   formatTaskQueuedAt,
 } from "./dashboardFormatters";
 import PerRootInsightsCard from "./dashboard/PerRootInsightsCard";
+import SystemStatusCards from "./dashboard/SystemStatusCards";
 
 type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
 export default function Dashboard({
@@ -56,12 +57,8 @@ export default function Dashboard({
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
   const hasDiscoveryWarnings = excludedCandidates > 0 || duplicateCandidates > 0;
   const taskState = runtimeStatus?.current_task.state ?? "idle";
-  const taskBadgeColor =
-    taskState === "running" ? "blue" : taskState === "error" ? "red" : "gray";
   const queuedChanges = runtimeStatus?.dirty_paths_queued ?? 0;
   const totalQueue = queuedChanges;
-  const activeJobs = jobsSummary?.active ?? 0;
-  const jobsBadgeColor = activeJobs > 0 ? "blue" : "gray";
   const knownLinksInMemory =
     runtimeStatus?.known_links_in_memory ?? runtimeStatus?.mapped_cache?.entries_total ?? 0;
   const mappedEntriesTotal = runtimeStatus?.mapped_cache?.entries_total ?? knownLinksInMemory;
@@ -85,10 +82,6 @@ export default function Dashboard({
       : null;
   const movieCoverage = formatCoverage(snapshotMatchedMovies, snapshotUnmatchedMovies);
   const seriesCoverage = formatCoverage(snapshotMatchedSeries, snapshotUnmatchedSeries);
-  const healthStatus = runtimeStatus?.health?.status ?? "starting";
-  const healthBadgeColor =
-    healthStatus === "ok" ? "green" : healthStatus === "degraded" ? "yellow" : "gray";
-  const primaryHealthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for snapshot";
   const handleRunReconcile = async () => {
     setRunningReconcile(true);
     try {
@@ -292,57 +285,7 @@ export default function Dashboard({
       <Text size="sm" c="dimmed">
         Live operations are split into two lanes: runtime loop (single reconcile worker) and job queue (manual/auxiliary jobs).
       </Text>
-
-      <Text fw={600} size="sm" c="dimmed">System Status</Text>
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
-        <Card withBorder h={126}>
-          <Group justify="space-between">
-            <Text fw={600}>Config Draft</Text>
-            <Badge color={hasUnsavedChanges ? "yellow" : "green"}>
-              {hasUnsavedChanges ? "unsaved changes" : "in sync"}
-            </Badge>
-          </Group>
-          <Text c="dimmed" size="sm" mt="xs">
-            UI draft and saved file consistency
-          </Text>
-        </Card>
-        <Card withBorder h={126}>
-          <Group justify="space-between">
-            <Text fw={600}>System Health</Text>
-            <Badge color={healthBadgeColor}>{healthStatus}</Badge>
-          </Group>
-          <Text c="dimmed" size="sm" mt="xs">
-            {primaryHealthReason}
-          </Text>
-        </Card>
-        <Card withBorder h={126}>
-          <Group justify="space-between">
-            <Text fw={600}>Runtime Loop</Text>
-            <Badge color={taskBadgeColor}>{taskState}</Badge>
-          </Group>
-          <Text c="dimmed" size="sm" mt="xs">
-            {runtimeStatus?.current_task.trigger_source ?? "waiting"}
-            {runtimeStatus?.current_task.phase ? ` · ${runtimeStatus.current_task.phase}` : ""}
-            {runtimeStatus?.current_task.active_movie_root
-              ? ` · movie root ${runtimeStatus.current_task.active_movie_root}`
-              : ""}
-            {runtimeStatus?.current_task.active_series_root
-              ? ` · series root ${runtimeStatus.current_task.active_series_root}`
-              : ""}
-          </Text>
-        </Card>
-        <Card withBorder h={126}>
-          <Group justify="space-between">
-            <Text fw={600}>Job Queue</Text>
-            <Badge color={jobsBadgeColor}>{activeJobs} active</Badge>
-          </Group>
-          <Text size="sm" c="dimmed" mt="xs">
-            queued={jobsSummary?.queued ?? 0} · running={jobsSummary?.running ?? 0}
-            {` · failed=${jobsSummary?.failed ?? 0}`}
-          </Text>
-          <Text size="sm" c="dimmed" mt="xs">Manual reconcile and API-triggered maintenance jobs</Text>
-        </Card>
-      </SimpleGrid>
+      <SystemStatusCards hasUnsavedChanges={hasUnsavedChanges} runtimeStatus={runtimeStatus} jobsSummary={jobsSummary} />
 
       <Text fw={600} size="sm" c="dimmed">Pipeline & Caches</Text>
       <SimpleGrid cols={{ base: 1, md: 4 }}>
