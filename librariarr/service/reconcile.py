@@ -50,12 +50,12 @@ class ServiceReconcileMixin:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if queued_movie_ids:
                     scoped_movie_ids = queued_movie_ids
-            if ingested_movie_ids:
+            if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
                 if scoped_movie_ids is None:
                     scoped_movie_ids = set(ingested_movie_ids)
                 else:
                     scoped_movie_ids.update(ingested_movie_ids)
-            if auto_added_movie_ids:
+            if auto_added_movie_ids and (incremental_mode or scoped_movie_ids is not None):
                 if scoped_movie_ids is None:
                     scoped_movie_ids = set(auto_added_movie_ids)
                 else:
@@ -66,7 +66,7 @@ class ServiceReconcileMixin:
                 queued_series_ids = get_sonarr_webhook_queue().consume_series_ids()
                 if queued_series_ids:
                     scoped_series_ids = queued_series_ids
-            if auto_added_series_ids:
+            if auto_added_series_ids and (incremental_mode or scoped_series_ids is not None):
                 if scoped_series_ids is None:
                     scoped_series_ids = set(auto_added_series_ids)
                 else:

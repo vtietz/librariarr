@@ -231,3 +231,34 @@ def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_pa
     assert incoming_file.exists()
     assert existing_managed.exists()
     assert service.radarr.updated_paths == []
+
+
+def test_full_reconcile_projects_all_movies_even_with_ingest_ids(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    movie_a_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_b_dir = managed_root / "Fixture Catalog B (2009)"
+    movie_a_dir.mkdir(parents=True)
+    movie_b_dir.mkdir(parents=True)
+    (movie_a_dir / "a.mkv").write_text("a", encoding="utf-8")
+    (movie_b_dir / "b.mkv").write_text("b", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(1, "Fixture Catalog A", 2008, movie_a_dir),
+            _movie(2, "Fixture Catalog B", 2009, movie_b_dir),
+        ]
+    )
+
+    service._ingest_movies_from_library_roots = lambda _affected_paths: {1}
+
+    service.reconcile(affected_paths=None)
+
+    projected_a = _projected_file(library_root, "Fixture Catalog A (2008)", "a.mkv")
+    projected_b = _projected_file(library_root, "Fixture Catalog B (2009)", "b.mkv")
+
+    assert projected_a.exists()
+    assert projected_b.exists()
