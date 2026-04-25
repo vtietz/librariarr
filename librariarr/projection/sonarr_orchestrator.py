@@ -73,4 +73,7 @@ def _sonarr_projection_state_db_path() -> Path:
     configured = str(os.getenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", "")).strip()
     if configured:
         return Path(configured)
+    config_dir = Path("/config")
+    if config_dir.is_dir():
+        return config_dir / "librariarr-sonarr-state.db"
     return Path("librariarr-sonarr-state.db")
