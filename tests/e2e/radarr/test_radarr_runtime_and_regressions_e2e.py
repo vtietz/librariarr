@@ -256,22 +256,41 @@ def test_radarr_e2e_runtime_reconcile_processes_webhook_scoped_projection() -> N
 
     queue = get_radarr_webhook_queue()
     queue.consume_movie_ids()
-    queue.enqueue(
-        movie_id=int(movie_b["id"]),
-        event_type="Download",
-        normalized_path=str(folder_b),
-    )
 
     stop_event = threading.Event()
     runtime_thread = threading.Thread(target=service.run, kwargs={"stop_event": stop_event})
     runtime_thread.start()
 
     try:
+        # Phase 1: startup full reconcile projects both A and B — let it complete.
+        _wait_for_condition(
+            lambda: projected_a.exists() and projected_b.exists(),
+            timeout_seconds=30,
+            error_message="Timed out waiting for startup full reconcile to project both A and B",
+        )
+
+        # Phase 2: reset state, then verify incremental reconcile scopes to B only.
+        queue.consume_movie_ids()
+        projected_a.unlink()
+        projected_b.unlink()
+
+        queue.enqueue(
+            movie_id=int(movie_b["id"]),
+            event_type="Download",
+            normalized_path=str(folder_b),
+        )
+        # Write source_b to trigger a filesystem event so the debounce fires.
+        source_b.write_text("b-v2", encoding="utf-8")
+
         _wait_for_condition(
             lambda: projected_b.exists(),
             timeout_seconds=30,
-            error_message="Timed out waiting for runtime-scoped projection for movie B",
+            error_message="Timed out waiting for runtime-scoped incremental projection for movie B",
         )
+
+        # Allow a short window to confirm A is not swept in by a stray reconcile.
+        time.sleep(2)
+
     finally:
         stop_event.set()
         runtime_thread.join(timeout=20)
