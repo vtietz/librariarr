@@ -104,7 +104,11 @@ def queue_maintenance_reconcile(
             LOG.error("Manual reconcile failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
-    task_key = RECONCILE_TASK_INCREMENTAL_KEY if affected_paths else RECONCILE_TASK_FULL_KEY
+    task_key = (
+        f"manual-{RECONCILE_TASK_INCREMENTAL_KEY}"
+        if affected_paths
+        else f"manual-{RECONCILE_TASK_FULL_KEY}"
+    )
     job_id = manager.submit(
         kind="reconcile-manual-scoped" if affected_paths else "reconcile-manual",
         name="Manual Reconcile (Scoped)" if affected_paths else "Manual Reconcile",

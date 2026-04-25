@@ -96,6 +96,8 @@ class ServiceBootstrapMixin:
         self._next_arr_root_poll_at = 0.0
         self._radarr_missing_managed_roots: set[str] = set()
         self._sonarr_missing_managed_roots: set[str] = set()
+        self._movie_auto_add_root_cursor = 0
+        self._series_auto_add_root_cursor = 0
         self.runtime_status_tracker = get_runtime_status_tracker()
 
     def _build_series_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:

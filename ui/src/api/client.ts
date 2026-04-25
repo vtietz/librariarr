@@ -380,6 +380,8 @@ export type RuntimeStatusResponse = {
     started_at: number | null;
     updated_at: number | null;
     error: string | null;
+    active_movie_root?: string | null;
+    active_series_root?: string | null;
     movie_folders_seen?: number;
     series_folders_seen?: number;
     affected_paths_count?: number | null;
@@ -393,6 +395,8 @@ export type RuntimeStatusResponse = {
     duration_seconds: number | null;
     followup_pending?: boolean;
     error: string | null;
+    active_movie_root?: string | null;
+    active_series_root?: string | null;
     movie_folders_seen?: number;
     series_folders_seen?: number;
     created_links?: number;

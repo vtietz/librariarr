@@ -168,6 +168,8 @@ export default function Dashboard({
   const runtimeTaskFromPending = findPendingTask((task) => task.source === "runtime-status");
 
   const buildReconcileScopeSummary = (metrics: {
+    active_movie_root?: string | null;
+    active_series_root?: string | null;
     movie_folders_seen?: number;
     series_folders_seen?: number;
     affected_paths_count?: number | null;
@@ -187,7 +189,11 @@ export default function Dashboard({
         : "full";
     const movieCount = hasMovieCount ? metrics.movie_folders_seen : 0;
     const seriesCount = hasSeriesCount ? metrics.series_folders_seen : 0;
-    return `${modeText} · considered folders M/S ${movieCount}/${seriesCount}`;
+    const movieRootText = metrics.active_movie_root ? ` · movie root ${metrics.active_movie_root}` : "";
+    const seriesRootText = metrics.active_series_root
+      ? ` · series root ${metrics.active_series_root}`
+      : "";
+    return `${modeText} · considered folders M/S ${movieCount}/${seriesCount}${movieRootText}${seriesRootText}`;
   };
 
   const runtimeLoopStatus: DashboardTaskStatus =
@@ -338,6 +344,12 @@ export default function Dashboard({
           <Text c="dimmed" size="sm" mt="xs">
             {runtimeStatus?.current_task.trigger_source ?? "waiting"}
             {runtimeStatus?.current_task.phase ? ` · ${runtimeStatus.current_task.phase}` : ""}
+            {runtimeStatus?.current_task.active_movie_root
+              ? ` · movie root ${runtimeStatus.current_task.active_movie_root}`
+              : ""}
+            {runtimeStatus?.current_task.active_series_root
+              ? ` · series root ${runtimeStatus.current_task.active_series_root}`
+              : ""}
           </Text>
         </Card>
         <Card withBorder h={126}>

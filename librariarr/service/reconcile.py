@@ -49,16 +49,22 @@ class ServiceReconcileMixin:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if queued_movie_ids:
                     scoped_movie_ids = queued_movie_ids
-            if auto_added_movie_ids and scoped_movie_ids is not None:
-                scoped_movie_ids.update(auto_added_movie_ids)
+            if auto_added_movie_ids:
+                if scoped_movie_ids is None:
+                    scoped_movie_ids = set(auto_added_movie_ids)
+                else:
+                    scoped_movie_ids.update(auto_added_movie_ids)
 
             scoped_series_ids: set[int] | None = None
             if self.sonarr_enabled and self.sonarr_sync_enabled:
                 queued_series_ids = get_sonarr_webhook_queue().consume_series_ids()
                 if queued_series_ids:
                     scoped_series_ids = queued_series_ids
-            if auto_added_series_ids and scoped_series_ids is not None:
-                scoped_series_ids.update(auto_added_series_ids)
+            if auto_added_series_ids:
+                if scoped_series_ids is None:
+                    scoped_series_ids = set(auto_added_series_ids)
+                else:
+                    scoped_series_ids.update(auto_added_series_ids)
 
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
@@ -149,6 +155,8 @@ class ServiceReconcileMixin:
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_active_reconcile_metrics(
                     {
+                        "active_movie_root": None,
+                        "active_series_root": None,
                         "movie_folders_seen": int(
                             movie_projection_metrics.get("planned_movies") or 0
                         ),
@@ -209,26 +217,33 @@ class ServiceReconcileMixin:
             if path_raw
         }
 
-        discovered_folders: set[Path] = set()
-        for managed_root, _library_root in self.movie_root_mappings:
-            discovered_folders.update(
-                discover_movie_folders(managed_root, self.video_exts, self.scan_exclude_paths)
-            )
-
-        unmatched_folders = sorted(
-            folder
-            for folder in discovered_folders
-            if folder.resolve(strict=False) not in existing_paths
-            and self._folder_matches_affected_paths(folder, affected_paths)
+        unmatched_folders = self._discover_unmatched_folders(
+            mappings=self.movie_root_mappings,
+            existing_paths=existing_paths,
+            affected_paths=affected_paths,
+            discover_fn=discover_movie_folders,
         )
         if not unmatched_folders:
             return set()
 
+        selected_folders, total_unmatched, next_cursor = self._select_root_chunk(
+            unmatched_folders=unmatched_folders,
+            mappings=self.movie_root_mappings,
+            cursor=self._movie_auto_add_root_cursor,
+            batch_limit=max(1, int(self.config.runtime.auto_add_batch_size)),
+        )
+        if not selected_folders:
+            return set()
+        self._movie_auto_add_root_cursor = next_cursor
+
         added_movie_ids: set[int] = set()
-        for folder in unmatched_folders:
-            managed_root = self._resolve_managed_root_for_folder(folder, self.movie_root_mappings)
-            if managed_root is None:
-                continue
+        for managed_root, folder in selected_folders:
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {
+                        "active_movie_root": str(managed_root),
+                    }
+                )
 
             added_movie = self.radarr_sync.auto_add_movie_for_folder(folder, managed_root)
             if not isinstance(added_movie, dict):
@@ -236,6 +251,20 @@ class ServiceReconcileMixin:
             movie_id = added_movie.get("id")
             if isinstance(movie_id, int):
                 added_movie_ids.add(movie_id)
+                LOG.info(
+                    "Queued movie_id=%s for movie projection after Radarr path reconciliation: "
+                    "managed_root=%s folder=%s",
+                    movie_id,
+                    managed_root,
+                    folder,
+                )
+
+        LOG.info(
+            "Radarr auto-add chunk processed: selected=%s total_unmatched=%s next_root_cursor=%s",
+            len(selected_folders),
+            total_unmatched,
+            self._movie_auto_add_root_cursor,
+        )
 
         return added_movie_ids
 
@@ -261,26 +290,33 @@ class ServiceReconcileMixin:
             if path_raw
         }
 
-        discovered_folders: set[Path] = set()
-        for managed_root, _library_root in self.series_root_mappings:
-            discovered_folders.update(
-                discover_series_folders(managed_root, self.video_exts, self.scan_exclude_paths)
-            )
-
-        unmatched_folders = sorted(
-            folder
-            for folder in discovered_folders
-            if folder.resolve(strict=False) not in existing_paths
-            and self._folder_matches_affected_paths(folder, affected_paths)
+        unmatched_folders = self._discover_unmatched_folders(
+            mappings=self.series_root_mappings,
+            existing_paths=existing_paths,
+            affected_paths=affected_paths,
+            discover_fn=discover_series_folders,
         )
         if not unmatched_folders:
             return set()
 
+        selected_folders, total_unmatched, next_cursor = self._select_root_chunk(
+            unmatched_folders=unmatched_folders,
+            mappings=self.series_root_mappings,
+            cursor=self._series_auto_add_root_cursor,
+            batch_limit=max(1, int(self.config.runtime.auto_add_batch_size)),
+        )
+        if not selected_folders:
+            return set()
+        self._series_auto_add_root_cursor = next_cursor
+
         added_series_ids: set[int] = set()
-        for folder in unmatched_folders:
-            managed_root = self._resolve_managed_root_for_folder(folder, self.series_root_mappings)
-            if managed_root is None:
-                continue
+        for managed_root, folder in selected_folders:
+            if getattr(self, "runtime_status_tracker", None) is not None:
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {
+                        "active_series_root": str(managed_root),
+                    }
+                )
 
             added_series = self.sonarr_sync.auto_add_series_for_folder(folder, managed_root)
             if not isinstance(added_series, dict):
@@ -288,8 +324,81 @@ class ServiceReconcileMixin:
             series_id = added_series.get("id")
             if isinstance(series_id, int):
                 added_series_ids.add(series_id)
+                LOG.info(
+                    "Queued series_id=%s for series projection after Sonarr path reconciliation: "
+                    "managed_root=%s folder=%s",
+                    series_id,
+                    managed_root,
+                    folder,
+                )
+
+        LOG.info(
+            "Sonarr auto-add chunk processed: selected=%s total_unmatched=%s next_root_cursor=%s",
+            len(selected_folders),
+            total_unmatched,
+            self._series_auto_add_root_cursor,
+        )
 
         return added_series_ids
+
+    def _discover_unmatched_folders(
+        self,
+        *,
+        mappings: list[tuple[Path, Path]],
+        existing_paths: set[Path],
+        affected_paths: set[Path] | None,
+        discover_fn,
+    ) -> list[Path]:
+        discovered_folders: set[Path] = set()
+        for managed_root, _library_root in mappings:
+            discovered_folders.update(
+                discover_fn(managed_root, self.video_exts, self.scan_exclude_paths)
+            )
+
+        return sorted(
+            folder
+            for folder in discovered_folders
+            if folder.resolve(strict=False) not in existing_paths
+            and self._folder_matches_affected_paths(folder, affected_paths)
+        )
+
+    def _select_root_chunk(
+        self,
+        *,
+        unmatched_folders: list[Path],
+        mappings: list[tuple[Path, Path]],
+        cursor: int,
+        batch_limit: int,
+    ) -> tuple[list[tuple[Path, Path]], int, int]:
+        unmatched_by_root: dict[Path, list[Path]] = {managed: [] for managed, _ in mappings}
+        for folder in unmatched_folders:
+            managed_root = self._resolve_managed_root_for_folder(folder, mappings)
+            if managed_root is None:
+                continue
+            unmatched_by_root.setdefault(managed_root, []).append(folder)
+
+        configured_roots = [managed for managed, _ in mappings]
+        if not configured_roots:
+            return [], len(unmatched_folders), cursor
+
+        start_index = cursor % len(configured_roots)
+        ordered_roots = configured_roots[start_index:] + configured_roots[:start_index]
+        selected_folders: list[tuple[Path, Path]] = []
+        for managed_root in ordered_roots:
+            for folder in unmatched_by_root.get(managed_root, []):
+                selected_folders.append((managed_root, folder))
+                if len(selected_folders) >= batch_limit:
+                    break
+            if len(selected_folders) >= batch_limit:
+                break
+
+        if not selected_folders:
+            return [], len(unmatched_folders), cursor
+
+        last_managed_root = selected_folders[-1][0]
+        last_root_index = configured_roots.index(last_managed_root)
+        next_cursor = (last_root_index + 1) % len(configured_roots)
+        return selected_folders, len(unmatched_folders), next_cursor
 
     def _folder_matches_affected_paths(
         self,

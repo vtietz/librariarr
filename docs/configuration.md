@@ -424,6 +424,12 @@ Audio language token notes:
 - LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
 - Set `0` to disable this poller.
 
+`runtime.auto_add_batch_size`:
+- Maximum unmatched folders processed per reconcile cycle for auto-add/path-reconcile.
+- Applies separately to movie and series flows.
+- Work is processed in root-aware chunks (round-robin across configured roots) to keep long recoveries responsive.
+- Default is `150`; lower values reduce cycle duration but may take more cycles to converge.
+
 `runtime.scan_video_extensions`:
 - Extensions that mark a directory as a media folder.
 - Leading dots are optional (`mkv` and `.mkv` are treated the same).
