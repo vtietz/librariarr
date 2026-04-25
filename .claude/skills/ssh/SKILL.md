@@ -8,6 +8,25 @@ allowed-tools: Bash(ssh *) Bash(echo *) Read Glob Grep Edit Write
 
 SSH into `$ARGUMENTS` and follow the two-phase playbook below.
 
+## Terminal Discovery (VS Code)
+
+Before opening a new SSH connection, always locate and reuse an existing terminal when possible.
+
+1. **Probe existing terminals first**
+	- Query likely terminal IDs (for example: `1..12`) and keep IDs that return output.
+	- Treat "No terminal found" as closed/inactive; do not fail the workflow.
+2. **Identify the SSH terminal**
+	- Prefer terminals whose prompt/output indicates a remote shell (for example `user@host`, `root@diskstation`, remote paths like `/volume1/...`).
+	- If output is mostly logs, send a harmless command (`pwd` or `whoami && hostname`) to confirm the active shell context.
+3. **Reuse, do not multiply terminals**
+	- Send commands to the confirmed terminal instead of launching fresh sessions repeatedly.
+	- Only start a new `ssh user@host` session when no active terminal can be confirmed.
+4. **Handle interactive prompts correctly**
+	- If a password/passphrase prompt appears, ask the user for the value through the proper question flow and continue in the same terminal.
+	- After authentication, immediately run `whoami && hostname && pwd` as proof of context.
+5. **Recover from noisy log streams**
+	- If attached logs hide prompts, send `echo READY` first; then run the next command once prompt responsiveness is confirmed.
+
 ## Phase 1 — Remote Diagnostics
 
 1. **Open the session** — run `ssh user@host`. Tell the user to authenticate if needed, then continue.

@@ -168,14 +168,19 @@ cleanup:
 
 runtime:
   # Debounce window for filesystem event bursts (seconds).
-  debounce_seconds: 8
+  # Lower values improve "time to first visible result" after new files appear.
+  # Recommended responsive range: 2-4.
+  debounce_seconds: 3
   # Minutes between full maintenance reconciles (0 = startup-only + events).
   maintenance_interval_minutes: 0
   # Minutes between Arr root-folder checks used to auto-trigger reconcile when
   # configured managed roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
   # Max unmatched folders processed per reconcile cycle across roots (movies/series each).
-  auto_add_batch_size: 150
+  # Lower = faster visible progress, higher = better backlog throughput.
+  # Recommended responsive range: 5-25 (common default: 10).
+  # For large one-time backlog imports, temporarily raise to 50-100.
+  auto_add_batch_size: 10
   # File extensions used to detect movie folders.
   scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts", ".m4v", ".mpg", ".mpeg"]
 
