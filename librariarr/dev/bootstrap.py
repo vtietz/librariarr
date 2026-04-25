@@ -152,15 +152,15 @@ def _normalize_path(path: str) -> str:
     return normalized if normalized else "/"
 
 
-_RADARR_ROOT = "/data/radarr_library"
-_SONARR_ROOT = "/data/sonarr_library"
+_RADARR_MANAGED_ROOT = "/data/movies"
+_SONARR_MANAGED_ROOT = "/data/series"
 
 DEV_MOVIES = [
-    {"title": "Toy Story", "year": 1995, "tmdbId": 862, "root": f"{_RADARR_ROOT}/age_06"},
+    {"title": "Toy Story", "year": 1995, "tmdbId": 862, "root": f"{_RADARR_MANAGED_ROOT}/age_06"},
 ]
 
 DEV_SERIES = [
-    {"title": "Bluey", "year": 2018, "tvdbId": 354974, "root": f"{_SONARR_ROOT}/age_06"},
+    {"title": "Bluey", "year": 2018, "tvdbId": 354974, "root": f"{_SONARR_MANAGED_ROOT}/age_06"},
 ]
 
 
@@ -326,17 +326,6 @@ def _ensure_root_folders(
         LOG.info("Added %s root folder: %s", label, root_path)
 
 
-def _safe_shadow_roots(series_root_mappings: list[dict[str, Any]]) -> list[str]:
-    shadow_roots: list[str] = []
-    for mapping in series_root_mappings:
-        shadow_root = str(mapping.get("shadow_root", "")).strip()
-        if not shadow_root:
-            continue
-        if shadow_root not in shadow_roots:
-            shadow_roots.append(shadow_root)
-    return shadow_roots
-
-
 def _ensure_container_paths(
     mappings: list[dict[str, Any]],
     keys: tuple[str, ...] = ("nested_root", "shadow_root"),
@@ -357,13 +346,6 @@ def _ensure_container_paths(
 
 def _is_non_empty_mapping_list(value: Any) -> bool:
     return isinstance(value, list) and any(isinstance(item, dict) for item in value)
-
-
-def _pick_roots_for_service(shadow_roots: list[str], service_hint: str, fallback: str) -> list[str]:
-    selected = [path for path in shadow_roots if service_hint in path.lower()]
-    if selected:
-        return selected
-    return [fallback]
 
 
 def _ensure_dev_sonarr_mappings(
@@ -659,17 +641,16 @@ def main() -> None:
     _ensure_container_paths(series_root_mappings)
     _ensure_container_paths(movie_root_mappings, keys=("managed_root", "library_root"))
 
-    shadow_roots = _safe_shadow_roots(series_root_mappings)
     radarr_roots = [
-        str(m.get("library_root", "")).strip()
+        str(m.get("managed_root", "")).strip()
         for m in movie_root_mappings
-        if str(m.get("library_root", "")).strip()
-    ] or ["/data/radarr_library"]
-    sonarr_roots = _pick_roots_for_service(
-        shadow_roots,
-        service_hint="sonarr",
-        fallback="/data/sonarr_library",
-    )
+        if str(m.get("managed_root", "")).strip()
+    ] or ["/data/movies"]
+    sonarr_roots = [
+        str(m.get("nested_root", "")).strip()
+        for m in series_root_mappings
+        if str(m.get("nested_root", "")).strip()
+    ] or ["/data/series"]
 
     _sync_env_file(
         radarr_url=radarr_effective_url,
