@@ -137,8 +137,7 @@ def main() -> None:
             LOG.warning("Skipping %s due to OS error: %s", target_path, exc)
 
     LOG.info(
-        "Media permission repair completed "
-        "(paths=%s created=%s chowned=%s fixed=%s uid=%s gid=%s)",
+        "Media permission repair completed (paths=%s created=%s chowned=%s fixed=%s uid=%s gid=%s)",
         len(target_paths),
         created_count,
         chowned_count,
