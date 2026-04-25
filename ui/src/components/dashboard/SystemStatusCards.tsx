@@ -7,16 +7,6 @@ type Props = {
   jobsSummary: JobsSummary | null;
 };
 
-function runtimeBadgeColor(taskState: string): string {
-  if (taskState === "running") {
-    return "blue";
-  }
-  if (taskState === "error") {
-    return "red";
-  }
-  return "gray";
-}
-
 function healthBadgeColor(healthStatus: string): string {
   if (healthStatus === "ok") {
     return "green";
@@ -32,7 +22,6 @@ export default function SystemStatusCards({
   runtimeStatus,
   jobsSummary,
 }: Props) {
-  const taskState = runtimeStatus?.current_task.state ?? "idle";
   const healthStatus = runtimeStatus?.health?.status ?? "starting";
   const primaryHealthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for snapshot";
 
@@ -50,7 +39,7 @@ export default function SystemStatusCards({
   return (
     <>
       <Text fw={600} size="sm" c="dimmed">System Status</Text>
-      <SimpleGrid cols={{ base: 1, md: 4 }}>
+      <SimpleGrid cols={{ base: 1, md: 3 }}>
         <Card withBorder h={126}>
           <Group justify="space-between">
             <Text fw={600}>Config Draft</Text>
@@ -73,23 +62,6 @@ export default function SystemStatusCards({
           </Text>
           <Text c="dimmed" size="xs" mt={4}>
             health = runtime + cache freshness + job failures
-          </Text>
-        </Card>
-
-        <Card withBorder h={126}>
-          <Group justify="space-between">
-            <Text fw={600}>Runtime Loop</Text>
-            <Badge color={runtimeBadgeColor(taskState)}>{taskState}</Badge>
-          </Group>
-          <Text c="dimmed" size="sm" mt="xs" lineClamp={2}>
-            {runtimeStatus?.current_task.trigger_source ?? "waiting"}
-            {runtimeStatus?.current_task.phase ? ` · ${runtimeStatus.current_task.phase}` : ""}
-            {runtimeStatus?.current_task.active_movie_root
-              ? ` · movie root ${runtimeStatus.current_task.active_movie_root}`
-              : ""}
-            {runtimeStatus?.current_task.active_series_root
-              ? ` · series root ${runtimeStatus.current_task.active_series_root}`
-              : ""}
           </Text>
         </Card>
 
