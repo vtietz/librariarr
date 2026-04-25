@@ -249,6 +249,41 @@ def test_reconcile_scopes_sonarr_projection_via_webhook_queue(tmp_path: Path) ->
     assert projected_b.exists()
 
 
+def test_reconcile_logs_scope_resolution_for_sonarr_webhook_scope(tmp_path: Path, caplog) -> None:
+    managed_root = tmp_path / "series"
+    library_root = tmp_path / "sonarr_library"
+
+    folder = managed_root / "Series B (2021)" / "Season 01"
+    folder.mkdir(parents=True)
+    source = folder / "Series.B.S01E01.1080p.mkv"
+    source.write_text("b", encoding="utf-8")
+
+    config = _make_config(managed_root, library_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+    service.sonarr = FakeSonarr(
+        series=[
+            {
+                "id": 202,
+                "title": "Series B",
+                "year": 2021,
+                "path": str(managed_root / "Series B (2021)"),
+            },
+        ]
+    )
+
+    queue = get_sonarr_webhook_queue()
+    queue.consume_series_ids()
+    queue.enqueue(series_id=202, event_type="EpisodeFile", normalized_path=str(source))
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service.reconcile()
+
+    assert "Reconcile scope resolved:" in caplog.text
+    assert "series_scope_kind=scoped" in caplog.text
+    assert "series_ids_webhook_count=1" in caplog.text
+    assert "Projection dispatch: arr=sonarr" in caplog.text
+
+
 def test_reconcile_uses_sonarr_title_for_library_folder_when_configured(tmp_path: Path) -> None:
     managed_root = tmp_path / "series"
     library_root = tmp_path / "sonarr_library"

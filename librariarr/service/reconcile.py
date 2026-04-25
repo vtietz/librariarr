@@ -6,12 +6,7 @@ from pathlib import Path
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .common import LOG
-
-
-def _first_path(paths: set[Path] | None) -> str:
-    if not paths:
-        return "-"
-    return sorted(str(path) for path in paths)[0]
+from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
 
 
 class ServiceReconcileMixin:
@@ -27,7 +22,7 @@ class ServiceReconcileMixin:
             reconcile_mode = "incremental" if incremental_mode else "full"
             affected_paths_count: int | str = len(affected_paths) if incremental_mode else "all"
             trigger_source = self._current_reconcile_source()
-            trigger_path = _first_path(affected_paths)
+            trigger_path = first_path(affected_paths)
             LOG.info(
                 "Reconcile started: source=%s mode=%s affected_paths=%s trigger_path=%s",
                 trigger_source,
@@ -46,6 +41,7 @@ class ServiceReconcileMixin:
             auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
 
             scoped_movie_ids: set[int] | None = None
+            queued_movie_ids: set[int] = set()
             if self.radarr_enabled:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if queued_movie_ids:
@@ -61,7 +57,18 @@ class ServiceReconcileMixin:
                 else:
                     scoped_movie_ids.update(auto_added_movie_ids)
 
+            movie_scope_kind = "scoped" if scoped_movie_ids is not None else "full"
+            if movie_scope_kind == "scoped":
+                movie_full_scope_reason = "-"
+            elif not self.radarr_enabled:
+                movie_full_scope_reason = "arr_disabled_or_sync_disabled"
+            elif not incremental_mode:
+                movie_full_scope_reason = "full_mode_requested"
+            else:
+                movie_full_scope_reason = "incremental_no_ids_from_sources"
+
             scoped_series_ids: set[int] | None = None
+            queued_series_ids: set[int] = set()
             if self.sonarr_enabled and self.sonarr_sync_enabled:
                 queued_series_ids = get_sonarr_webhook_queue().consume_series_ids()
                 if queued_series_ids:
@@ -72,24 +79,63 @@ class ServiceReconcileMixin:
                 else:
                     scoped_series_ids.update(auto_added_series_ids)
 
+            series_scope_kind = "scoped" if scoped_series_ids is not None else "full"
+            if series_scope_kind == "scoped":
+                series_full_scope_reason = "-"
+            elif not (self.sonarr_enabled and self.sonarr_sync_enabled):
+                series_full_scope_reason = "arr_disabled_or_sync_disabled"
+            elif not incremental_mode:
+                series_full_scope_reason = "full_mode_requested"
+            else:
+                series_full_scope_reason = "incremental_no_ids_from_sources"
+
+            log_scope_resolved(
+                trigger_source=trigger_source,
+                reconcile_mode=reconcile_mode,
+                affected_paths_count=affected_paths_count,
+                trigger_path=trigger_path,
+                movie_scope_kind=movie_scope_kind,
+                movie_full_scope_reason=movie_full_scope_reason,
+                scoped_movie_ids=scoped_movie_ids,
+                queued_movie_ids=queued_movie_ids,
+                ingested_movie_ids=ingested_movie_ids,
+                auto_added_movie_ids=auto_added_movie_ids,
+                series_scope_kind=series_scope_kind,
+                series_full_scope_reason=series_full_scope_reason,
+                scoped_series_ids=scoped_series_ids,
+                queued_series_ids=queued_series_ids,
+                auto_added_series_ids=auto_added_series_ids,
+            )
+
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
 
             had_projection_error = False
-            movie_projection_metrics = {
-                "scoped_movie_count": 0,
-                "planned_movies": 0,
-                "skipped_movies": 0,
-                "projected_files": 0,
-                "unchanged_files": 0,
-                "skipped_files": 0,
-            }
+            movie_projection_metrics = dict.fromkeys(
+                [
+                    "scoped_movie_count",
+                    "planned_movies",
+                    "skipped_movies",
+                    "projected_files",
+                    "unchanged_files",
+                    "skipped_files",
+                ],
+                0,
+            )
             if self.radarr_enabled:
                 if self.movie_projection is None:
                     raise RuntimeError(
                         "MovieProjectionOrchestrator is required when Radarr is enabled"
                     )
                 self.movie_projection.radarr = self.radarr
+                log_projection_dispatch(
+                    arr="radarr",
+                    trigger_source=trigger_source,
+                    reconcile_mode=reconcile_mode,
+                    scope_kind=movie_scope_kind,
+                    full_scope_reason=movie_full_scope_reason,
+                    scoped_ids=scoped_movie_ids,
+                )
                 try:
                     movie_projection_metrics = self.movie_projection.reconcile(scoped_movie_ids)
                 except Exception as exc:
@@ -103,20 +149,31 @@ class ServiceReconcileMixin:
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("indexed")
 
-            series_projection_metrics = {
-                "scoped_series_count": 0,
-                "planned_series": 0,
-                "skipped_series": 0,
-                "projected_files": 0,
-                "unchanged_files": 0,
-                "skipped_files": 0,
-            }
+            series_projection_metrics = dict.fromkeys(
+                [
+                    "scoped_series_count",
+                    "planned_series",
+                    "skipped_series",
+                    "projected_files",
+                    "unchanged_files",
+                    "skipped_files",
+                ],
+                0,
+            )
             if self.sonarr_enabled and self.sonarr_sync_enabled:
                 if self.sonarr_projection is None:
                     raise RuntimeError(
                         "SonarrProjectionOrchestrator is required when Sonarr is enabled"
                     )
                 self.sonarr_projection.sonarr = self.sonarr
+                log_projection_dispatch(
+                    arr="sonarr",
+                    trigger_source=trigger_source,
+                    reconcile_mode=reconcile_mode,
+                    scope_kind=series_scope_kind,
+                    full_scope_reason=series_full_scope_reason,
+                    scoped_ids=scoped_series_ids,
+                )
                 try:
                     series_projection_metrics = self.sonarr_projection.reconcile(scoped_series_ids)
                 except Exception as exc:
@@ -614,20 +671,6 @@ class ServiceReconcileMixin:
             except ValueError:
                 continue
             return managed_root
-        return None
-
-    def _resolve_library_root_for_folder(
-        self,
-        folder: Path,
-        mappings: list[tuple[Path, Path]],
-    ) -> Path | None:
-        sorted_mappings = sorted(mappings, key=lambda item: len(item[0].parts), reverse=True)
-        for managed_root, library_root in sorted_mappings:
-            try:
-                folder.relative_to(managed_root)
-            except ValueError:
-                continue
-            return library_root
         return None
 
     def _current_reconcile_source(self) -> str:

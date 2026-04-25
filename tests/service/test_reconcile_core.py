@@ -113,6 +113,35 @@ def test_reconcile_scopes_projection_to_webhook_movie_ids(tmp_path: Path) -> Non
     queue.consume_movie_ids()
 
 
+def test_reconcile_logs_scope_resolution_for_webhook_movie_scope(tmp_path: Path, caplog) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    movie_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "a.mkv").write_text("a", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(2, "Fixture Catalog A", 2008, movie_dir)],
+    )
+
+    queue = get_radarr_webhook_queue()
+    queue.consume_movie_ids()
+    queue.enqueue(movie_id=2, event_type="Test", normalized_path=str(movie_dir))
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service.reconcile()
+
+    assert "Reconcile scope resolved:" in caplog.text
+    assert "movie_scope_kind=scoped" in caplog.text
+    assert "movie_ids_webhook_count=1" in caplog.text
+    assert "Projection dispatch: arr=radarr" in caplog.text
+
+    queue.consume_movie_ids()
+
+
 def test_reconcile_skips_movie_projection_when_radarr_disabled(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"
