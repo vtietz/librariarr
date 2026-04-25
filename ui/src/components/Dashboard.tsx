@@ -282,7 +282,13 @@ export default function Dashboard({
   ];
 
   const uncategorizedTaskCount = uncategorizedTaskSlots.length;
-
+  const taskColumnStyles = {
+    task: { width: "18rem" },
+    status: { width: "7.5rem" },
+    source: { width: "9rem" },
+    queued: { width: "8rem" },
+    duration: { width: "7rem" },
+  } as const;
   return (
     <Stack gap="md">
       <Title order={3}>Dashboard</Title>
@@ -419,40 +425,47 @@ export default function Dashboard({
         <Text size="sm" c="dimmed" mb="sm">
           Runtime loop and background queue are shown with the same slot layout for faster scanning.
         </Text>
-        <Table highlightOnHover withTableBorder withColumnBorders>
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th>Task</Table.Th>
-              <Table.Th>Status</Table.Th>
-              <Table.Th>Source</Table.Th>
-              <Table.Th>Detail</Table.Th>
-              <Table.Th>Queued</Table.Th>
-              <Table.Th>Duration</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {taskSlots.map((slot) => (
-              <Table.Tr key={slot.id}>
-                <Table.Td>{slot.name}</Table.Td>
-                <Table.Td>
-                  <Badge color={badgeForTask(slot.status)}>{slot.status}</Badge>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{slot.source}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed" lineClamp={2}>{slot.detail}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{slot.queuedAt}</Text>
-                </Table.Td>
-                <Table.Td>
-                  <Text size="sm" c="dimmed">{slot.duration}</Text>
-                </Table.Td>
+        <ScrollArea type="auto" scrollbars="x">
+          <Table highlightOnHover withTableBorder withColumnBorders style={{ tableLayout: "fixed", minWidth: "58rem" }}>
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th style={taskColumnStyles.task}>Task</Table.Th>
+                <Table.Th style={taskColumnStyles.status}>Status</Table.Th>
+                <Table.Th style={taskColumnStyles.source}>Source</Table.Th>
+                <Table.Th>Detail</Table.Th>
+                <Table.Th style={taskColumnStyles.queued}>Queued</Table.Th>
+                <Table.Th style={taskColumnStyles.duration}>Duration</Table.Th>
               </Table.Tr>
-            ))}
-          </Table.Tbody>
-        </Table>
+            </Table.Thead>
+            <Table.Tbody>
+              {taskSlots.map((slot) => (
+                <Table.Tr key={slot.id}>
+                  <Table.Td style={taskColumnStyles.task}>{slot.name}</Table.Td>
+                  <Table.Td style={taskColumnStyles.status}>
+                    <Badge
+                      color={badgeForTask(slot.status)}
+                      style={{ width: "6.5rem", justifyContent: "center" }}
+                    >
+                      {slot.status}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td style={taskColumnStyles.source}>
+                    <Text size="sm" c="dimmed">{slot.source}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="sm" c="dimmed" lineClamp={2}>{slot.detail}</Text>
+                  </Table.Td>
+                  <Table.Td style={taskColumnStyles.queued}>
+                    <Text size="sm" c="dimmed">{slot.queuedAt}</Text>
+                  </Table.Td>
+                  <Table.Td style={taskColumnStyles.duration}>
+                    <Text size="sm" c="dimmed">{slot.duration}</Text>
+                  </Table.Td>
+                </Table.Tr>
+              ))}
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
       </Card>
 
       <Card withBorder>
