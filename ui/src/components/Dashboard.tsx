@@ -141,13 +141,6 @@ export default function Dashboard({
     duration: string;
   };
 
-  const toDashboardTaskStatus = (status: string): DashboardTaskStatus => {
-    if (status === "queued" || status === "running" || status === "error") {
-      return status;
-    }
-    return "idle";
-  };
-
   const pendingTasks = runtimeStatus?.pending_tasks ?? [];
   const consumedTaskIds = new Set<string>();
   const findPendingTask = (predicate: (task: (typeof pendingTasks)[number]) => boolean) => {
@@ -159,21 +152,13 @@ export default function Dashboard({
   };
 
   const filesystemTask = findPendingTask((task) => task.id === "filesystem-debounce");
-  const manualReconcileTask = findPendingTask((task) =>
-    task.name.toLowerCase().includes("manual reconcile")
-  );
-  const mappedRefreshTask = findPendingTask((task) =>
-    task.name.toLowerCase().includes("refresh mapped")
-  );
+  const manualReconcileTask = findPendingTask((task) => task.name.toLowerCase().includes("manual reconcile"));
+  const mappedRefreshTask = findPendingTask((task) => task.name.toLowerCase().includes("refresh mapped"));
+  const discoverySnapshotTask = findPendingTask((task) => task.name.toLowerCase().includes("discovery snapshot rebuild"));
+  const reconcileCycleTask = findPendingTask((task) => task.name.toLowerCase().includes("reconcile cycle"));
   const runtimeTaskFromPending = findPendingTask((task) => task.source === "runtime-status");
 
-  const buildReconcileScopeSummary = (metrics: {
-    active_movie_root?: string | null;
-    active_series_root?: string | null;
-    movie_folders_seen?: number;
-    series_folders_seen?: number;
-    affected_paths_count?: number | null;
-  } | undefined | null) => {
+  const buildReconcileScopeSummary = (metrics: { active_movie_root?: string | null; active_series_root?: string | null; movie_folders_seen?: number; series_folders_seen?: number; affected_paths_count?: number | null } | undefined | null) => {
     if (!metrics) {
       return null;
     }
@@ -284,13 +269,29 @@ export default function Dashboard({
         : "-",
   };
 
+  const discoverySnapshotRebuildSlot: TaskSlot = {
+    id: "discovery-snapshot-rebuild", name: "Discovery Snapshot Rebuild", source: "cache",
+    status: discoverySnapshotTask?.status ?? "idle", detail: discoverySnapshotTask?.detail ?? "Ready",
+    queuedAt: discoverySnapshotTask ? formatTaskQueuedAt(discoverySnapshotTask) : "-",
+    duration: discoverySnapshotTask ? formatTaskDuration(discoverySnapshotTask) : "-",
+  };
+
+  const reconcileCycleSlot: TaskSlot = {
+    id: "reconcile-cycle", name: "Reconcile Cycle", source: "runtime", status: reconcileCycleTask?.status ?? "idle",
+    detail: reconcileCycleTask?.detail ?? (lastScopeSummary ? `Last reconcile completed · ${lastScopeSummary}` : "Waiting for next reconcile cycle"),
+    queuedAt: reconcileCycleTask ? formatTaskQueuedAt(reconcileCycleTask) : formatAge(runtimeStatus?.last_reconcile?.finished_at),
+    duration: reconcileCycleTask
+      ? formatTaskDuration(reconcileCycleTask)
+      : typeof runtimeStatus?.last_reconcile?.duration_seconds === "number" ? `${runtimeStatus.last_reconcile.duration_seconds.toFixed(1)}s` : "-",
+  };
+
   const uncategorizedTaskSlots: TaskSlot[] = pendingTasks
     .filter((task) => !consumedTaskIds.has(task.id))
     .map((task) => ({
       id: `uncategorized-${task.id}`,
       name: task.name || "Background Task",
       source: task.source || "task-manager",
-      status: toDashboardTaskStatus(task.status),
+      status: task.status === "queued" || task.status === "running" || task.status === "error" ? task.status : "idle",
       detail: task.detail || task.status,
       queuedAt: formatTaskQueuedAt(task),
       duration: formatTaskDuration(task),
@@ -302,6 +303,8 @@ export default function Dashboard({
     manualReconcileSlot,
     mappedCacheRefreshSlot,
     discoveryCacheRefreshSlot,
+    discoverySnapshotRebuildSlot,
+    reconcileCycleSlot,
     ...uncategorizedTaskSlots,
   ];
 
