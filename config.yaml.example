@@ -189,9 +189,9 @@ ingest:
   # back into the configured managed roots, then queue projection.
   enabled: true
   # Collision handling when target managed folder already exists:
-  #   skip    -> keep source in library root and leave movie path unchanged
-  #   qualify -> move into a unique suffixed folder name (default)
-  collision_strategy: "qualify"
+  #   skip    -> keep source in library root and leave movie path unchanged (default)
+  #   qualify -> move into a unique suffixed folder name
+  collision_strategy: "skip"
 
 analysis:
   # Include NFO text in quality detection.

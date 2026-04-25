@@ -360,7 +360,7 @@ def test_load_config_reads_ingest_section(tmp_path: Path) -> None:
     config = load_config(config_path)
 
     assert config.ingest.enabled is True
-    assert config.ingest.collision_strategy == "qualify"
+    assert config.ingest.collision_strategy == "skip"
 
 
 def test_load_config_rejects_invalid_ingest_collision_strategy(tmp_path: Path) -> None:

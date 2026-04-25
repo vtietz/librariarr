@@ -372,7 +372,7 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     ingest_raw = raw.get("ingest", {})
     if not isinstance(ingest_raw, dict):
         raise ValueError("ingest must be a mapping")
-    ingest_collision_strategy = str(ingest_raw.get("collision_strategy", "qualify")).strip().lower()
+    ingest_collision_strategy = str(ingest_raw.get("collision_strategy", "skip")).strip().lower()
     if ingest_collision_strategy not in {"skip", "qualify"}:
         raise ValueError("ingest.collision_strategy must be one of: skip, qualify")
     ingest = IngestConfig(

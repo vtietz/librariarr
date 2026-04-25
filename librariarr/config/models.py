@@ -55,7 +55,7 @@ class RuntimeConfig:
 @dataclass
 class IngestConfig:
     enabled: bool = True
-    collision_strategy: str = "qualify"
+    collision_strategy: str = "skip"
 
 
 @dataclass
