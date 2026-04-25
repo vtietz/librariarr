@@ -46,6 +46,7 @@ def _projection_config(
     library_root: Path,
     radarr_url: str,
     api_key: str,
+    sync_enabled: bool = False,
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
@@ -60,7 +61,7 @@ def _projection_config(
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
-            sync_enabled=True,
+            sync_enabled=sync_enabled,
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=0),

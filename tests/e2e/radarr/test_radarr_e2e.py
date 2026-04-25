@@ -203,6 +203,7 @@ def _projection_config(
     radarr_url: str,
     api_key: str,
     folder_name_source: str = "managed",
+    sync_enabled: bool = False,
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
@@ -217,7 +218,7 @@ def _projection_config(
         radarr=RadarrConfig(
             url=radarr_url,
             api_key=api_key,
-            sync_enabled=True,
+            sync_enabled=sync_enabled,
             projection=RadarrProjectionConfig(movie_folder_name_source=folder_name_source),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
