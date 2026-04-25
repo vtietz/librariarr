@@ -353,10 +353,10 @@ class RadarrSyncHelper:
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
     def _managed_root_priority(self, folder: Path) -> int | None:
-        """Return the config-order index of the managed root containing *folder*.
+        """Return the config-order index of the mapping containing *folder*.
 
         Lower index means higher priority.  Returns ``None`` when the folder
-        does not fall under any configured movie managed root.
+        does not fall under any configured movie managed/library root.
         """
         for index, mapping in enumerate(self.config.paths.movie_root_mappings):
             managed_root = Path(mapping.managed_root)
@@ -364,7 +364,31 @@ class RadarrSyncHelper:
                 folder.relative_to(managed_root)
                 return index
             except ValueError:
+                pass
+            library_root = Path(mapping.library_root)
+            try:
+                folder.relative_to(library_root)
+                return index
+            except ValueError:
                 continue
+        return None
+
+    def _library_target_for_folder(
+        self,
+        folder: Path,
+        managed_root: Path,
+    ) -> tuple[Path, Path] | None:
+        """Resolve shadow/library target path and root for a managed folder."""
+        for mapping in self.config.paths.movie_root_mappings:
+            configured_managed_root = Path(mapping.managed_root)
+            if configured_managed_root != managed_root:
+                continue
+            try:
+                relative_folder = folder.relative_to(configured_managed_root)
+            except ValueError:
+                break
+            configured_library_root = Path(mapping.library_root)
+            return configured_library_root / relative_folder, configured_library_root
         return None
 
     def _find_existing_movie(self, candidate: dict, target_path: Path) -> dict | None:
@@ -390,6 +414,17 @@ class RadarrSyncHelper:
     def auto_add_movie_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
+
+        library_target = self._library_target_for_folder(folder, managed_root)
+        if library_target is None:
+            self.log.warning(
+                "Skipping auto-add for folder=%s because no movie_root_mapping matched "
+                "managed_root=%s",
+                folder,
+                managed_root,
+            )
+            return None
+        target_folder, target_root = library_target
 
         if self._should_skip_no_safe_lookup_retry(folder):
             return None
@@ -421,10 +456,10 @@ class RadarrSyncHelper:
             return None
 
         canonical_name = self._canonical_name_from_movie(candidate, folder)
-        existing_movie = self._find_existing_movie(candidate, folder)
+        existing_movie = self._find_existing_movie(candidate, target_folder)
         if existing_movie is not None:
             existing_path = str(existing_movie.get("path") or "").strip()
-            target_path = str(folder)
+            target_path = str(target_folder)
             if existing_path != target_path:
                 # Deterministic tie-break: only update the Arr path when the
                 # new folder has equal or higher priority (lower config index)
@@ -432,7 +467,7 @@ class RadarrSyncHelper:
                 # reconcile from "flipping" paths between duplicate folders in
                 # different age roots.
                 existing_priority = self._managed_root_priority(Path(existing_path))
-                new_priority = self._managed_root_priority(folder)
+                new_priority = self._managed_root_priority(target_folder)
                 if (
                     existing_priority is not None
                     and new_priority is not None
@@ -445,7 +480,7 @@ class RadarrSyncHelper:
                         existing_movie.get("id"),
                         existing_priority,
                         new_priority,
-                        folder,
+                        target_folder,
                         existing_path,
                     )
                     return existing_movie
@@ -455,7 +490,7 @@ class RadarrSyncHelper:
                     existing_movie["path"] = target_path
                     self.log.info(
                         "Updated existing Radarr movie path for folder=%s canonical=%s movie_id=%s",
-                        folder,
+                        target_folder,
                         canonical_name,
                         existing_movie.get("id"),
                     )
@@ -463,7 +498,7 @@ class RadarrSyncHelper:
                     self.log.warning(
                         "Failed to update existing Radarr movie path for "
                         "folder=%s canonical=%s movie_id=%s: %s",
-                        folder,
+                        target_folder,
                         canonical_name,
                         existing_movie.get("id"),
                         exc,
@@ -472,7 +507,7 @@ class RadarrSyncHelper:
             self.log.info(
                 "Movie already present in Radarr; skipping auto-add for "
                 "folder=%s canonical=%s movie_id=%s",
-                folder,
+                target_folder,
                 canonical_name,
                 existing_movie.get("id"),
             )
@@ -481,8 +516,8 @@ class RadarrSyncHelper:
         try:
             added_movie = self._radarr().add_movie_from_lookup(
                 candidate,
-                path=str(folder),
-                root_folder_path=str(managed_root),
+                path=str(target_folder),
+                root_folder_path=str(target_root),
                 quality_profile_id=quality_profile_id,
                 monitored=self.config.radarr.auto_add_monitored,
                 search_for_movie=self.config.radarr.auto_add_search_on_add,

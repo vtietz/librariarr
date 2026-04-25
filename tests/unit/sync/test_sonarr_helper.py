@@ -85,14 +85,24 @@ class _FakeSonarr:
 
 
 def _make_config(
+    tmp_path: Path,
     *,
     quality_map: list[ProfileRule] | None = None,
     language_map: list[ProfileRule] | None = None,
     auto_add_quality_profile_id: int | None = None,
     auto_add_language_profile_id: int | None = None,
 ) -> AppConfig:
+    nested_root = tmp_path / "series"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir(parents=True, exist_ok=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
+
     return AppConfig(
-        paths=PathsConfig(series_root_mappings=[]),
+        paths=PathsConfig(
+            series_root_mappings=[
+                RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))
+            ]
+        ),
         radarr=RadarrConfig(url="http://radarr:7878", api_key="test"),
         sonarr=SonarrConfig(
             enabled=True,
@@ -115,6 +125,7 @@ def test_resolve_language_profile_falls_back_when_mapped_id_unavailable(tmp_path
     folder.mkdir()
 
     config = _make_config(
+        tmp_path,
         language_map=[ProfileRule(match=["german"], profile_id=6)],
     )
     fake = _FakeSonarr(
@@ -137,6 +148,7 @@ def test_resolve_quality_profile_falls_back_when_mapped_id_unavailable(tmp_path:
     folder.mkdir()
 
     config = _make_config(
+        tmp_path,
         quality_map=[ProfileRule(match=["2160p", "x265"], profile_id=99)],
     )
     fake = _FakeSonarr(
@@ -158,7 +170,7 @@ def test_resolve_language_profile_falls_back_when_configured_id_unavailable(tmp_
     folder = tmp_path / "Series Alpha (2021)"
     folder.mkdir()
 
-    config = _make_config(auto_add_language_profile_id=4)
+    config = _make_config(tmp_path, auto_add_language_profile_id=4)
     fake = _FakeSonarr(
         quality_profiles=[{"id": 4, "name": "HD-1080p"}],
         language_profiles=[{"id": 1, "name": "Deprecated"}],
@@ -174,12 +186,15 @@ def test_resolve_language_profile_falls_back_when_configured_id_unavailable(tmp_
     assert profile_id == 1
 
 
-def test_auto_add_series_uses_managed_source_path(tmp_path: Path) -> None:
+def test_auto_add_series_uses_shadow_target_path(tmp_path: Path) -> None:
     managed_root = tmp_path / "series"
+    shadow_root = tmp_path / "shadow"
     folder = managed_root / "Fixture Auto Series (2022)"
     folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
 
     config = _make_config(
+        tmp_path,
         auto_add_quality_profile_id=4,
         auto_add_language_profile_id=1,
     )
@@ -199,22 +214,25 @@ def test_auto_add_series_uses_managed_source_path(tmp_path: Path) -> None:
 
     assert isinstance(added, dict)
     assert len(fake.add_calls) == 1
-    assert fake.add_calls[0]["path"] == str(folder)
-    assert fake.add_calls[0]["root_folder_path"] == str(managed_root)
+    assert fake.add_calls[0]["path"] == str(shadow_root / folder.name)
+    assert fake.add_calls[0]["root_folder_path"] == str(shadow_root)
 
 
 def test_auto_add_series_skips_add_when_series_already_exists(tmp_path: Path) -> None:
     managed_root = tmp_path / "series"
+    shadow_root = tmp_path / "shadow"
     folder = managed_root / "Fixture Auto Series (2022)"
     folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
 
     existing = {
         "id": 77,
         "title": "Fixture Auto Series",
         "tvdbId": 1203,
-        "path": str(folder),
+        "path": str(shadow_root / folder.name),
     }
     config = _make_config(
+        tmp_path,
         auto_add_quality_profile_id=4,
         auto_add_language_profile_id=1,
     )
@@ -239,8 +257,10 @@ def test_auto_add_series_skips_add_when_series_already_exists(tmp_path: Path) ->
 
 def test_auto_add_series_updates_existing_series_path_when_mismatched(tmp_path: Path) -> None:
     managed_root = tmp_path / "series"
+    shadow_root = tmp_path / "shadow"
     folder = managed_root / "Fixture Auto Series (2022)"
     folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True, exist_ok=True)
 
     existing = {
         "id": 77,
@@ -249,6 +269,7 @@ def test_auto_add_series_updates_existing_series_path_when_mismatched(tmp_path: 
         "path": "/data/sonarr_library/age_06/Fixture Auto Series (2022)",
     }
     config = _make_config(
+        tmp_path,
         auto_add_quality_profile_id=4,
         auto_add_language_profile_id=1,
     )
@@ -267,9 +288,9 @@ def test_auto_add_series_updates_existing_series_path_when_mismatched(tmp_path: 
     added = helper.auto_add_series_for_folder(folder, managed_root)
 
     assert isinstance(added, dict)
-    assert added.get("path") == str(folder)
+    assert added.get("path") == str(shadow_root / folder.name)
     assert fake.add_calls == []
-    assert fake.update_calls == [(77, str(folder))]
+    assert fake.update_calls == [(77, str(shadow_root / folder.name))]
 
 
 def _make_multi_root_config(tmp_path: Path) -> AppConfig:
@@ -368,6 +389,7 @@ def test_auto_add_series_updates_path_when_new_folder_has_higher_root_priority(
     result = helper.auto_add_series_for_folder(age_00_folder, age_00_folder.parent)
 
     assert isinstance(result, dict)
-    assert result.get("path") == str(age_00_folder)
-    assert fake.update_calls == [(55, str(age_00_folder))]
+    expected = tmp_path / "shadow" / "age_00" / "Fixture Series (2023)"
+    assert result.get("path") == str(expected)
+    assert fake.update_calls == [(55, str(expected))]
     assert fake.add_calls == []

@@ -256,6 +256,7 @@ def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: P
     incoming_file.write_text("x", encoding="utf-8")
 
     config = make_config(managed_root, library_root, sync_enabled=True)
+    config.ingest.enabled = True
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(
         movies=[
@@ -299,6 +300,7 @@ def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_pa
     incoming_file.write_text("new", encoding="utf-8")
 
     config = make_config(managed_root, library_root, sync_enabled=True)
+    config.ingest.enabled = True
     config.ingest.collision_strategy = "skip"
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(

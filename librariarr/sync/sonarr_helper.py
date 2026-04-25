@@ -193,10 +193,10 @@ class SonarrSyncHelper:
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
     def _managed_root_priority(self, folder: Path) -> int | None:
-        """Return the config-order index of the managed root containing *folder*.
+        """Return the config-order index of the mapping containing *folder*.
 
         Lower index means higher priority.  Returns ``None`` when the folder
-        does not fall under any configured series managed root.
+        does not fall under any configured series managed/shadow root.
         """
         for index, mapping in enumerate(self.config.paths.series_root_mappings):
             managed_root = Path(mapping.nested_root)
@@ -204,7 +204,31 @@ class SonarrSyncHelper:
                 folder.relative_to(managed_root)
                 return index
             except ValueError:
+                pass
+            shadow_root = Path(mapping.shadow_root)
+            try:
+                folder.relative_to(shadow_root)
+                return index
+            except ValueError:
                 continue
+        return None
+
+    def _shadow_target_for_folder(
+        self,
+        folder: Path,
+        managed_root: Path,
+    ) -> tuple[Path, Path] | None:
+        """Resolve shadow target path and root for a managed series folder."""
+        for mapping in self.config.paths.series_root_mappings:
+            configured_managed_root = Path(mapping.nested_root)
+            if configured_managed_root != managed_root:
+                continue
+            try:
+                relative_folder = folder.relative_to(configured_managed_root)
+            except ValueError:
+                break
+            configured_shadow_root = Path(mapping.shadow_root)
+            return configured_shadow_root / relative_folder, configured_shadow_root
         return None
 
     def _find_existing_series(self, candidate: dict, target_path: Path) -> dict | None:
@@ -230,6 +254,17 @@ class SonarrSyncHelper:
     def auto_add_series_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
+
+        shadow_target = self._shadow_target_for_folder(folder, managed_root)
+        if shadow_target is None:
+            self.log.warning(
+                "Skipping Sonarr auto-add for folder=%s because no series_root_mapping matched "
+                "managed_root=%s",
+                folder,
+                managed_root,
+            )
+            return None
+        target_folder, target_root = shadow_target
 
         try:
             candidates = self._sonarr().lookup_series(term)
@@ -258,16 +293,16 @@ class SonarrSyncHelper:
         language_profile_id = self._resolve_auto_add_language_profile_id(folder)
 
         canonical_name = self._canonical_name_from_series(candidate, folder)
-        existing_series = self._find_existing_series(candidate, folder)
+        existing_series = self._find_existing_series(candidate, target_folder)
         if existing_series is not None:
             existing_path = str(existing_series.get("path") or "").strip()
-            target_path = str(folder)
+            target_path = str(target_folder)
             if existing_path != target_path:
                 # Deterministic tie-break: only update the Arr path when the
                 # new folder has equal or higher priority (lower config index)
                 # than the folder Arr currently points to.
                 existing_priority = self._managed_root_priority(Path(existing_path))
-                new_priority = self._managed_root_priority(folder)
+                new_priority = self._managed_root_priority(target_folder)
                 if (
                     existing_priority is not None
                     and new_priority is not None
@@ -280,7 +315,7 @@ class SonarrSyncHelper:
                         existing_series.get("id"),
                         existing_priority,
                         new_priority,
-                        folder,
+                        target_folder,
                         existing_path,
                     )
                     return existing_series
@@ -291,7 +326,7 @@ class SonarrSyncHelper:
                     self.log.info(
                         "Updated existing Sonarr series path for folder=%s canonical=%s "
                         "series_id=%s",
-                        folder,
+                        target_folder,
                         canonical_name,
                         existing_series.get("id"),
                     )
@@ -299,7 +334,7 @@ class SonarrSyncHelper:
                     self.log.warning(
                         "Failed to update existing Sonarr series path for folder=%s canonical=%s "
                         "series_id=%s: %s",
-                        folder,
+                        target_folder,
                         canonical_name,
                         existing_series.get("id"),
                         exc,
@@ -308,7 +343,7 @@ class SonarrSyncHelper:
             self.log.info(
                 "Series already present in Sonarr; skipping auto-add for folder=%s canonical=%s "
                 "series_id=%s",
-                folder,
+                target_folder,
                 canonical_name,
                 existing_series.get("id"),
             )
@@ -317,8 +352,8 @@ class SonarrSyncHelper:
         try:
             added_series = self._sonarr().add_series_from_lookup(
                 candidate,
-                path=str(folder),
-                root_folder_path=str(managed_root),
+                path=str(target_folder),
+                root_folder_path=str(target_root),
                 quality_profile_id=quality_profile_id,
                 language_profile_id=language_profile_id,
                 monitored=self.config.sonarr.auto_add_monitored,
