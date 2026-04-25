@@ -11,6 +11,8 @@ from .reconcile_helpers import (
     current_reconcile_source,
     discover_unmatched_folders,
     folder_matches_affected_paths,
+    is_projected_shadow_folder,
+    managed_equivalent_path,
     resolve_managed_root_for_folder,
 )
 from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
@@ -432,7 +434,7 @@ class ServiceReconcileMixin:
             return None
 
         managed_root, resolved_destination = destination_info
-        if not self._move_and_update_movie_path(movie, source_folder, resolved_destination):
+        if not self._move_movie_from_shadow_to_managed(source_folder, resolved_destination):
             return None
 
         LOG.info(
@@ -471,6 +473,9 @@ class ServiceReconcileMixin:
         if destination_folder.resolve(strict=False) == source_folder.resolve(strict=False):
             return None
 
+        if is_projected_shadow_folder(source_folder, destination_folder):
+            return None
+
         resolved_destination = self._resolve_ingest_destination(
             destination_folder,
             strategy=strategy,
@@ -479,9 +484,8 @@ class ServiceReconcileMixin:
             return None
         return managed_root, resolved_destination
 
-    def _move_and_update_movie_path(
+    def _move_movie_from_shadow_to_managed(
         self,
-        movie: dict,
         source_folder: Path,
         resolved_destination: Path,
     ) -> bool:
@@ -495,30 +499,6 @@ class ServiceReconcileMixin:
                 resolved_destination,
                 exc,
             )
-            return False
-
-        try:
-            self.radarr.update_movie_path(movie, str(resolved_destination))
-        except Exception as exc:
-            try:
-                resolved_destination.rename(source_folder)
-            except OSError as rollback_exc:
-                LOG.error(
-                    "Ingest path update failed and rollback failed: source=%s destination=%s "
-                    "update_error=%s rollback_error=%s",
-                    source_folder,
-                    resolved_destination,
-                    exc,
-                    rollback_exc,
-                )
-            else:
-                LOG.warning(
-                    "Ingest path update failed; restored original folder: source=%s "
-                    "destination=%s error=%s",
-                    source_folder,
-                    resolved_destination,
-                    exc,
-                )
             return False
 
         return True
@@ -582,9 +562,15 @@ class ServiceReconcileMixin:
             return set()
 
         existing_paths = {
-            Path(path_raw).resolve(strict=False)
-            for path_raw in (str(movie.get("path") or "").strip() for movie in movies)
-            if path_raw
+            managed_path.resolve(strict=False)
+            for managed_path in (
+                managed_equivalent_path(
+                    str(movie.get("path") or "").strip(),
+                    self.movie_root_mappings,
+                )
+                for movie in movies
+            )
+            if managed_path is not None
         }
 
         unmatched_folders = discover_unmatched_folders(
@@ -647,9 +633,15 @@ class ServiceReconcileMixin:
             return set()
 
         existing_paths = {
-            Path(path_raw).resolve(strict=False)
-            for path_raw in (str(item.get("path") or "").strip() for item in series)
-            if path_raw
+            managed_path.resolve(strict=False)
+            for managed_path in (
+                managed_equivalent_path(
+                    str(item.get("path") or "").strip(),
+                    self.series_root_mappings,
+                )
+                for item in series
+            )
+            if managed_path is not None
         }
 
         unmatched_folders = discover_unmatched_folders(

@@ -278,16 +278,16 @@ class ServicePreflightMixin:
     def _normalize_arr_root_path(self, value: str) -> str:
         return str(value).strip().rstrip("/\\")
 
-    def _configured_sonarr_managed_root_paths(self) -> set[str]:
+    def _configured_sonarr_root_paths(self) -> set[str]:
         return {
-            self._normalize_arr_root_path(str(managed_root))
-            for managed_root, _ in self.series_root_mappings
+            self._normalize_arr_root_path(str(shadow_root))
+            for _, shadow_root in self.series_root_mappings
         }
 
     def _configured_radarr_root_paths(self) -> set[str]:
         return {
-            self._normalize_arr_root_path(str(managed_root))
-            for managed_root, _ in self.movie_root_mappings
+            self._normalize_arr_root_path(str(library_root))
+            for _, library_root in self.movie_root_mappings
         }
 
     def _extract_arr_root_paths(self, payload: list[dict]) -> set[str]:
@@ -361,7 +361,7 @@ class ServicePreflightMixin:
             return False
 
         try:
-            configured = self._configured_sonarr_managed_root_paths()
+            configured = self._configured_sonarr_root_paths()
             available = self._extract_arr_root_paths(self.sonarr.get_root_folders())
         except Exception as exc:
             self._log_sonarr_sync_config_hint(exc)

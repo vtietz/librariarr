@@ -42,17 +42,17 @@ def build_series_projection_plans(
             )
             continue
 
-        managed_folder = Path(series_path_raw)
-        mapping, relative_series_folder = _resolve_mapping_for_series_path(
-            managed_folder,
+        series_path = Path(series_path_raw)
+        mapping, relative_series_folder, path_mode = _resolve_mapping_for_series_path(
+            series_path,
             sorted_mappings,
         )
-        if mapping is None or relative_series_folder is None:
+        if mapping is None or relative_series_folder is None or path_mode is None:
             plans.append(
                 MovieProjectionPlan(
                     movie_id=series_id,
                     title=title,
-                    managed_folder=managed_folder,
+                    managed_folder=series_path,
                     library_folder=Path("."),
                     mapping=None,
                     skip_reason="no_matching_series_managed_root",
@@ -60,12 +60,17 @@ def build_series_projection_plans(
             )
             continue
 
-        library_folder = _resolve_library_folder(
-            series=series,
-            relative_series_folder=relative_series_folder,
-            mapping=mapping,
-            folder_name_source=config.sonarr.projection.series_folder_name_source,
-        )
+        if path_mode == "library":
+            managed_folder = mapping.managed_root / relative_series_folder
+            library_folder = series_path
+        else:
+            managed_folder = series_path
+            library_folder = _resolve_library_folder(
+                series=series,
+                relative_series_folder=relative_series_folder,
+                mapping=mapping,
+                folder_name_source=config.sonarr.projection.series_folder_name_source,
+            )
 
         if not managed_folder.exists() or not managed_folder.is_dir():
             plans.append(
@@ -103,14 +108,21 @@ def build_series_projection_plans(
 def _resolve_mapping_for_series_path(
     series_path: Path,
     mappings: list[MovieProjectionMapping],
-) -> tuple[MovieProjectionMapping | None, Path | None]:
+) -> tuple[MovieProjectionMapping | None, Path | None, str | None]:
     for mapping in mappings:
         try:
             relative = series_path.relative_to(mapping.managed_root)
         except ValueError:
+            pass
+        else:
+            return mapping, relative, "managed"
+
+        try:
+            relative = series_path.relative_to(mapping.library_root)
+        except ValueError:
             continue
-        return mapping, relative
-    return None, None
+        return mapping, relative, "library"
+    return None, None, None
 
 
 def _resolve_library_folder(

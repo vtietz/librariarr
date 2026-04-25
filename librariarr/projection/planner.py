@@ -42,17 +42,17 @@ def build_movie_projection_plans(
             )
             continue
 
-        managed_folder = Path(movie_path_raw)
-        mapping, relative_movie_folder = _resolve_mapping_for_movie_path(
-            managed_folder,
+        movie_path = Path(movie_path_raw)
+        mapping, relative_movie_folder, path_mode = _resolve_mapping_for_movie_path(
+            movie_path,
             sorted_mappings,
         )
-        if mapping is None or relative_movie_folder is None:
+        if mapping is None or relative_movie_folder is None or path_mode is None:
             plans.append(
                 MovieProjectionPlan(
                     movie_id=movie_id,
                     title=title,
-                    managed_folder=managed_folder,
+                    managed_folder=movie_path,
                     library_folder=Path("."),
                     mapping=None,
                     skip_reason="no_matching_managed_root",
@@ -60,12 +60,17 @@ def build_movie_projection_plans(
             )
             continue
 
-        library_folder = _resolve_library_folder(
-            movie=movie,
-            relative_movie_folder=relative_movie_folder,
-            mapping=mapping,
-            folder_name_source=config.radarr.projection.movie_folder_name_source,
-        )
+        if path_mode == "library":
+            managed_folder = mapping.managed_root / relative_movie_folder
+            library_folder = movie_path
+        else:
+            managed_folder = movie_path
+            library_folder = _resolve_library_folder(
+                movie=movie,
+                relative_movie_folder=relative_movie_folder,
+                mapping=mapping,
+                folder_name_source=config.radarr.projection.movie_folder_name_source,
+            )
 
         if not managed_folder.exists() or not managed_folder.is_dir():
             plans.append(
@@ -103,14 +108,21 @@ def build_movie_projection_plans(
 def _resolve_mapping_for_movie_path(
     movie_path: Path,
     mappings: list[MovieProjectionMapping],
-) -> tuple[MovieProjectionMapping | None, Path | None]:
+) -> tuple[MovieProjectionMapping | None, Path | None, str | None]:
     for mapping in mappings:
         try:
             relative = movie_path.relative_to(mapping.managed_root)
         except ValueError:
+            pass
+        else:
+            return mapping, relative, "managed"
+
+        try:
+            relative = movie_path.relative_to(mapping.library_root)
+        except ValueError:
             continue
-        return mapping, relative
-    return None, None
+        return mapping, relative, "library"
+    return None, None, None
 
 
 def _resolve_library_folder(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -78,3 +79,65 @@ def current_reconcile_source(runtime_status_tracker) -> str:
         return trigger_source
 
     return "direct"
+
+
+def is_projected_shadow_folder(source_folder: Path, destination_folder: Path) -> bool:
+    """Return True when source already mirrors destination via hardlinks."""
+    if not source_folder.exists() or not source_folder.is_dir():
+        return False
+    if not destination_folder.exists() or not destination_folder.is_dir():
+        return False
+
+    source_files = folder_file_signature_map(source_folder)
+    destination_files = folder_file_signature_map(destination_folder)
+    if not source_files or not destination_files:
+        return False
+    if source_files.keys() != destination_files.keys():
+        return False
+
+    for relative_path, source_signature in source_files.items():
+        destination_signature = destination_files.get(relative_path)
+        if destination_signature is None:
+            return False
+        if source_signature != destination_signature:
+            return False
+    return True
+
+
+def folder_file_signature_map(folder: Path) -> dict[str, tuple[int, int, int]]:
+    signatures: dict[str, tuple[int, int, int]] = {}
+    for current, _dirs, files in os.walk(folder):
+        current_path = Path(current)
+        for filename in files:
+            file_path = current_path / filename
+            if file_path.is_symlink():
+                return {}
+            try:
+                stat_result = file_path.stat()
+            except OSError:
+                return {}
+            relative = file_path.relative_to(folder).as_posix()
+            signatures[relative] = (
+                int(stat_result.st_dev),
+                int(stat_result.st_ino),
+                int(stat_result.st_size),
+            )
+    return signatures
+
+
+def managed_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) -> Path | None:
+    path = Path(path_raw)
+    for managed_root, library_root in mappings:
+        try:
+            relative = path.relative_to(managed_root)
+        except ValueError:
+            pass
+        else:
+            return managed_root / relative
+
+        try:
+            relative = path.relative_to(library_root)
+        except ValueError:
+            continue
+        return managed_root / relative
+    return None

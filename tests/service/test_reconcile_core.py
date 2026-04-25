@@ -283,7 +283,7 @@ def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: P
     assert moved_file.exists()
     assert projected_file.exists()
     assert projected_file.samefile(moved_file)
-    assert service.radarr.updated_paths == [(77, str(moved_folder))]
+    assert service.radarr.updated_paths == []
 
 
 def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_path: Path) -> None:
