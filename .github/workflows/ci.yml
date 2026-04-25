@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Prepare config for wrapper commands
         run: |
@@ -37,7 +37,7 @@ jobs:
     needs: test-and-quality
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Prepare config for wrapper commands
         run: |
@@ -57,7 +57,7 @@ jobs:
     needs: test-and-quality
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Prepare config for wrapper commands
         run: |
