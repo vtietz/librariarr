@@ -117,7 +117,7 @@ function lastOutcomeBadge(
       return { label: "Last reconcile: success", color: "green", icon: "check" };
     case "not_found_in_arr":
     case "not_mapped":
-      return { label: "Last reconcile: not found", color: "yellow", icon: "warning" };
+      return { label: "Last reconcile: not in Arr", color: "yellow", icon: "warning" };
     case "arr_unreachable":
     case "reconcile_failed":
       return { label: "Last reconcile: failed", color: "red", icon: "error" };
@@ -152,7 +152,7 @@ function fallbackOutcomeText(mapped: MappedDirectory): string {
     case "title_path_mismatch":
       return "indexed";
     case "missing_in_arr":
-      return "not found";
+      return "not in Arr";
     case "missing_on_disk":
       return "missing target";
     case "arr_unreachable":

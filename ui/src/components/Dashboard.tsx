@@ -2,7 +2,15 @@ import { Badge, Button, Card, Group, ScrollArea, SimpleGrid, Stack, Table, Text,
 import { useEffect, useState } from "react";
 import { getDiscoveryWarnings, runMaintenanceReconcile } from "../api/client";
 import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
-import { badgeForTask, formatAge, formatTaskDuration, formatTaskQueuedAt } from "./dashboardFormatters";
+import {
+  badgeForTask,
+  formatAge,
+  formatCoverage,
+  formatSigned,
+  formatTaskDuration,
+  formatTaskQueuedAt,
+} from "./dashboardFormatters";
+import { useUnmatchedDelta } from "./useUnmatchedDelta";
 
 type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
 
@@ -72,19 +80,13 @@ export default function Dashboard({
   const seriesCountKnown =
     typeof lastMatchedSeries === "number" || typeof lastUnmatchedSeries === "number";
 
-  const formatCoverage = (matched: number | undefined, unmatched: number | undefined) => {
-    const matchedValue = typeof matched === "number" ? matched : 0;
-    const unmatchedValue = typeof unmatched === "number" ? unmatched : 0;
-    const total = matchedValue + unmatchedValue;
-    if (total <= 0) {
-      return "n/a";
-    }
-    const pct = Math.round((matchedValue / total) * 100);
-    return `${pct}% (${matchedValue}/${total})`;
-  };
-
   const movieCoverage = formatCoverage(lastMatchedMovies, lastUnmatchedMovies);
   const seriesCoverage = formatCoverage(lastMatchedSeries, lastUnmatchedSeries);
+  const unmatchedDelta = useUnmatchedDelta({
+    finishedAt: runtimeStatus?.last_reconcile?.finished_at,
+    unmatchedMovies: lastUnmatchedMovies,
+    unmatchedSeries: lastUnmatchedSeries,
+  });
   const healthStatus = runtimeStatus?.health?.status ?? "starting";
   const healthBadgeColor =
     healthStatus === "ok" ? "green" : healthStatus === "degraded" ? "yellow" : "gray";
@@ -397,6 +399,10 @@ export default function Dashboard({
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
             Created links in last run: {lastCreatedLinks}
+          </Text>
+          <Text size="sm" c="dimmed" mt="xs">
+            Delta unmatched vs previous run M/S: {formatSigned(unmatchedDelta?.movies ?? null)}/
+            {formatSigned(unmatchedDelta?.series ?? null)}
           </Text>
         </Card>
       </SimpleGrid>

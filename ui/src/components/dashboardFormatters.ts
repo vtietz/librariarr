@@ -54,3 +54,24 @@ export function badgeForTask(status: string): string {
   }
   return "gray";
 }
+
+export function formatCoverage(matched: number | undefined, unmatched: number | undefined): string {
+  const matchedValue = typeof matched === "number" ? matched : 0;
+  const unmatchedValue = typeof unmatched === "number" ? unmatched : 0;
+  const total = matchedValue + unmatchedValue;
+  if (total <= 0) {
+    return "n/a";
+  }
+  const pct = Math.round((matchedValue / total) * 100);
+  return `${pct}% (${matchedValue}/${total})`;
+}
+
+export function formatSigned(value: number | null): string {
+  if (value === null) {
+    return "n/a";
+  }
+  if (value > 0) {
+    return `+${value}`;
+  }
+  return `${value}`;
+}
