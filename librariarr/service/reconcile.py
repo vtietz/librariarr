@@ -171,6 +171,19 @@ class ServiceReconcileMixin:
 
             if getattr(self, "runtime_status_tracker", None) is not None:
                 self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
+                self.runtime_status_tracker.update_active_reconcile_metrics(
+                    {
+                        "movie_items_targeted": (
+                            len(scoped_movie_ids) if scoped_movie_ids is not None else None
+                        ),
+                        "series_items_targeted": (
+                            len(scoped_series_ids) if scoped_series_ids is not None else None
+                        ),
+                        "movie_items_projected": 0,
+                        "series_items_projected": 0,
+                        "created_links": 0,
+                    }
+                )
 
             had_projection_error = False
             movie_projection_metrics = dict.fromkeys(
@@ -200,6 +213,18 @@ class ServiceReconcileMixin:
                 )
                 try:
                     movie_projection_metrics = self.movie_projection.reconcile(scoped_movie_ids)
+                    if getattr(self, "runtime_status_tracker", None) is not None:
+                        planned_movies = int(movie_projection_metrics.get("planned_movies") or 0)
+                        skipped_movies = int(movie_projection_metrics.get("skipped_movies") or 0)
+                        self.runtime_status_tracker.update_active_reconcile_metrics(
+                            {
+                                "movie_folders_seen": planned_movies,
+                                "movie_items_projected": max(0, planned_movies - skipped_movies),
+                                "created_links": int(
+                                    movie_projection_metrics.get("projected_files") or 0
+                                ),
+                            }
+                        )
                 except Exception as exc:
                     had_projection_error = True
                     self._log_sync_config_hint(exc)

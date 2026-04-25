@@ -6,11 +6,9 @@ import {
   badgeForTask,
   formatAge,
   formatCoverage,
-  formatSigned,
   formatTaskDuration,
   formatTaskQueuedAt,
 } from "./dashboardFormatters";
-import { useUnmatchedDelta } from "./useUnmatchedDelta";
 
 type Props = { hasUnsavedChanges: boolean; runtimeStatus: RuntimeStatusResponse | null; jobsSummary: JobsSummary | null };
 
@@ -70,28 +68,30 @@ export default function Dashboard({
   const knownLinksInMemory =
     runtimeStatus?.known_links_in_memory ?? runtimeStatus?.mapped_cache?.entries_total ?? 0;
   const mappedEntriesTotal = runtimeStatus?.mapped_cache?.entries_total ?? knownLinksInMemory;
-  const lastMatchedMovies = runtimeStatus?.last_reconcile?.matched_movies;
-  const lastUnmatchedMovies = runtimeStatus?.last_reconcile?.unmatched_movies;
-  const lastMatchedSeries = runtimeStatus?.last_reconcile?.matched_series;
-  const lastUnmatchedSeries = runtimeStatus?.last_reconcile?.unmatched_series;
-  const lastCreatedLinks = runtimeStatus?.last_reconcile?.created_links ?? 0;
-  const movieCountKnown =
-    typeof lastMatchedMovies === "number" || typeof lastUnmatchedMovies === "number";
-  const seriesCountKnown =
-    typeof lastMatchedSeries === "number" || typeof lastUnmatchedSeries === "number";
-
-  const movieCoverage = formatCoverage(lastMatchedMovies, lastUnmatchedMovies);
-  const seriesCoverage = formatCoverage(lastMatchedSeries, lastUnmatchedSeries);
-  const unmatchedDelta = useUnmatchedDelta({
-    finishedAt: runtimeStatus?.last_reconcile?.finished_at,
-    unmatchedMovies: lastUnmatchedMovies,
-    unmatchedSeries: lastUnmatchedSeries,
-  });
+  const snapshotMetrics =
+    taskState === "running" ? runtimeStatus?.current_task : runtimeStatus?.last_reconcile;
+  const snapshotMatchedMovies = snapshotMetrics?.matched_movies;
+  const snapshotUnmatchedMovies = snapshotMetrics?.unmatched_movies;
+  const snapshotMatchedSeries = snapshotMetrics?.matched_series;
+  const snapshotUnmatchedSeries = snapshotMetrics?.unmatched_series;
+  const snapshotCreatedLinks =
+    snapshotMetrics?.created_links ?? runtimeStatus?.last_reconcile?.created_links ?? 0;
+  const snapshotMoviePending =
+    typeof snapshotMetrics?.movie_items_targeted === "number" &&
+    typeof snapshotMetrics?.movie_items_projected === "number"
+      ? Math.max(0, snapshotMetrics.movie_items_targeted - snapshotMetrics.movie_items_projected)
+      : null;
+  const snapshotSeriesPending =
+    typeof snapshotMetrics?.series_items_targeted === "number" &&
+    typeof snapshotMetrics?.series_items_projected === "number"
+      ? Math.max(0, snapshotMetrics.series_items_targeted - snapshotMetrics.series_items_projected)
+      : null;
+  const movieCoverage = formatCoverage(snapshotMatchedMovies, snapshotUnmatchedMovies);
+  const seriesCoverage = formatCoverage(snapshotMatchedSeries, snapshotUnmatchedSeries);
   const healthStatus = runtimeStatus?.health?.status ?? "starting";
   const healthBadgeColor =
     healthStatus === "ok" ? "green" : healthStatus === "degraded" ? "yellow" : "gray";
   const primaryHealthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for snapshot";
-
   const handleRunReconcile = async () => {
     setRunningReconcile(true);
     try {
@@ -392,23 +392,23 @@ export default function Dashboard({
         <Card withBorder h={146}>
           <Text fw={600}>Arr Match Snapshot</Text>
           <Text size="sm" c="dimmed">
-            Movies {movieCoverage}
-            {movieCountKnown
-              ? ` · unmatched ${typeof lastUnmatchedMovies === "number" ? lastUnmatchedMovies : 0}`
-              : " · unmatched n/a"}
+            {taskState === "running" ? "live" : "last run"}
+            {taskState === "running" && runtimeStatus?.current_task.phase
+              ? ` · phase ${runtimeStatus.current_task.phase}`
+              : ""}
+          </Text>
+          <Text size="sm" c="dimmed">
+            Movies {movieCoverage} · unmatched
+            {` ${typeof snapshotUnmatchedMovies === "number" ? snapshotUnmatchedMovies : "n/a"}`}
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
-            Series {seriesCoverage}
-            {seriesCountKnown
-              ? ` · unmatched ${typeof lastUnmatchedSeries === "number" ? lastUnmatchedSeries : 0}`
-              : " · unmatched n/a"}
+            Series {seriesCoverage} · unmatched
+            {` ${typeof snapshotUnmatchedSeries === "number" ? snapshotUnmatchedSeries : "n/a"}`}
           </Text>
           <Text size="sm" c="dimmed" mt="xs">
-            Created links in last run: {lastCreatedLinks}
-          </Text>
-          <Text size="sm" c="dimmed" mt="xs">
-            Delta unmatched vs previous run M/S: {formatSigned(unmatchedDelta?.movies ?? null)}/
-            {formatSigned(unmatchedDelta?.series ?? null)}
+            Indexed M/S: {typeof snapshotMetrics?.movie_folders_seen === "number" ? snapshotMetrics.movie_folders_seen : "n/a"}/
+            {typeof snapshotMetrics?.series_folders_seen === "number" ? snapshotMetrics.series_folders_seen : "n/a"} · pending M/S:
+            {` ${snapshotMoviePending ?? "n/a"}/${snapshotSeriesPending ?? "n/a"} · created links ${snapshotCreatedLinks}`}
           </Text>
         </Card>
       </SimpleGrid>

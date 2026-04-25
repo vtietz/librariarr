@@ -374,6 +374,21 @@ export const cancelJob = async (jobId: string) => {
   return data;
 };
 
+type ReconcileProgressFields = {
+  movie_folders_seen?: number;
+  series_folders_seen?: number;
+  movie_items_targeted?: number | null;
+  series_items_targeted?: number | null;
+  movie_items_projected?: number;
+  series_items_projected?: number;
+  created_links?: number;
+  matched_movies?: number;
+  unmatched_movies?: number;
+  matched_series?: number;
+  unmatched_series?: number;
+  affected_paths_count?: number | null;
+};
+
 export type RuntimeStatusResponse = {
   runtime_running: boolean;
   watched_nested_roots: number;
@@ -392,10 +407,7 @@ export type RuntimeStatusResponse = {
     error: string | null;
     active_movie_root?: string | null;
     active_series_root?: string | null;
-    movie_folders_seen?: number;
-    series_folders_seen?: number;
-    affected_paths_count?: number | null;
-  };
+  } & ReconcileProgressFields;
   last_reconcile: {
     state: "ok" | "error";
     trigger_source: string | null;
@@ -407,16 +419,8 @@ export type RuntimeStatusResponse = {
     error: string | null;
     active_movie_root?: string | null;
     active_series_root?: string | null;
-    movie_folders_seen?: number;
-    series_folders_seen?: number;
-    created_links?: number;
-    matched_movies?: number;
-    unmatched_movies?: number;
-    matched_series?: number;
-    unmatched_series?: number;
-    affected_paths_count?: number | null;
     full_reconcile_stats?: Record<string, number | string> | null;
-  } | null;
+  } & ReconcileProgressFields | null;
   known_links_in_memory?: number;
   mapped_cache?: {
     ready: boolean;
