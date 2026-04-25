@@ -70,7 +70,7 @@ export default function TaskSlotsCard({ taskSlots, uncategorizedTaskCount }: Pro
                   <Text size="sm" c="dimmed">{slot.source}</Text>
                 </Table.Td>
                 <Table.Td>
-                  <Text size="sm" c="dimmed" lineClamp={2}>{slot.detail}</Text>
+                  <Text size="sm" c="dimmed">{slot.detail}</Text>
                 </Table.Td>
                 <Table.Td style={taskColumnStyles.queued}>
                   <Text size="sm" c="dimmed">{slot.queuedAt}</Text>

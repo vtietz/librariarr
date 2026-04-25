@@ -71,6 +71,7 @@ export default function PerRootInsightsCard() {
   const [rootInsights, setRootInsights] = useState<RootInsight[]>([]);
   const [rootInsightsTruncated, setRootInsightsTruncated] = useState(false);
   const [rootInsightsLoaded, setRootInsightsLoaded] = useState(false);
+  const [rootInsightsError, setRootInsightsError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -82,11 +83,27 @@ export default function PerRootInsightsCard() {
       }
       inFlight = true;
       try {
-        const payload = await getMappedDirectories({
-          includeArrState: true,
-          limit: 5000,
-          timeoutMs: 30000,
-        });
+        let payload: Awaited<ReturnType<typeof getMappedDirectories>>;
+        try {
+          payload = await getMappedDirectories({
+            includeArrState: true,
+            limit: 5000,
+            timeoutMs: 30000,
+          });
+          if (active) {
+            setRootInsightsError(null);
+          }
+        } catch {
+          // Fall back to cache-only mapped directories when Arr enrichment times out.
+          payload = await getMappedDirectories({
+            includeArrState: false,
+            limit: 5000,
+            timeoutMs: 30000,
+          });
+          if (active) {
+            setRootInsightsError("Arr enrichment unavailable; showing mapped-directory snapshot.");
+          }
+        }
         if (!active) {
           return;
         }
@@ -95,6 +112,7 @@ export default function PerRootInsightsCard() {
         setRootInsightsLoaded(true);
       } catch {
         if (active) {
+          setRootInsightsError("Failed to load mapped directories for root insights.");
           setRootInsightsLoaded(true);
         }
       } finally {
@@ -125,6 +143,11 @@ export default function PerRootInsightsCard() {
         Directory-level health and progress grouped by library/shadow root.
         {rootInsightsTruncated ? " Results are truncated at 5000 mapped directories." : ""}
       </Text>
+      {rootInsightsError ? (
+        <Text size="xs" c="yellow" mb="sm">
+          {rootInsightsError}
+        </Text>
+      ) : null}
       <ScrollArea type="auto" scrollbars="x">
         <Table
           highlightOnHover

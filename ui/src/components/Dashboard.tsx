@@ -80,12 +80,12 @@ export default function Dashboard({
     runtimeStatus?.mapped_cache?.entries_total ?? knownLinksInMemory;
 
   const taskSlots = useMemo<{ slots: TaskSlot[]; uncategorizedCount: number }>(() => {
-        const toTaskStatus = (status: string): DashboardTaskStatus => {
-          if (status === "queued" || status === "running" || status === "error") {
-            return status;
-          }
-          return "idle";
-        };
+    const toTaskStatus = (status: string): DashboardTaskStatus => {
+      if (status === "queued" || status === "running" || status === "error") {
+        return status;
+      }
+      return "idle";
+    };
 
     const pendingTasks = runtimeStatus?.pending_tasks ?? [];
     const consumedTaskIds = new Set<string>();
@@ -139,64 +139,64 @@ export default function Dashboard({
     });
 
     const mappedStatus =
-      runtimeStatus?.mapped_cache?.building
-        ? "running"
-        : mappedRefreshTask?.status ?? "idle";
-    if (mappedStatus !== "idle") {
-      slots.push({
-        id: "mapped-cache-refresh",
-        name: "Mapped Cache Refresh",
-        source: "cache",
-        status: mappedStatus,
-        detail: runtimeStatus?.mapped_cache?.building
-          ? "Rebuilding mapped directory index"
-          : mappedRefreshTask?.detail ?? "Ready",
-        queuedAt: mappedRefreshTask ? formatTaskQueuedAt(mappedRefreshTask) : "-",
-        duration:
-          typeof runtimeStatus?.mapped_cache?.last_build_duration_ms === "number"
-            ? `${runtimeStatus.mapped_cache.last_build_duration_ms} ms`
-            : mappedRefreshTask
-              ? formatTaskDuration(mappedRefreshTask)
-              : "-",
-      });
-    }
+      runtimeStatus?.mapped_cache?.building ? "running" : mappedRefreshTask?.status ?? "idle";
+    slots.push({
+      id: "mapped-cache-refresh",
+      name: "Mapped Cache Refresh",
+      source: "cache",
+      status: mappedStatus,
+      detail: runtimeStatus?.mapped_cache?.building
+        ? "Rebuilding mapped directory index"
+        : mappedRefreshTask?.detail ?? "Ready",
+      queuedAt: mappedRefreshTask ? formatTaskQueuedAt(mappedRefreshTask) : "-",
+      duration:
+        typeof runtimeStatus?.mapped_cache?.last_build_duration_ms === "number"
+          ? `${runtimeStatus.mapped_cache.last_build_duration_ms} ms`
+          : mappedRefreshTask
+            ? formatTaskDuration(mappedRefreshTask)
+            : "-",
+    });
 
     const discoveryStatus =
       discoverySnapshotTask?.status ??
       (runtimeStatus?.discovery_cache?.building ? "running" : "idle");
-    if (discoveryStatus !== "idle") {
-      slots.push({
-        id: "discovery-snapshot-rebuild",
-        name: "Discovery Snapshot Rebuild",
-        source: "cache",
-        status: discoveryStatus,
-        detail:
-          discoverySnapshotTask?.detail ??
-          (runtimeStatus?.discovery_cache?.building
-            ? "Rebuilding discovery warnings snapshot"
-            : "Ready"),
-        queuedAt: discoverySnapshotTask
-          ? formatTaskQueuedAt(discoverySnapshotTask)
+    slots.push({
+      id: "discovery-snapshot-rebuild",
+      name: "Discovery Snapshot Rebuild",
+      source: "cache",
+      status: discoveryStatus,
+      detail:
+        discoverySnapshotTask?.detail ??
+        (runtimeStatus?.discovery_cache?.building
+          ? "Rebuilding discovery warnings snapshot"
+          : "Ready"),
+      queuedAt: discoverySnapshotTask ? formatTaskQueuedAt(discoverySnapshotTask) : "-",
+      duration: discoverySnapshotTask
+        ? formatTaskDuration(discoverySnapshotTask)
+        : typeof runtimeStatus?.discovery_cache?.last_build_duration_ms === "number"
+          ? `${runtimeStatus.discovery_cache.last_build_duration_ms} ms`
           : "-",
-        duration: discoverySnapshotTask
-          ? formatTaskDuration(discoverySnapshotTask)
-          : typeof runtimeStatus?.discovery_cache?.last_build_duration_ms === "number"
-            ? `${runtimeStatus.discovery_cache.last_build_duration_ms} ms`
-            : "-",
-      });
-    }
+    });
 
-    if (reconcileCycleTask && reconcileCycleTask.status !== "idle") {
-      slots.push({
-        id: "reconcile-cycle",
-        name: "Reconcile Cycle",
-        source: "runtime",
-        status: reconcileCycleTask.status,
-        detail: reconcileCycleTask.detail || reconcileCycleTask.status,
-        queuedAt: formatTaskQueuedAt(reconcileCycleTask),
-        duration: formatTaskDuration(reconcileCycleTask),
-      });
-    }
+    slots.push({
+      id: "reconcile-cycle",
+      name: "Reconcile Cycle",
+      source: "runtime",
+      status: reconcileCycleTask?.status ?? "idle",
+      detail:
+        reconcileCycleTask?.detail ||
+        (reconcileCycleTask
+          ? reconcileCycleTask.status
+          : "Waiting for next reconcile cycle"),
+      queuedAt: reconcileCycleTask
+        ? formatTaskQueuedAt(reconcileCycleTask)
+        : formatAge(runtimeStatus?.last_reconcile?.finished_at),
+      duration: reconcileCycleTask
+        ? formatTaskDuration(reconcileCycleTask)
+        : typeof runtimeStatus?.last_reconcile?.duration_seconds === "number"
+          ? `${runtimeStatus.last_reconcile.duration_seconds.toFixed(1)}s`
+          : "-",
+    });
 
     const uncategorized: TaskSlot[] = pendingTasks
       .filter((task) => !consumedTaskIds.has(task.id))
@@ -210,27 +210,8 @@ export default function Dashboard({
         duration: formatTaskDuration(task),
       }));
 
-    const merged = [...slots, ...uncategorized];
-    const withSignal = merged.filter((slot) => slot.status !== "idle");
-
-    const fallbackSlots: TaskSlot[] = [
-      ...slots,
-      {
-        id: "reconcile-cycle",
-        name: "Reconcile Cycle",
-        source: "runtime",
-        status: "idle",
-        detail: "Waiting for next reconcile cycle",
-        queuedAt: formatAge(runtimeStatus?.last_reconcile?.finished_at),
-        duration:
-          typeof runtimeStatus?.last_reconcile?.duration_seconds === "number"
-            ? `${runtimeStatus.last_reconcile.duration_seconds.toFixed(1)}s`
-            : "-",
-      },
-    ];
-
     return {
-      slots: withSignal.length > 0 ? merged : fallbackSlots,
+      slots: [...slots, ...uncategorized],
       uncategorizedCount: uncategorized.length,
     };
   }, [runtimeStatus, queuedChanges]);
@@ -276,14 +257,14 @@ export default function Dashboard({
         </Card>
       </SimpleGrid>
 
-      <DiscoveryWarningsCard discoveryWarnings={discoveryWarnings} />
-
       <PerRootInsightsCard />
 
       <TaskSlotsCard
         taskSlots={taskSlots.slots}
         uncategorizedTaskCount={taskSlots.uncategorizedCount}
       />
+
+      <DiscoveryWarningsCard discoveryWarnings={discoveryWarnings} />
     </Stack>
   );
 }
