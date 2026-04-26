@@ -159,7 +159,7 @@ def _collect_projection_files(
         for filename in sorted(files):
             source_path = current_path / filename
             relative_path = source_path.relative_to(managed_folder).as_posix()
-            file_kind = _classify_file(
+            file_kind = classify_file(
                 relative_path=relative_path,
                 source_path=source_path,
                 managed_video_extensions=managed_video_extensions,
@@ -178,7 +178,7 @@ def _collect_projection_files(
     return planned_files
 
 
-def _classify_file(
+def classify_file(
     *,
     relative_path: str,
     source_path: Path,

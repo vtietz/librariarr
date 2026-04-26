@@ -12,7 +12,7 @@ from .reconcile_helpers import (
     current_reconcile_source,
     discover_unmatched_folders,
     folder_matches_affected_paths,
-    is_projected_shadow_folder,
+    ingest_files_from_library_folder,
     managed_equivalent_path,
     resolve_managed_root_for_folder,
 )
@@ -408,14 +408,12 @@ class ServiceReconcileMixin:
             LOG.warning("Skipping ingest scan because Radarr movie inventory fetch failed: %s", exc)
             return set()
 
-        strategy = str(self.config.ingest.collision_strategy).strip().lower()
         moved_movie_ids: set[int] = set()
 
         for movie in movies:
             moved_movie_id = self._ingest_movie_if_needed(
                 movie,
                 affected_paths=affected_paths,
-                strategy=strategy,
             )
             if moved_movie_id is not None:
                 moved_movie_ids.add(moved_movie_id)
@@ -427,7 +425,6 @@ class ServiceReconcileMixin:
         movie: dict,
         *,
         affected_paths: set[Path] | None,
-        strategy: str,
     ) -> int | None:
         movie_id = movie.get("id")
         movie_path_raw = str(movie.get("path") or "").strip()
@@ -438,36 +435,67 @@ class ServiceReconcileMixin:
         destination_info = self._resolve_ingest_target(
             source_folder,
             affected_paths=affected_paths,
-            strategy=strategy,
         )
-        if destination_info is None:
-            return None
+        if destination_info is not None:
+            managed_root, resolved_destination = destination_info
+            if not self._move_movie_from_shadow_to_managed(source_folder, resolved_destination):
+                return None
 
-        managed_root, resolved_destination = destination_info
-        if not self._move_movie_from_shadow_to_managed(source_folder, resolved_destination):
-            return None
+            LOG.info(
+                "Ingest moved movie folder from library root to managed root: movie_id=%s "
+                "source=%s destination=%s",
+                movie_id,
+                source_folder,
+                resolved_destination,
+            )
+            return movie_id
 
-        LOG.info(
-            "Ingest moved movie folder from library root to managed root: movie_id=%s "
-            "source=%s destination=%s",
+        return self._ingest_files_for_existing_movie(
             movie_id,
             source_folder,
-            resolved_destination,
+            affected_paths=affected_paths,
         )
-        LOG.info(
-            "Queued movie_id=%s for movie projection after ingest move: managed_root=%s folder=%s",
-            movie_id,
-            managed_root,
-            resolved_destination,
+
+    def _ingest_files_for_existing_movie(
+        self,
+        movie_id: int,
+        source_folder: Path,
+        *,
+        affected_paths: set[Path] | None,
+    ) -> int | None:
+        mapping_info = self._resolve_ingest_mapping_for_folder(source_folder)
+        if mapping_info is None:
+            return None
+        managed_root, _library_root, relative_folder = mapping_info
+        managed_folder = managed_root / relative_folder
+        if not managed_folder.exists() or not managed_folder.is_dir():
+            return None
+        if not source_folder.exists() or not source_folder.is_dir():
+            return None
+        if not folder_matches_affected_paths(source_folder, affected_paths):
+            return None
+        proj = self.config.radarr.projection
+        result = ingest_files_from_library_folder(
+            library_folder=source_folder,
+            managed_folder=managed_folder,
+            managed_video_extensions=set(proj.managed_video_extensions),
+            extras_allowlist=proj.managed_extras_allowlist,
         )
-        return movie_id
+        if result.ingested_count > 0:
+            LOG.info(
+                "File-level ingest for movie_id=%s: ingested=%s failed=%s",
+                movie_id,
+                result.ingested_count,
+                result.failed_count,
+            )
+            return movie_id
+        return None
 
     def _resolve_ingest_target(
         self,
         source_folder: Path,
         *,
         affected_paths: set[Path] | None,
-        strategy: str,
     ) -> tuple[Path, Path] | None:
         mapping_and_relative = self._resolve_ingest_mapping_for_folder(source_folder)
         if mapping_and_relative is None:
@@ -483,16 +511,10 @@ class ServiceReconcileMixin:
         if destination_folder.resolve(strict=False) == source_folder.resolve(strict=False):
             return None
 
-        if is_projected_shadow_folder(source_folder, destination_folder):
+        if destination_folder.exists():
             return None
 
-        resolved_destination = self._resolve_ingest_destination(
-            destination_folder,
-            strategy=strategy,
-        )
-        if resolved_destination is None:
-            return None
-        return managed_root, resolved_destination
+        return managed_root, destination_folder
 
     def _move_movie_from_shadow_to_managed(
         self,
@@ -528,28 +550,6 @@ class ServiceReconcileMixin:
             except ValueError:
                 continue
             return managed_root, library_root, relative_folder
-        return None
-
-    def _resolve_ingest_destination(self, destination: Path, *, strategy: str) -> Path | None:
-        if not destination.exists():
-            return destination
-
-        if strategy == "skip":
-            LOG.warning(
-                "Ingest collision detected; skipping move because destination exists: %s",
-                destination,
-            )
-            return None
-
-        for index in range(2, 1000):
-            candidate = destination.with_name(f"{destination.name} ({index})")
-            if not candidate.exists():
-                return candidate
-
-        LOG.warning(
-            "Ingest collision detected; no free qualified destination found for: %s",
-            destination,
-        )
         return None
 
     def _auto_add_unmatched_movies(

@@ -372,12 +372,8 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     ingest_raw = raw.get("ingest", {})
     if not isinstance(ingest_raw, dict):
         raise ValueError("ingest must be a mapping")
-    ingest_collision_strategy = str(ingest_raw.get("collision_strategy", "skip")).strip().lower()
-    if ingest_collision_strategy not in {"skip", "qualify"}:
-        raise ValueError("ingest.collision_strategy must be one of: skip, qualify")
     ingest = IngestConfig(
         enabled=bool(ingest_raw.get("enabled", True)),
-        collision_strategy=ingest_collision_strategy,
     )
 
     return AppConfig(
@@ -403,15 +399,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
                 managed_video_extensions=managed_video_extensions,
                 managed_extras_allowlist=managed_extras_allowlist,
                 preserve_unknown_files=preserve_unknown_files,
-                delete_managed_files=bool(projection_raw.get("delete_managed_files", True)),
-                provenance_file=str(
-                    projection_raw.get("provenance_file", ".librariarr-provenance.json")
-                ).strip()
-                or ".librariarr-provenance.json",
-                hash_max_file_size_mb=max(
-                    1,
-                    int(projection_raw.get("hash_max_file_size_mb", 256)),
-                ),
                 movie_folder_name_source=movie_folder_name_source,
             ),
             mapping=RadarrMappingConfig(
@@ -438,18 +425,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
                 managed_video_extensions=sonarr_managed_video_extensions,
                 managed_extras_allowlist=sonarr_managed_extras_allowlist,
                 preserve_unknown_files=sonarr_preserve_unknown_files,
-                delete_managed_files=bool(sonarr_projection_raw.get("delete_managed_files", True)),
-                provenance_file=str(
-                    sonarr_projection_raw.get(
-                        "provenance_file",
-                        ".librariarr-sonarr-provenance.json",
-                    )
-                ).strip()
-                or ".librariarr-sonarr-provenance.json",
-                hash_max_file_size_mb=max(
-                    1,
-                    int(sonarr_projection_raw.get("hash_max_file_size_mb", 256)),
-                ),
                 series_folder_name_source=series_folder_name_source,
             ),
             mapping=SonarrMappingConfig(

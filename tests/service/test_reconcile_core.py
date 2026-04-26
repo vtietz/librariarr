@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from librariarr.projection import get_radarr_webhook_queue
@@ -314,7 +315,7 @@ def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: P
     assert service.radarr.updated_paths == []
 
 
-def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_path: Path) -> None:
+def test_reconcile_ingest_moves_new_file_when_managed_exists(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"
 
@@ -329,7 +330,6 @@ def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_pa
 
     config = make_config(managed_root, library_root, sync_enabled=True)
     config.ingest.enabled = True
-    config.ingest.collision_strategy = "skip"
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(
         movies=[_movie(77, "Fixture Ingest", 2024, incoming)],
@@ -337,9 +337,8 @@ def test_reconcile_ingest_skips_when_destination_exists_and_strategy_skip(tmp_pa
 
     service.reconcile()
 
-    assert incoming.exists()
-    assert incoming_file.exists()
-    assert existing_managed.exists()
+    assert (existing_managed / "incoming.mkv").exists()
+    assert (existing_managed / "incoming.mkv").read_text(encoding="utf-8") == "new"
     assert service.radarr.updated_paths == []
 
 
@@ -372,3 +371,60 @@ def test_full_reconcile_projects_all_movies_even_with_ingest_ids(tmp_path: Path)
 
     assert projected_a.exists()
     assert projected_b.exists()
+
+
+def test_reconcile_file_ingest_replaces_upgraded_movie(tmp_path: Path) -> None:
+    """Radarr upgrade: new file in library root replaces old in managed root."""
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    managed_movie = managed_root / "Fixture Upgrade (2024)"
+    managed_movie.mkdir(parents=True)
+    (managed_movie / "old.720p.mkv").write_text("old-quality", encoding="utf-8")
+
+    library_movie = library_root / "Fixture Upgrade (2024)"
+    library_movie.mkdir(parents=True)
+    (library_movie / "new.1080p.mkv").write_text("new-quality", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    config.ingest.enabled = True
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(99, "Fixture Upgrade", 2024, library_movie)],
+    )
+
+    service.reconcile()
+
+    assert (managed_movie / "new.1080p.mkv").exists()
+    assert (managed_movie / "new.1080p.mkv").read_text(encoding="utf-8") == "new-quality"
+
+    projected = _projected_file(library_root, "Fixture Upgrade (2024)", "new.1080p.mkv")
+    assert projected.exists()
+    assert projected.samefile(managed_movie / "new.1080p.mkv")
+
+
+def test_reconcile_file_ingest_noop_when_inodes_match(tmp_path: Path) -> None:
+    """No ingest when library root file is a hardlink to managed root file."""
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    managed_movie = managed_root / "Fixture Match (2020)"
+    managed_movie.mkdir(parents=True)
+    managed_file = managed_movie / "movie.mkv"
+    managed_file.write_text("content", encoding="utf-8")
+
+    library_movie = library_root / "Fixture Match (2020)"
+    library_movie.mkdir(parents=True)
+    os.link(str(managed_file), str(library_movie / "movie.mkv"))
+
+    config = make_config(managed_root, library_root, sync_enabled=True)
+    config.ingest.enabled = True
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(50, "Fixture Match", 2020, library_movie)],
+    )
+
+    service.reconcile()
+
+    assert managed_file.exists()
+    assert managed_file.read_text(encoding="utf-8") == "content"

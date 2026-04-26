@@ -67,9 +67,6 @@ radarr:
       - "poster.jpg"
       - "fanart.jpg"
     preserve_unknown_files: true
-    delete_managed_files: true
-    provenance_file: ".librariarr-provenance.json"
-    hash_max_file_size_mb: 256
     movie_folder_name_source: "managed"
 
   mapping:
@@ -134,9 +131,6 @@ sonarr:
       - "poster.jpg"
       - "fanart.jpg"
     preserve_unknown_files: true
-    delete_managed_files: true
-    provenance_file: ".librariarr-sonarr-provenance.json"
-    hash_max_file_size_mb: 256
     series_folder_name_source: "managed"
 
   mapping:
@@ -187,11 +181,8 @@ runtime:
 ingest:
   # Promote folders that Radarr points to under library roots (.librariarr)
   # back into the configured managed roots, then queue projection.
+  # File-level ingest also handles quality upgrades via inode comparison.
   enabled: true
-  # Collision handling when target managed folder already exists:
-  #   skip    -> keep source in library root and leave movie path unchanged (default)
-  #   qualify -> move into a unique suffixed folder name
-  collision_strategy: "skip"
 
 analysis:
   # Include NFO text in quality detection.

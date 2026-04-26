@@ -1,7 +1,13 @@
 from __future__ import annotations
 
+import logging
 import os
+from dataclasses import dataclass
 from pathlib import Path
+
+from ..projection.planner import classify_file
+
+LOG = logging.getLogger(__name__)
 
 
 def discover_unmatched_folders(
@@ -81,50 +87,6 @@ def current_reconcile_source(runtime_status_tracker) -> str:
     return "direct"
 
 
-def is_projected_shadow_folder(source_folder: Path, destination_folder: Path) -> bool:
-    """Return True when source already mirrors destination via hardlinks."""
-    if not source_folder.exists() or not source_folder.is_dir():
-        return False
-    if not destination_folder.exists() or not destination_folder.is_dir():
-        return False
-
-    source_files = folder_file_signature_map(source_folder)
-    destination_files = folder_file_signature_map(destination_folder)
-    if not source_files or not destination_files:
-        return False
-    if source_files.keys() != destination_files.keys():
-        return False
-
-    for relative_path, source_signature in source_files.items():
-        destination_signature = destination_files.get(relative_path)
-        if destination_signature is None:
-            return False
-        if source_signature != destination_signature:
-            return False
-    return True
-
-
-def folder_file_signature_map(folder: Path) -> dict[str, tuple[int, int, int]]:
-    signatures: dict[str, tuple[int, int, int]] = {}
-    for current, _dirs, files in os.walk(folder):
-        current_path = Path(current)
-        for filename in files:
-            file_path = current_path / filename
-            if file_path.is_symlink():
-                return {}
-            try:
-                stat_result = file_path.stat()
-            except OSError:
-                return {}
-            relative = file_path.relative_to(folder).as_posix()
-            signatures[relative] = (
-                int(stat_result.st_dev),
-                int(stat_result.st_ino),
-                int(stat_result.st_size),
-            )
-    return signatures
-
-
 def managed_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) -> Path | None:
     path = Path(path_raw)
     for managed_root, library_root in mappings:
@@ -159,3 +121,112 @@ def library_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) ->
             continue
         return library_root / relative
     return None
+
+
+@dataclass(frozen=True)
+class FileIngestResult:
+    ingested_count: int
+    failed_count: int
+
+
+def ingest_files_from_library_folder(
+    *,
+    library_folder: Path,
+    managed_folder: Path,
+    managed_video_extensions: set[str],
+    extras_allowlist: list[str],
+) -> FileIngestResult:
+    """Move files from library_folder into managed_folder when they differ by inode."""
+    ingested = 0
+    failed = 0
+
+    for current, _dirs, files in os.walk(library_folder):
+        current_path = Path(current)
+        for filename in sorted(files):
+            lib_file = current_path / filename
+            relative_path = lib_file.relative_to(library_folder).as_posix()
+
+            kind = classify_file(
+                relative_path=relative_path,
+                source_path=lib_file,
+                managed_video_extensions=managed_video_extensions,
+                extras_allowlist=extras_allowlist,
+            )
+            if kind is None:
+                continue
+
+            managed_file = managed_folder / relative_path
+            result = _ingest_single_file(lib_file, managed_file)
+            if result == "ingested":
+                ingested += 1
+            elif result == "failed":
+                failed += 1
+
+    return FileIngestResult(ingested_count=ingested, failed_count=failed)
+
+
+def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
+    """Move a single file from library root to managed root if inodes differ.
+
+    Returns 'ingested', 'skipped', or 'failed'.
+    """
+    if not managed_file.exists():
+        managed_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            lib_file.rename(managed_file)
+        except OSError as exc:
+            LOG.warning(
+                "Ingest file move failed: src=%s dest=%s error=%s",
+                lib_file,
+                managed_file,
+                exc,
+            )
+            return "failed"
+        LOG.info("Ingested new file from library root: %s -> %s", lib_file, managed_file)
+        return "ingested"
+
+    try:
+        lib_stat = lib_file.stat()
+        managed_stat = managed_file.stat()
+    except OSError as exc:
+        LOG.warning("Ingest stat failed: lib=%s managed=%s error=%s", lib_file, managed_file, exc)
+        return "failed"
+
+    if lib_stat.st_dev == managed_stat.st_dev and lib_stat.st_ino == managed_stat.st_ino:
+        return "skipped"
+
+    backup_path = managed_file.with_suffix(managed_file.suffix + ".librariarr-ingest-tmp")
+    try:
+        managed_file.rename(backup_path)
+    except OSError as exc:
+        LOG.warning(
+            "Cannot backup managed file for ingest, skipping: file=%s error=%s",
+            managed_file,
+            exc,
+        )
+        return "failed"
+
+    try:
+        lib_file.rename(managed_file)
+    except OSError as exc:
+        try:
+            backup_path.rename(managed_file)
+        except OSError as restore_exc:
+            LOG.error(
+                "Ingest move failed AND could not restore backup: dest=%s backup=%s error=%s",
+                managed_file,
+                backup_path,
+                restore_exc,
+            )
+        else:
+            LOG.warning(
+                "Ingest move failed, restored previous file: src=%s dest=%s error=%s",
+                lib_file,
+                managed_file,
+                exc,
+            )
+        return "failed"
+
+    backup_path.unlink(missing_ok=True)
+    LOG.info("Ingested upgraded file from library root: %s -> %s", lib_file, managed_file)
+    return "ingested"

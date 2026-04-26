@@ -55,7 +55,6 @@ class RuntimeConfig:
 @dataclass
 class IngestConfig:
     enabled: bool = True
-    collision_strategy: str = "skip"
 
 
 @dataclass
@@ -124,9 +123,6 @@ class RadarrProjectionConfig:
         default_factory=lambda: ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
     )
     preserve_unknown_files: bool = True
-    delete_managed_files: bool = True
-    provenance_file: str = ".librariarr-provenance.json"
-    hash_max_file_size_mb: int = 256
     movie_folder_name_source: str = "managed"
 
 
@@ -147,9 +143,6 @@ class SonarrProjectionConfig:
         ]
     )
     preserve_unknown_files: bool = True
-    delete_managed_files: bool = True
-    provenance_file: str = ".librariarr-sonarr-provenance.json"
-    hash_max_file_size_mb: int = 256
     series_folder_name_source: str = "managed"
 
 
