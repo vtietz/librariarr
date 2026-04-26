@@ -1,4 +1,4 @@
-import { Badge, Card, Group, ScrollArea, Table, Text } from "@mantine/core";
+import { Badge, Card, Group, Progress, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { getMappedDirectories } from "../../api/client";
 import { formatAge } from "../dashboardFormatters";
@@ -65,6 +65,11 @@ function buildPerRootInsights(items: MappedDirectoryEntry[]): RootInsight[] {
   return Array.from(byRoot.values()).sort((left, right) =>
     left.shadowRoot.localeCompare(right.shadowRoot)
   );
+}
+
+function rootDisplayName(shadowRoot: string): string {
+  const segments = shadowRoot.replace(/\/+$/, "").split("/");
+  return segments[segments.length - 1] || shadowRoot;
 }
 
 export default function PerRootInsightsCard() {
@@ -134,73 +139,74 @@ export default function PerRootInsightsCard() {
   return (
     <Card withBorder>
       <Group justify="space-between" mb="xs">
-        <Text fw={600}>Per Root Insights</Text>
-        <Badge color={rootInsightsTruncated ? "yellow" : "blue"}>
+        <Text fw={600}>Library Roots</Text>
+        <Badge color={rootInsightsTruncated ? "yellow" : "blue"} size="sm">
           {rootInsights.length} roots
         </Badge>
       </Group>
-      <Text size="sm" c="dimmed" mb="sm">
-        Directory-level health and progress grouped by library/shadow root.
-        {rootInsightsTruncated ? " Results are truncated at 5000 mapped directories." : ""}
-      </Text>
       {rootInsightsError ? (
         <Text size="xs" c="yellow" mb="sm">
           {rootInsightsError}
         </Text>
       ) : null}
-      <ScrollArea type="auto" scrollbars="x">
-        <Table
-          highlightOnHover
-          withTableBorder
-          withColumnBorders
-          style={{ tableLayout: "fixed", minWidth: "62rem" }}
-        >
-          <Table.Thead>
-            <Table.Tr>
-              <Table.Th style={{ width: "24rem" }}>Root</Table.Th>
-              <Table.Th style={{ width: "7rem" }}>Dirs</Table.Th>
-              <Table.Th style={{ width: "8rem" }}>Arr OK</Table.Th>
-              <Table.Th style={{ width: "9rem" }}>Not In Arr</Table.Th>
-              <Table.Th style={{ width: "11rem" }}>Missing Target</Table.Th>
-              <Table.Th style={{ width: "11rem" }}>Reconcile Failed</Table.Th>
-              <Table.Th style={{ width: "8rem" }}>Updated</Table.Th>
-            </Table.Tr>
-          </Table.Thead>
-          <Table.Tbody>
-            {rootInsights.map((insight) => (
-              <Table.Tr key={insight.shadowRoot}>
-                <Table.Td>
-                  <Text
-                    size="sm"
-                    c="dimmed"
-                    style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
-                    title={insight.shadowRoot}
-                  >
-                    {insight.shadowRoot}
+      <Stack gap="md">
+        {rootInsights.map((insight) => {
+          const total = insight.directoriesTotal || 1;
+          const okPct = (insight.arrOk / total) * 100;
+          const notInArrPct = (insight.notInArr / total) * 100;
+          const issueCount = insight.missingTarget + insight.reconcileFailed;
+          const issuePct = (issueCount / total) * 100;
+
+          return (
+            <Stack key={insight.shadowRoot} gap={4}>
+              <Group justify="space-between">
+                <Text size="sm" fw={500} title={insight.shadowRoot}>
+                  {rootDisplayName(insight.shadowRoot)}
+                </Text>
+                <Group gap="xs">
+                  <Text size="xs" c="dimmed">
+                    {insight.directoriesTotal} dirs
                   </Text>
-                </Table.Td>
-                <Table.Td>{insight.directoriesTotal}</Table.Td>
-                <Table.Td>{insight.arrOk}</Table.Td>
-                <Table.Td>{insight.notInArr}</Table.Td>
-                <Table.Td>{insight.missingTarget}</Table.Td>
-                <Table.Td>{insight.reconcileFailed}</Table.Td>
-                <Table.Td>
-                  {insight.updatedAtMs == null
-                    ? "-"
-                    : formatAge(Math.floor(insight.updatedAtMs / 1000))}
-                </Table.Td>
-              </Table.Tr>
-            ))}
-            {rootInsightsLoaded && rootInsights.length === 0 ? (
-              <Table.Tr>
-                <Table.Td colSpan={7}>
-                  <Text size="sm" c="dimmed">No mapped directories indexed yet.</Text>
-                </Table.Td>
-              </Table.Tr>
-            ) : null}
-          </Table.Tbody>
-        </Table>
-      </ScrollArea>
+                  {insight.updatedAtMs != null && (
+                    <Text size="xs" c="dimmed">
+                      · {formatAge(Math.floor(insight.updatedAtMs / 1000))}
+                    </Text>
+                  )}
+                </Group>
+              </Group>
+              <Progress.Root size="lg">
+                <Progress.Section value={okPct} color="teal" />
+                {notInArrPct > 0 && (
+                  <Progress.Section value={notInArrPct} color="yellow" />
+                )}
+                {issuePct > 0 && (
+                  <Progress.Section value={issuePct} color="red" />
+                )}
+              </Progress.Root>
+              <Group gap="md">
+                <Text size="xs" c="dimmed">
+                  <Text span c="teal" fw={600}>●</Text> {insight.arrOk} synced
+                </Text>
+                {insight.notInArr > 0 && (
+                  <Text size="xs" c="dimmed">
+                    <Text span c="yellow" fw={600}>●</Text> {insight.notInArr} not in arr
+                  </Text>
+                )}
+                {issueCount > 0 && (
+                  <Text size="xs" c="dimmed">
+                    <Text span c="red" fw={600}>●</Text> {issueCount} issues
+                  </Text>
+                )}
+              </Group>
+            </Stack>
+          );
+        })}
+        {rootInsightsLoaded && rootInsights.length === 0 && (
+          <Text size="sm" c="dimmed">
+            No mapped directories indexed yet.
+          </Text>
+        )}
+      </Stack>
     </Card>
   );
 }

@@ -1,22 +1,20 @@
 import { Stack, Title } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { getDiscoveryWarnings, runFullReconcile } from "../api/client";
-import type { JobsSummary, RuntimeStatusResponse } from "../api/client";
-import ActiveReconcilePanel from "./dashboard/ActiveReconcilePanel";
+import type { RuntimeStatusResponse } from "../api/client";
 import DiscoveryWarningsCard from "./dashboard/DiscoveryWarningsCard";
+import LibraryStatsCards from "./dashboard/LibraryStatsCards";
 import PerRootInsightsCard from "./dashboard/PerRootInsightsCard";
-import SystemStatusCards from "./dashboard/SystemStatusCards";
+import SyncStatusCard from "./dashboard/SyncStatusCard";
 
 type Props = {
   hasUnsavedChanges: boolean;
   runtimeStatus: RuntimeStatusResponse | null;
-  jobsSummary: JobsSummary | null;
 };
 
 export default function Dashboard({
   hasUnsavedChanges,
   runtimeStatus,
-  jobsSummary,
 }: Props) {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
@@ -70,13 +68,10 @@ export default function Dashboard({
     <Stack gap="md">
       <Title order={3}>Dashboard</Title>
 
-      <SystemStatusCards
-        hasUnsavedChanges={hasUnsavedChanges}
-        runtimeStatus={runtimeStatus}
-        jobsSummary={jobsSummary}
-      />
+      <LibraryStatsCards runtimeStatus={runtimeStatus} />
 
-      <ActiveReconcilePanel
+      <SyncStatusCard
+        hasUnsavedChanges={hasUnsavedChanges}
         runtimeStatus={runtimeStatus}
         runningReconcile={runningReconcile}
         onRunFullReconcile={handleRunReconcile}

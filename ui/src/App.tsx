@@ -2,14 +2,13 @@ import { AppShell, Group, Loader, Stack, Tabs, Text, ThemeIcon, Title } from "@m
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { IconBooks } from "@tabler/icons-react";
 import {
-  getJobsSummary,
   getRuntimeStatus,
   getConfig,
   getDiff,
   saveConfig,
   validateConfig
 } from "./api/client";
-import type { JobsSummary, RuntimeStatusResponse } from "./api/client";
+import type { RuntimeStatusResponse } from "./api/client";
 import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
 import DirectoryMapper from "./components/DirectoryMapper";
@@ -61,7 +60,6 @@ export default function App() {
   const [diffText, setDiffText] = useState("");
   const [yamlPreview, setYamlPreview] = useState("");
   const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
-  const [jobsSummary, setJobsSummary] = useState<JobsSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>(() =>
     resolveTabFromPath(window.location.pathname)
@@ -120,13 +118,9 @@ export default function App() {
       }
       inFlight = true;
       try {
-        const [runtimeResult, jobsResult] = await Promise.all([
-          getRuntimeStatus(),
-          getJobsSummary()
-        ]);
+        const runtimeResult = await getRuntimeStatus();
         if (active) {
           setRuntimeStatus(runtimeResult);
-          setJobsSummary(jobsResult);
         }
       } catch (error) {
         void error;
@@ -271,7 +265,6 @@ export default function App() {
               <Dashboard
                 hasUnsavedChanges={hasUnsavedChanges}
                 runtimeStatus={runtimeStatus}
-                jobsSummary={jobsSummary}
               />
             )}
           </Tabs.Panel>
