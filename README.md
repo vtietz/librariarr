@@ -28,22 +28,32 @@ A fair portion of this codebase was shaped through conversational AI collaborati
 
 ## Core Features
 
-- Continuous projection sync for Radarr and Sonarr using filesystem events plus scheduled maintenance reconciles.
-- Startup Full Reconcile on every launch and on-demand via the admin UI to bring the library to a consistent state in one pass.
-- Embedded web UI for visual config editing, mapping exploration, diagnostics, and dry-runs.
-- Movie projection mappings (`paths.movie_root_mappings`) and series projection mappings (`paths.series_root_mappings`).
-- Hardlink projection for managed video files plus allowlisted extras.
-- Optional webhook-scoped projection via `POST /api/hooks/radarr` and `POST /api/hooks/sonarr`.
-- Idempotent reconcile behavior with relink-on-replace and unknown-file preservation.
+- **Hardlink projection** (managed → library): projects video files and allowlisted extras from your curated folders into flat Arr-compatible library roots using hardlinks. Zero storage overhead.
+- **Two-tier ingest** (library → managed): when Radarr imports a new movie, the folder is moved into your curated tree. When Radarr upgrades quality, file-level inode comparison detects new files and moves them in — no duplicates.
+- **Auto-discovery**: scans managed roots for folders not yet in Radarr/Sonarr and auto-adds them with configurable quality profile mapping.
+- **Webhook-scoped reconcile**: Radarr/Sonarr Connect webhooks trigger targeted per-movie/series reconcile within seconds instead of waiting for periodic scans.
+- **Filesystem watchers + periodic reconcile**: filesystem events trigger debounced incremental reconcile; scheduled full reconcile catches any drift.
+- **Idempotent and safe**: relink-on-replace for changed files, unknown user files in library roots are never touched.
+- **Web UI**: dashboard with real-time status, config editor with validation, path mapping explorer, and log viewer.
 
 ## Sync Architecture
 
 ```mermaid
 flowchart LR
-  A[Nested media folders under /data] --> B[LibrariArr discovery + reconcile]
-  B --> C[Hardlink projection into /data/movies and /data/sonarr_library]
-  B --> D[Radarr movie inventory]
-  B --> E[Sonarr series inventory]
+  subgraph "Your curated folders"
+    A[managed_root]
+  end
+  subgraph "LibrariArr"
+    B[Reconcile]
+  end
+  subgraph "Arr library roots"
+    C[library_root]
+  end
+  A -- "projection (hardlink)" --> B
+  B --> C
+  C -- "ingest (move)" --> B
+  B --> A
+  B <--> D[Radarr / Sonarr API]
 ```
 
 ## How It Works
@@ -91,29 +101,38 @@ The projected files are hardlinks to the managed files (same content, different 
 
 On reconcile, LibrariArr:
 
-1. Reads Radarr movie inventory and Sonarr series inventory.
-2. Resolves managed->library mappings.
-3. Builds projection plans for managed video and allowlisted extras.
-4. Applies hardlink projection idempotently into library roots.
+1. **Ingests** new/upgraded files from library roots back into managed roots.
+2. **Normalizes paths** so Radarr/Sonarr always point to library roots.
+3. **Projects** managed video and allowlisted extras into library roots via hardlinks.
+4. **Discovers** unmatched folders in managed roots and auto-adds them to Radarr/Sonarr.
 
 ## Common Sync Scenarios
 
-### When Radarr/Sonarr downloads or imports media
+### When Radarr downloads a new movie
 
-- The download/import creates filesystem events under your nested roots.
-- LibrariArr debounces bursts (`runtime.debounce_seconds`) and runs an incremental reconcile.
-- Projection reuses existing hardlinks when unchanged and links new/replaced managed files.
+- Radarr places the movie in the library root (its configured root folder).
+- Webhook or filesystem event triggers reconcile.
+- **Ingest** moves the folder from library root into your managed root.
+- **Projection** hardlinks it back into the library root.
+- Result: movie lives in your curated tree, Radarr sees it in the library root.
 
-### When you rename/move a movie or series folder manually
+### When Radarr upgrades quality
 
-- Rename/move is detected via filesystem events and queued for incremental reconcile.
-- Next reconcile projects from the Arr item path currently known to Radarr/Sonarr.
-- Webhook queue scoping can speed up convergence to changed items.
+- Radarr replaces the file in the library root with a better version.
+- **File-level ingest** detects the new file (different inode) and moves it to managed root.
+- **Projection** re-hardlinks the upgraded file back into the library root.
+- Your curated folder now has the upgraded file, no duplicates.
 
-### When you add files into an existing folder
+### When you add a movie folder manually
 
-- Events are detected and reconciled, but the folder identity often remains unchanged.
-- You may still see a reconcile run in logs even if resulting projected-file changes are zero.
+- Drop a movie folder into your managed root.
+- LibrariArr discovers it's not in Radarr and auto-adds it (if `auto_add_unmatched` is enabled).
+- Projection hardlinks it into the library root so Radarr can see it.
+
+### When you rename/move a movie folder
+
+- Filesystem events trigger incremental reconcile.
+- Projection updates to match the current managed folder state.
 
 ## Quick Start (Users: Docker Compose)
 
@@ -210,17 +229,18 @@ docker compose -f docker-compose.full-stack.example.yml down
 ```yaml
 paths:
   movie_root_mappings:
-    - managed_root: "/data/movies/age_12"
-      library_root: "/data/radarr_library/age_12"
+    - managed_root: "/data/movies/age_12"       # your curated folder
+      library_root: "/data/radarr_library/age_12" # Radarr's root folder
   series_root_mappings:
-    - nested_root: "/data/series/age_12"
-      shadow_root: "/data/sonarr_library/age_12"
+    - nested_root: "/data/series/age_12"         # your curated folder
+      shadow_root: "/data/sonarr_library/age_12" # Sonarr's root folder
 
 radarr:
   enabled: true
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
+  auto_add_unmatched: true  # auto-import unmatched folders to Radarr
 
 sonarr:
   enabled: false
@@ -229,14 +249,15 @@ sonarr:
   sync_enabled: true
 ```
 
+> **Naming note**: Radarr mappings use `managed_root`/`library_root`. Sonarr mappings currently use `nested_root`/`shadow_root` (same concept, naming migration pending).
+
 ## Integration Checklist
 
-- Radarr/Sonarr and LibrariArr must all mount the same top-level media root to `/data`.
-- Keep nested and shadow folders under that shared root (for example `/data/movies`, `/data/radarr_library`, `/data/sonarr_library`).
-- Add mapped shadow roots as root folders in Radarr/Sonarr.
-- Keep `radarr.enabled=true` for movie processing, `sonarr.enabled=true` for series processing.
-- Use `*.sync_enabled=false` to disable Arr API projection for that service.
-- If API sync is enabled and updates fail, check path parity across containers first.
+- All containers (Radarr, Sonarr, LibrariArr) must mount the same top-level media root to `/data`.
+- Keep managed folders and library folders under that shared root (e.g. `/data/movies`, `/data/radarr_library`).
+- In Radarr: add each `library_root` as a root folder. In Sonarr: add each `shadow_root` as a root folder.
+- Set up Radarr/Sonarr Connect webhooks to `http://librariarr:8787/api/hooks/radarr` (and `/hooks/sonarr`) for fast scoped reconcile.
+- If API sync fails, check that all containers see the same paths (path parity).
 
 ## More Details
 

@@ -120,9 +120,6 @@ export default function ActiveReconcilePanel({
           created links {snapshotCreatedLinks}
         </Text>
         <Text size="xs" c="dimmed">{lastReconcileMeta}</Text>
-        <Text size="xs" c="dimmed">
-          Runtime reconcile is single-worker; cache/discovery rebuild tasks may run in parallel.
-        </Text>
       </Stack>
     </Card>
   );
