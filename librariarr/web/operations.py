@@ -17,7 +17,7 @@ from .discovery_cache import get_discovery_warnings_cache
 from .full_reconcile_ops import queue_full_reconcile
 from .log_buffer import LogRingBuffer, get_log_buffer
 from .maintenance_ops import queue_maintenance_reconcile
-from .mapped_arr_state import enrich_mapped_directories_with_radarr_state
+from .mapped_arr_state import enrich_mapped_directories_with_arr_state
 from .mapped_cache import get_mapped_directories_cache
 from .mapped_cache import library_roots as _library_roots
 from .path_mapping_status import apply_path_mapping_outcomes
@@ -367,7 +367,7 @@ def build_operations_router() -> APIRouter:
             mapped_cache=mapped_cache,
             discovery_cache=discovery_cache,
             shadow_roots_fn=_library_roots,
-            enrich_mapped_directories_with_radarr_state_fn=enrich_mapped_directories_with_radarr_state,
+            enrich_mapped_directories_with_radarr_state_fn=enrich_mapped_directories_with_arr_state,
             apply_path_mapping_outcomes_fn=apply_path_mapping_outcomes,
         )
     )

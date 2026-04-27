@@ -82,10 +82,18 @@ function CoverageCard({
 }
 
 export default function LibraryStatsCards({ runtimeStatus }: Props) {
-  const metrics =
+  const currentTask =
     runtimeStatus?.current_task.state === "running"
       ? runtimeStatus.current_task
-      : runtimeStatus?.last_reconcile;
+      : null;
+  const lastReconcile = runtimeStatus?.last_reconcile ?? null;
+
+  // Use current task metrics if available, otherwise fall back to last reconcile.
+  const hasCurrentMetrics =
+    currentTask != null &&
+    (typeof currentTask.matched_movies === "number" ||
+      typeof currentTask.matched_series === "number");
+  const metrics = hasCurrentMetrics ? currentTask : lastReconcile;
 
   return (
     <SimpleGrid cols={{ base: 1, sm: 2 }}>

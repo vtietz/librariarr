@@ -68,8 +68,7 @@ function buildPerRootInsights(items: MappedDirectoryEntry[]): RootInsight[] {
 }
 
 function rootDisplayName(shadowRoot: string): string {
-  const segments = shadowRoot.replace(/\/+$/, "").split("/");
-  return segments[segments.length - 1] || shadowRoot;
+  return shadowRoot.replace(/\/+$/, "") || shadowRoot;
 }
 
 export default function PerRootInsightsCard() {
