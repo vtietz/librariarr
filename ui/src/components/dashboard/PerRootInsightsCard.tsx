@@ -1,4 +1,4 @@
-import { Badge, Card, Group, Progress, Stack, Text } from "@mantine/core";
+import { Badge, Card, Group, Loader, Progress, Skeleton, Stack, Text } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { getMappedDirectories } from "../../api/client";
 import { formatAge } from "../dashboardFormatters";
@@ -76,6 +76,7 @@ export default function PerRootInsightsCard() {
   const [rootInsightsTruncated, setRootInsightsTruncated] = useState(false);
   const [rootInsightsLoaded, setRootInsightsLoaded] = useState(false);
   const [rootInsightsError, setRootInsightsError] = useState<string | null>(null);
+  const [configuredRoots, setConfiguredRoots] = useState<string[]>([]);
 
   useEffect(() => {
     let active = true;
@@ -113,6 +114,9 @@ export default function PerRootInsightsCard() {
         }
         setRootInsights(buildPerRootInsights(payload.items));
         setRootInsightsTruncated(Boolean(payload.truncated));
+        if (payload.shadow_roots?.length) {
+          setConfiguredRoots(payload.shadow_roots);
+        }
         setRootInsightsLoaded(true);
       } catch {
         if (active) {
@@ -135,12 +139,22 @@ export default function PerRootInsightsCard() {
     };
   }, []);
 
+  // Merge configured roots with loaded insights so roots appear immediately
+  const insightRoots = new Set(rootInsights.map((i) => i.shadowRoot));
+  const pendingRoots = configuredRoots
+    .filter((root) => !insightRoots.has(root))
+    .sort((a, b) => a.localeCompare(b));
+  const displayRootCount = rootInsights.length + pendingRoots.length;
+
   return (
     <Card withBorder>
       <Group justify="space-between" mb="xs">
-        <Text fw={600}>Library Roots</Text>
+        <Group gap="xs">
+          <Text fw={600}>Library Roots</Text>
+          {!rootInsightsLoaded && <Loader size="xs" />}
+        </Group>
         <Badge color={rootInsightsTruncated ? "yellow" : "blue"} size="sm">
-          {rootInsights.length} roots
+          {displayRootCount} roots
         </Badge>
       </Group>
       {rootInsightsError ? (
@@ -200,7 +214,18 @@ export default function PerRootInsightsCard() {
             </Stack>
           );
         })}
-        {rootInsightsLoaded && rootInsights.length === 0 && (
+        {pendingRoots.map((root) => (
+          <Stack key={root} gap={4}>
+            <Text size="sm" fw={500}>
+              {rootDisplayName(root)}
+            </Text>
+            <Skeleton height={8} radius="xl" />
+            <Text size="xs" c="dimmed">
+              Loading…
+            </Text>
+          </Stack>
+        ))}
+        {rootInsightsLoaded && displayRootCount === 0 && (
           <Text size="sm" c="dimmed">
             No mapped directories indexed yet.
           </Text>
