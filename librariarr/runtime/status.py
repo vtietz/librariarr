@@ -33,6 +33,7 @@ class RuntimeStatusTracker:
             },
             "last_reconcile": None,
             "last_full_reconcile": None,
+            "library_root_stats": [],
             "updated_at": None,
         }
 
@@ -146,6 +147,23 @@ class RuntimeStatusTracker:
 
         if self._task_update_callback is not None and task_id is not None:
             self._task_update_callback(task_id=task_id, current_task=current_payload)
+
+    def update_library_root_stats(self, per_root: list[dict[str, Any]]) -> None:
+        with self._lock:
+            now = time.time()
+            existing_by_key = {
+                str(r.get("library_root", "")): r
+                for r in self._state.get("library_root_stats") or []
+            }
+            for entry in per_root:
+                key = str(entry.get("library_root", ""))
+                if key:
+                    entry["updated_at"] = now
+                    existing_by_key[key] = entry
+            self._state["library_root_stats"] = sorted(
+                existing_by_key.values(), key=lambda r: str(r.get("library_root", ""))
+            )
+            self._touch_locked()
 
     def mark_reconcile_finished(
         self,

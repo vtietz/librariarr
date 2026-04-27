@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
@@ -32,7 +33,7 @@ class SonarrProjectionOrchestrator:
             preserve_unknown_files=config.sonarr.projection.preserve_unknown_files,
         )
 
-    def reconcile(self, scoped_series_ids: set[int] | None) -> dict[str, int]:
+    def reconcile(self, scoped_series_ids: set[int] | None) -> dict[str, Any]:
         series_items = self.sonarr.get_series()
         plans = build_series_projection_plans(
             config=self.config,
@@ -66,6 +67,7 @@ class SonarrProjectionOrchestrator:
             "projected_files": metrics.projected_files,
             "unchanged_files": metrics.unchanged_files,
             "skipped_files": metrics.skipped_files,
+            "per_root": metrics.per_root_list(),
         }
 
 

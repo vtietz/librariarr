@@ -77,7 +77,7 @@ export default function Dashboard({
         onRunFullReconcile={handleRunReconcile}
       />
 
-      <PerRootInsightsCard />
+      <PerRootInsightsCard runtimeStatus={runtimeStatus} />
 
       <DiscoveryWarningsCard discoveryWarnings={discoveryWarnings} />
     </Stack>

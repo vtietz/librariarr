@@ -289,6 +289,12 @@ class ServiceReconcileMixin:
                         ),
                     }
                 )
+                movie_per_root = movie_projection_metrics.get("per_root") or []
+                series_per_root = series_projection_metrics.get("per_root") or []
+                all_per_root = [{**r, "arr_type": "radarr"} for r in movie_per_root] + [
+                    {**r, "arr_type": "sonarr"} for r in series_per_root
+                ]
+                self.runtime_status_tracker.update_library_root_stats(all_per_root)
 
             LOG.info(
                 "Reconcile finished: source=%s mode=%s affected_paths=%s trigger_path=%s "

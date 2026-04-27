@@ -37,16 +37,20 @@ class MovieProjectionExecutor:
 
         for plan in plans:
             metrics.planned_movies += 1
+            metrics.record_plan(plan.mapping)
             if plan.skip_reason is not None or plan.mapping is None:
                 metrics.skipped_movies += 1
+                metrics.record_skip(plan.mapping)
                 continue
 
             probe_key = (str(plan.mapping.managed_root), str(plan.mapping.library_root))
             probe = probes.get(probe_key)
             if not self._is_mapping_actionable(probe):
                 metrics.skipped_movies += 1
+                metrics.record_skip(plan.mapping)
                 continue
 
+            metrics.record_match(plan.mapping)
             managed_dest_paths = self.state_store.get_managed_paths_for_movie(plan.movie_id)
             upserts: list[ProjectedFileState] = []
 
@@ -60,13 +64,16 @@ class MovieProjectionExecutor:
                 )
                 if result is None:
                     metrics.skipped_files += 1
+                    metrics.record_file_skipped(plan.mapping)
                     continue
                 if result == "unchanged":
                     metrics.unchanged_files += 1
+                    metrics.record_file_unchanged(plan.mapping)
                     continue
 
                 upserts.append(result)
                 metrics.projected_files += 1
+                metrics.record_file_projected(plan.mapping)
 
             self.state_store.upsert_projected_files(upserts)
 

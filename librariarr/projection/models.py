@@ -55,6 +55,32 @@ class ProjectedFileState:
 
 
 @dataclass
+class RootMetrics:
+    """Per-root projection statistics."""
+
+    library_root: str
+    managed_root: str
+    planned: int = 0
+    matched: int = 0
+    skipped: int = 0
+    projected_files: int = 0
+    unchanged_files: int = 0
+    skipped_files: int = 0
+
+    def as_dict(self) -> dict[str, int | str]:
+        return {
+            "library_root": self.library_root,
+            "managed_root": self.managed_root,
+            "planned": self.planned,
+            "matched": self.matched,
+            "skipped": self.skipped,
+            "projected_files": self.projected_files,
+            "unchanged_files": self.unchanged_files,
+            "skipped_files": self.skipped_files,
+        }
+
+
+@dataclass
 class ProjectionApplyMetrics:
     scoped_movie_count: int
     planned_movies: int = 0
@@ -62,6 +88,48 @@ class ProjectionApplyMetrics:
     projected_files: int = 0
     unchanged_files: int = 0
     skipped_files: int = 0
+    per_root: dict[str, RootMetrics] = field(default_factory=dict)
+
+    def record_plan(self, mapping: MovieProjectionMapping | None) -> None:
+        if mapping is None:
+            return
+        root = self._get_root(mapping)
+        root.planned += 1
+
+    def record_skip(self, mapping: MovieProjectionMapping | None) -> None:
+        if mapping is None:
+            return
+        root = self._get_root(mapping)
+        root.skipped += 1
+
+    def record_match(self, mapping: MovieProjectionMapping) -> None:
+        root = self._get_root(mapping)
+        root.matched += 1
+
+    def record_file_projected(self, mapping: MovieProjectionMapping) -> None:
+        root = self._get_root(mapping)
+        root.projected_files += 1
+
+    def record_file_unchanged(self, mapping: MovieProjectionMapping) -> None:
+        root = self._get_root(mapping)
+        root.unchanged_files += 1
+
+    def record_file_skipped(self, mapping: MovieProjectionMapping) -> None:
+        root = self._get_root(mapping)
+        root.skipped_files += 1
+
+    def _get_root(self, mapping: MovieProjectionMapping) -> RootMetrics:
+        key = str(mapping.library_root)
+        if key not in self.per_root:
+            self.per_root[key] = RootMetrics(
+                library_root=str(mapping.library_root),
+                managed_root=str(mapping.managed_root),
+            )
+        return self.per_root[key]
+
+    def per_root_list(self) -> list[dict[str, int | str]]:
+        roots = sorted(self.per_root.values(), key=lambda r: r.library_root)
+        return [root.as_dict() for root in roots]
 
     def as_dict(self) -> dict[str, int]:
         return {

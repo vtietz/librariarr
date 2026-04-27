@@ -426,6 +426,18 @@ export type RuntimeStatusResponse = {
     full_reconcile_stats?: Record<string, number | string> | null;
     finished_at: number | null;
   }) | null;
+  library_root_stats?: Array<{
+    library_root: string;
+    managed_root: string;
+    arr_type: string;
+    planned: number;
+    matched: number;
+    skipped: number;
+    projected_files: number;
+    unchanged_files: number;
+    skipped_files: number;
+    updated_at: number;
+  }>;
   known_links_in_memory?: number;
   mapped_cache?: {
     ready: boolean;

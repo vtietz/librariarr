@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from ..clients.radarr import RadarrClient
 from ..config import AppConfig
@@ -32,7 +33,7 @@ class MovieProjectionOrchestrator:
             preserve_unknown_files=config.radarr.projection.preserve_unknown_files,
         )
 
-    def reconcile(self, scoped_movie_ids: set[int] | None) -> dict[str, int]:
+    def reconcile(self, scoped_movie_ids: set[int] | None) -> dict[str, Any]:
         movies = self.radarr.get_movies()
         plans = build_movie_projection_plans(
             config=self.config,
@@ -57,7 +58,9 @@ class MovieProjectionOrchestrator:
             metrics.unchanged_files,
             metrics.skipped_files,
         )
-        return metrics.as_dict()
+        result = metrics.as_dict()
+        result["per_root"] = metrics.per_root_list()
+        return result
 
 
 def _projection_state_db_path() -> Path:
