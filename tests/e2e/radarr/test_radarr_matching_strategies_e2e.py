@@ -56,7 +56,7 @@ def _projection_config(
 
 
 @pytest.mark.e2e
-def test_radarr_e2e_projection_uses_managed_folder_naming_by_default() -> None:
+def test_radarr_e2e_projection_uses_radarr_title_year_naming() -> None:
     case_root = _resolve_case_root(f"radarr_projection_managed_name_{uuid.uuid4().hex[:8]}")
 
     managed_root = case_root / "managed_movies"
@@ -100,7 +100,10 @@ def test_radarr_e2e_projection_uses_managed_folder_naming_by_default() -> None:
     )
     service.reconcile()
 
-    projected_file = library_root / managed_folder.relative_to(managed_root) / source_file.name
+    title = str(seeded_movie.get("title") or "")
+    year = seeded_movie.get("year")
+    expected_folder = safe_path_component(f"{title} ({year})" if isinstance(year, int) else title)
+    projected_file = library_root / expected_folder / source_file.name
     assert projected_file.exists()
     assert projected_file.samefile(source_file)
 
@@ -230,8 +233,15 @@ def test_radarr_e2e_projection_scopes_to_webhook_movie_ids() -> None:
     finally:
         queue.consume_movie_ids()
 
-    projected_a = library_root / folder_a.relative_to(managed_root) / source_a.name
-    projected_b = library_root / folder_b.relative_to(managed_root) / source_b.name
+    def _canon(m: dict) -> str:
+        t = str(m.get("title") or "")
+        y = m.get("year")
+        return safe_path_component(f"{t} ({y})" if isinstance(y, int) else t)
+
+    expected_a = _canon(movie_a)
+    expected_b = _canon(movie_b)
+    projected_a = library_root / expected_a / source_a.name
+    projected_b = library_root / expected_b / source_b.name
     assert not projected_a.exists()
     assert projected_b.exists()
     assert projected_b.samefile(source_b)

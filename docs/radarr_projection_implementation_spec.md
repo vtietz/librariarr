@@ -34,7 +34,7 @@ User's curated library          Radarr's root folder
 - **managed_root**: the user's curated folder tree. Persistent. Never auto-deleted. This is where movies "live" long-term.
 - **library_root**: Radarr's root folder. Contains hardlink projections of managed files. Radarr reads from and writes to this folder.
 
-**Radarr is pointed at library_root**, not managed_root. `normalize_radarr_paths_to_library_roots()` ensures every movie in Radarr has its path set to `library_root/<movie_folder>`.
+**Radarr is pointed at library_root**, not managed_root. The projection planner resolves each movie's library folder using `Title (Year)` naming from the Radarr metadata.
 
 Direction summary:
 - **Projection** (managed → library): hardlink managed files into library root so Radarr can see them.
@@ -172,13 +172,7 @@ Moves files that Radarr placed in library_root back into managed_root. Two tiers
 
 Implementation: `librariarr/service/reconcile.py` — `_ingest_movies_from_library_roots()`, `_ingest_movie_if_needed()`, `_ingest_files_for_existing_movie()`. Helper: `librariarr/service/reconcile_helpers.py` — `ingest_files_from_library_folder()`.
 
-### 7.2 Path Normalization
-
-Ensure every Radarr movie has its path set to the library_root equivalent. Movies pointing to managed_root are updated to point to library_root.
-
-Implementation: `librariarr/service/path_normalization.py` — `normalize_radarr_paths_to_library_roots()`.
-
-### 7.3 Projection (managed → library)
+### 7.2 Projection (managed → library)
 
 Core hardlink projection pipeline:
 
@@ -204,13 +198,13 @@ Core hardlink projection pipeline:
    - Thin coordinator: fetches movies → calls planner → probes mappings → calls executor.
    - Supports scoped reconcile (set of movie IDs) or full reconcile (all movies).
 
-### 7.4 Discovery
+### 7.3 Discovery
 
 Scan managed roots for movie folders not yet in Radarr. Auto-add unmatched folders when `auto_add_unmatched` is enabled. Newly added movies trigger immediate projection.
 
 Implementation: `librariarr/sync/discovery.py`, wired via `_auto_add_unmatched_movies()` in reconcile.
 
-### 7.5 Scope Resolution
+### 7.4 Scope Resolution
 
 Reconcile scope is determined by combining:
 - Webhook queue (consumed movie IDs).
@@ -239,7 +233,6 @@ librariarr/
     reconcile.py       — ServiceReconcileMixin: full reconcile orchestration,
                          ingest (folder-level + file-level), discovery wiring
     reconcile_helpers.py — ingest_files_from_library_folder(), classify/move helpers
-    path_normalization.py — normalize_radarr_paths_to_library_roots()
     bootstrap.py       — ServiceBootstrapMixin: initializes projection orchestrators
 
   runtime/

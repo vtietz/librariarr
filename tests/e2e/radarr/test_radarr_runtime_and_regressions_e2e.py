@@ -16,6 +16,7 @@ from librariarr.config import (
 )
 from librariarr.projection import get_radarr_webhook_queue
 from librariarr.service import LibrariArrService
+from librariarr.sync.naming import safe_path_component
 from tests.e2e.radarr.test_radarr_e2e import (
     _ensure_movie_path_under_managed_root,
     _resolve_case_root,
@@ -113,7 +114,10 @@ def test_radarr_e2e_projection_relinks_when_managed_file_is_replaced() -> None:
     )
     service.reconcile()
 
-    projected_file = library_root / managed_folder.relative_to(managed_root) / source_file.name
+    expected_folder = safe_path_component(
+        f"{seeded_movie['title']} ({seeded_movie['year']})"
+    )
+    projected_file = library_root / expected_folder / source_file.name
     assert projected_file.exists()
     assert projected_file.samefile(source_file)
 
@@ -174,7 +178,10 @@ def test_radarr_e2e_projection_preserves_unknown_library_files() -> None:
     )
     service.reconcile()
 
-    projected_folder = library_root / managed_folder.relative_to(managed_root)
+    expected_folder = safe_path_component(
+        f"{seeded_movie['title']} ({seeded_movie['year']})"
+    )
+    projected_folder = library_root / expected_folder
     projected_file = projected_folder / source_file.name
     unknown_file = projected_folder / "notes.txt"
     unknown_file.write_text("keep me", encoding="utf-8")
@@ -252,8 +259,10 @@ def test_radarr_e2e_runtime_reconcile_processes_webhook_scoped_projection() -> N
         )
     )
 
-    projected_a = library_root / folder_a.relative_to(managed_root) / source_a.name
-    projected_b = library_root / folder_b.relative_to(managed_root) / source_b.name
+    expected_a = safe_path_component(f"{movie_a['title']} ({movie_a['year']})")
+    expected_b = safe_path_component(f"{movie_b['title']} ({movie_b['year']})")
+    projected_a = library_root / expected_a / source_a.name
+    projected_b = library_root / expected_b / source_b.name
 
     queue = get_radarr_webhook_queue()
     queue.consume_movie_ids()

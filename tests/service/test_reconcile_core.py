@@ -57,34 +57,6 @@ def test_reconcile_projects_movie_files_into_library_root(tmp_path: Path) -> Non
     assert projected_subtitle.samefile(subtitle_file)
 
 
-def test_reconcile_normalizes_managed_radarr_path_to_library_root(tmp_path: Path) -> None:
-    managed_root = tmp_path / "managed"
-    library_root = tmp_path / "library"
-    movie_dir = managed_root / "Fixture Catalog A (2008)"
-    movie_dir.mkdir(parents=True)
-    movie_file = movie_dir / "Big.Buck.Bunny.2008.1080p.x265.mkv"
-    movie_file.write_text("x", encoding="utf-8")
-
-    config = make_config(managed_root, library_root, sync_enabled=True)
-    service = LibrariArrService(config)
-    service.radarr = FakeRadarr(
-        movies=[_movie(1, "Fixture Catalog A", 2008, movie_dir)],
-    )
-
-    service.reconcile()
-
-    expected_path = library_root / "Fixture Catalog A (2008)"
-    projected_movie = _projected_file(
-        library_root,
-        "Fixture Catalog A (2008)",
-        "Big.Buck.Bunny.2008.1080p.x265.mkv",
-    )
-
-    assert service.radarr.updated_paths == [(1, str(expected_path))]
-    assert projected_movie.exists()
-    assert projected_movie.samefile(movie_file)
-
-
 def test_reconcile_uses_current_radarr_client_for_projection(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"

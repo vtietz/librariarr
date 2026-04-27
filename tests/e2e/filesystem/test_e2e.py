@@ -115,8 +115,8 @@ def test_e2e_projection_creates_expected_hardlink_layout(tmp_path: Path) -> None
 
     service.reconcile()
 
-    projected_a = library_root / "age_12" / "Blender" / "Fixture Catalog A (2008)" / source_a.name
-    projected_b = library_root / "age_16" / "OpenFilms" / "Sintel (2010)" / source_b.name
+    projected_a = library_root / "Fixture Catalog A (2008)" / source_a.name
+    projected_b = library_root / "Sintel (2010)" / source_b.name
 
     assert projected_a.exists()
     assert projected_b.exists()

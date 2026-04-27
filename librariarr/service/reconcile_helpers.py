@@ -105,24 +105,6 @@ def managed_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) ->
     return None
 
 
-def library_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) -> Path | None:
-    path = Path(path_raw)
-    for managed_root, library_root in mappings:
-        try:
-            relative = path.relative_to(managed_root)
-        except ValueError:
-            pass
-        else:
-            return library_root / relative
-
-        try:
-            relative = path.relative_to(library_root)
-        except ValueError:
-            continue
-        return library_root / relative
-    return None
-
-
 @dataclass(frozen=True)
 class FileIngestResult:
     ingested_count: int

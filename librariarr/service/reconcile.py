@@ -7,7 +7,6 @@ from pathlib import Path
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .common import LOG
-from .path_normalization import normalize_radarr_paths_to_library_roots
 from .reconcile_helpers import (
     current_reconcile_source,
     discover_unmatched_folders,
@@ -55,15 +54,6 @@ class ServiceReconcileMixin:
                 )
 
             ingested_movie_ids = self._ingest_movies_from_library_roots(affected_paths)
-            if self.radarr_enabled and self.sync_enabled:
-                ingested_movie_ids.update(
-                    normalize_radarr_paths_to_library_roots(
-                        radarr=self.radarr,
-                        movie_root_mappings=self.movie_root_mappings,
-                        affected_paths=affected_paths,
-                        log_sync_config_hint=self._log_sync_config_hint,
-                    )
-                )
             immediate_projected_movie_ids: set[int] = set()
 
             def _project_movie_immediately(movie_id: int) -> None:

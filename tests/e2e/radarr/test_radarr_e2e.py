@@ -134,7 +134,8 @@ def test_radarr_e2e_reconcile_corrects_path_after_nfo_fix() -> None:
     )
     service.reconcile()
 
-    projected_file = library_root / managed_folder.relative_to(managed_root) / source_file.name
+    expected_folder = _canonical_name_from_seeded_movie(seeded_movie)
+    projected_file = library_root / expected_folder / source_file.name
     assert projected_file.exists()
     assert projected_file.samefile(source_file)
 
@@ -196,7 +197,8 @@ def test_radarr_e2e_reconcile_updates_existing_movie_path() -> None:
     )
     service.reconcile()
 
-    projected_file = library_root / managed_folder.relative_to(managed_root) / source_file.name
+    expected_folder = _canonical_name_from_seeded_movie(seeded_movie)
+    projected_file = library_root / expected_folder / source_file.name
     assert projected_file.exists()
     assert projected_file.samefile(source_file)
 
@@ -257,7 +259,8 @@ def test_radarr_e2e_projection_allowlisted_extras() -> None:
     )
     service.reconcile()
 
-    projected_folder = library_root / managed_folder.relative_to(managed_root)
+    expected_folder = _canonical_name_from_seeded_movie(seeded_movie)
+    projected_folder = library_root / expected_folder
     projected_video = projected_folder / video_file.name
     projected_nfo = projected_folder / nfo_file.name
     projected_poster = projected_folder / poster_file.name
@@ -349,8 +352,10 @@ def test_radarr_e2e_projection_scoped_webhook_reconcile() -> None:
     finally:
         queue.consume_movie_ids()
 
-    projected_a = library_root / folder_a.relative_to(managed_root) / source_a.name
-    projected_b = library_root / folder_b.relative_to(managed_root) / source_b.name
+    expected_a = _canonical_name_from_seeded_movie(movie_a)
+    expected_b = _canonical_name_from_seeded_movie(movie_b)
+    projected_a = library_root / expected_a / source_a.name
+    projected_b = library_root / expected_b / source_b.name
 
     assert not projected_a.exists()
     assert projected_b.exists()
@@ -438,8 +443,8 @@ def test_radarr_e2e_projection_multi_mapping() -> None:
     service = LibrariArrService(config)
     service.reconcile()
 
-    folder_name_a = safe_path_component("Fixture Projection Mapping A (2023)")
-    folder_name_b = safe_path_component("Fixture Projection Mapping B (2024)")
+    folder_name_a = _canonical_name_from_seeded_movie(movie_a)
+    folder_name_b = _canonical_name_from_seeded_movie(movie_b)
     projected_a = library_a / folder_name_a / source_a.name
     projected_b = library_b / folder_name_b / source_b.name
 
@@ -447,5 +452,6 @@ def test_radarr_e2e_projection_multi_mapping() -> None:
     assert projected_a.samefile(source_a)
     assert projected_b.exists()
     assert projected_b.samefile(source_b)
-    assert not (library_b / folder_a.name / source_a.name).exists()
-    assert not (library_a / folder_b.name / source_b.name).exists()
+    # Verify cross-mapping isolation using canonical names
+    assert not (library_b / folder_name_a / source_a.name).exists()
+    assert not (library_a / folder_name_b / source_b.name).exists()
