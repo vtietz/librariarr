@@ -63,7 +63,6 @@ sonarr:
   auto_add_unmatched: false
   auto_add_search_on_add: false
   projection:
-    series_folder_name_source: "managed"
     managed_video_extensions: [".mkv", ".mp4", ".avi"]
     managed_extras_allowlist: ["*.srt", "series.nfo", "tvshow.nfo"]
   mapping:
@@ -86,7 +85,6 @@ analysis:
 - `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
 - `radarr.enabled=false` disables movie projection and Radarr integration entirely (useful for Sonarr-only setups).
 - `sonarr.enabled=true` enables Sonarr projection (managed roots to library roots).
-- `sonarr.projection.series_folder_name_source=managed` preserves managed relative folder names in the Sonarr library root.
 - `radarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshMovie` bursts for the same movie during noisy event windows; set `0` to disable.
 - `sonarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshSeries` bursts during noisy rename windows.
 - Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
@@ -297,10 +295,6 @@ Notes:
 
 `sonarr.auto_add_season_folder`:
 - Controls Sonarr season-folder behavior on auto-added series.
-
-`sonarr.projection.series_folder_name_source`:
-- `managed`: keep managed relative path under `shadow_root`.
-- `sonarr`: use Sonarr title/year naming.
 
 `sonarr.projection.managed_video_extensions`:
 - Extensions treated as managed episode/video files for Sonarr projection.

@@ -202,7 +202,6 @@ def _projection_config(
     library_root: Path,
     radarr_url: str,
     api_key: str,
-    folder_name_source: str = "managed",
     sync_enabled: bool = False,
 ) -> AppConfig:
     return AppConfig(
@@ -219,7 +218,7 @@ def _projection_config(
             url=radarr_url,
             api_key=api_key,
             sync_enabled=sync_enabled,
-            projection=RadarrProjectionConfig(movie_folder_name_source=folder_name_source),
+            projection=RadarrProjectionConfig(),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
@@ -286,7 +285,6 @@ def test_radarr_e2e_reconcile_sanitizes_slash_title_paths() -> None:
             library_root=library_root,
             radarr_url=radarr_url,
             api_key=api_key,
-            folder_name_source="radarr",
         )
     )
     service.reconcile()
@@ -645,7 +643,7 @@ def test_radarr_e2e_projection_multi_mapping() -> None:
             url=radarr_url,
             api_key=api_key,
             sync_enabled=True,
-            projection=RadarrProjectionConfig(movie_folder_name_source="managed"),
+            projection=RadarrProjectionConfig(),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
@@ -654,8 +652,10 @@ def test_radarr_e2e_projection_multi_mapping() -> None:
     service = LibrariArrService(config)
     service.reconcile()
 
-    projected_a = library_a / folder_a.relative_to(managed_a) / source_a.name
-    projected_b = library_b / folder_b.relative_to(managed_b) / source_b.name
+    folder_name_a = safe_path_component("Fixture Projection Mapping A (2023)")
+    folder_name_b = safe_path_component("Fixture Projection Mapping B (2024)")
+    projected_a = library_a / folder_name_a / source_a.name
+    projected_b = library_b / folder_name_b / source_b.name
 
     assert projected_a.exists()
     assert projected_a.samefile(source_a)

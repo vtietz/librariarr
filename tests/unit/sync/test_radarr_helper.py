@@ -2,6 +2,8 @@ import logging
 import time
 from pathlib import Path
 
+import pytest
+
 from librariarr.config import (
     AppConfig,
     CleanupConfig,
@@ -596,3 +598,64 @@ def test_auto_add_updates_path_when_existing_path_not_in_managed_root(
     expected = tmp_path / "library" / "age_06" / "Fixture Movie (2022)"
     assert result.get("path") == str(expected)
     assert fake.update_calls == [(77, str(expected))]
+
+
+def test_auto_add_logs_warning_for_duplicate_folder_in_same_root(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """When a discovered folder matches a movie already tracked at a different
+    path under the same managed root, a WARNING is logged."""
+    managed_root = tmp_path / "movies"
+    library_root = tmp_path / "library"
+    folder_a = managed_root / "Studio_A" / "Fixture Movie (2022)"
+    folder_b = managed_root / "Studio_B" / "Fixture Movie (2022)"
+    for d in (folder_a, folder_b, library_root):
+        d.mkdir(parents=True)
+
+    # Movie already tracked via folder_a's library target
+    existing = {
+        "id": 77,
+        "title": "Fixture Movie",
+        "tmdbId": 1203,
+        "path": str(library_root / "Fixture Movie (2022)"),
+    }
+    config = AppConfig(
+        paths=PathsConfig(
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
+            ],
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test-key",
+            sync_enabled=True,
+            auto_add_unmatched=True,
+            auto_add_quality_profile_id=7,
+        ),
+        cleanup=CleanupConfig(),
+        runtime=RuntimeConfig(),
+    )
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Fixture Movie", "year": 2022, "tmdbId": 1203}],
+        movies=[existing],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger("test_duplicate"),
+        get_radarr_client=lambda: fake,
+    )
+
+    # folder_b discovers the same movie — should warn, not silently skip
+    with caplog.at_level(logging.WARNING, logger="test_duplicate"):
+        result = helper.auto_add_movie_for_folder(folder_b, managed_root)
+
+    assert isinstance(result, dict)
+    assert result.get("id") == 77
+    assert fake.add_calls == []
+
+    warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
+    assert any(
+        "Duplicate folder ignored" in msg or "will not be projected" in msg
+        for msg in warning_messages
+    ), f"Expected duplicate warning, got: {warning_messages}"

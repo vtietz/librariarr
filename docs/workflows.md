@@ -68,9 +68,7 @@ movie ids for projection.
 
 ## Movie Projection Behavior
 
-- Folder naming source: `radarr.projection.movie_folder_name_source`
-  - `managed`: mirror managed folder relative path under library root.
-  - `radarr`: use sanitized Radarr title/year naming.
+- Folder naming uses sanitized Radarr title/year naming.
 - Managed files include:
   - video extensions from `radarr.projection.managed_video_extensions`,
   - extras from `radarr.projection.managed_extras_allowlist`.
@@ -79,9 +77,7 @@ movie ids for projection.
 
 ## Series Projection Behavior
 
-- Folder naming source: `sonarr.projection.series_folder_name_source`
-  - `managed`: mirror managed folder relative path under library root.
-  - `sonarr`: use sanitized Sonarr title/year naming.
+- Folder naming uses sanitized Sonarr title/year naming.
 - Managed files include:
   - video extensions from `sonarr.projection.managed_video_extensions`,
   - extras from `sonarr.projection.managed_extras_allowlist`.

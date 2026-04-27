@@ -69,7 +69,6 @@ def build_movie_projection_plans(
                 movie=movie,
                 relative_movie_folder=relative_movie_folder,
                 mapping=mapping,
-                folder_name_source=config.radarr.projection.movie_folder_name_source,
             )
 
         if not managed_folder.exists() or not managed_folder.is_dir():
@@ -130,11 +129,7 @@ def _resolve_library_folder(
     movie: dict[str, Any],
     relative_movie_folder: Path,
     mapping: MovieProjectionMapping,
-    folder_name_source: str,
 ) -> Path:
-    if folder_name_source == "managed":
-        return mapping.library_root / relative_movie_folder
-
     title = str(movie.get("title") or "").strip()
     year = movie.get("year")
     if title and isinstance(year, int):

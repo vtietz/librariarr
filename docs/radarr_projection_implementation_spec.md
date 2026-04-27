@@ -83,7 +83,6 @@ radarr:
       - "poster.jpg"
       - "fanart.jpg"
     preserve_unknown_files: true   # forced true in v1
-    movie_folder_name_source: "managed"  # managed | radarr
 
 ingest:
   enabled: true

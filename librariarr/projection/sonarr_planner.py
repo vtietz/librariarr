@@ -69,7 +69,6 @@ def build_series_projection_plans(
                 series=series,
                 relative_series_folder=relative_series_folder,
                 mapping=mapping,
-                folder_name_source=config.sonarr.projection.series_folder_name_source,
             )
 
         if not managed_folder.exists() or not managed_folder.is_dir():
@@ -130,11 +129,7 @@ def _resolve_library_folder(
     series: dict[str, Any],
     relative_series_folder: Path,
     mapping: MovieProjectionMapping,
-    folder_name_source: str,
 ) -> Path:
-    if folder_name_source == "managed":
-        return mapping.library_root / relative_series_folder
-
     title = str(series.get("title") or "").strip()
     year = series.get("year")
     if title and isinstance(year, int):

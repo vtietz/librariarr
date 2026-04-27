@@ -303,14 +303,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     else:
         raise ValueError("radarr.projection.managed_extras_allowlist must be a list")
 
-    movie_folder_name_source = str(
-        projection_raw.get("movie_folder_name_source", "managed")
-    ).strip()
-    if movie_folder_name_source not in {"managed", "radarr"}:
-        raise ValueError(
-            "radarr.projection.movie_folder_name_source must be one of: managed, radarr"
-        )
-
     preserve_unknown_files = bool(projection_raw.get("preserve_unknown_files", True))
     if not preserve_unknown_files:
         preserve_unknown_files = True
@@ -337,14 +329,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         ]
     else:
         raise ValueError("sonarr.projection.managed_extras_allowlist must be a list")
-
-    series_folder_name_source = str(
-        sonarr_projection_raw.get("series_folder_name_source", "managed")
-    ).strip()
-    if series_folder_name_source not in {"managed", "sonarr"}:
-        raise ValueError(
-            "sonarr.projection.series_folder_name_source must be one of: managed, sonarr"
-        )
 
     sonarr_preserve_unknown_files = bool(sonarr_projection_raw.get("preserve_unknown_files", True))
     if not sonarr_preserve_unknown_files:
@@ -399,7 +383,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
                 managed_video_extensions=managed_video_extensions,
                 managed_extras_allowlist=managed_extras_allowlist,
                 preserve_unknown_files=preserve_unknown_files,
-                movie_folder_name_source=movie_folder_name_source,
             ),
             mapping=RadarrMappingConfig(
                 quality_map=quality_map,
@@ -425,7 +408,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
                 managed_video_extensions=sonarr_managed_video_extensions,
                 managed_extras_allowlist=sonarr_managed_extras_allowlist,
                 preserve_unknown_files=sonarr_preserve_unknown_files,
-                series_folder_name_source=series_folder_name_source,
             ),
             mapping=SonarrMappingConfig(
                 quality_profile_map=sonarr_quality_profile_map,

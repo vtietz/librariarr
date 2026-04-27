@@ -123,7 +123,6 @@ class RadarrProjectionConfig:
         default_factory=lambda: ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
     )
     preserve_unknown_files: bool = True
-    movie_folder_name_source: str = "managed"
 
 
 @dataclass
@@ -143,7 +142,6 @@ class SonarrProjectionConfig:
         ]
     )
     preserve_unknown_files: bool = True
-    series_folder_name_source: str = "managed"
 
 
 @dataclass

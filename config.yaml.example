@@ -67,7 +67,6 @@ radarr:
       - "poster.jpg"
       - "fanart.jpg"
     preserve_unknown_files: true
-    movie_folder_name_source: "managed"
 
   mapping:
     # Optional fallback map for quality-definition IDs.
@@ -131,7 +130,6 @@ sonarr:
       - "poster.jpg"
       - "fanart.jpg"
     preserve_unknown_files: true
-    series_folder_name_source: "managed"
 
   mapping:
     # Optional: token-based quality profile selection for Sonarr auto-add.

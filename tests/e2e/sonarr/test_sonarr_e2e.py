@@ -370,8 +370,6 @@ def test_sonarr_e2e_projection_uses_sonarr_title_year_folder_name() -> None:
         sonarr_url=sonarr_url,
         api_key=api_key,
     )
-    config.sonarr.projection.series_folder_name_source = "sonarr"
-
     service = LibrariArrService(config)
     service.reconcile()
 

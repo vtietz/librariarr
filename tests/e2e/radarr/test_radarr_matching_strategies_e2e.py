@@ -32,7 +32,6 @@ def _projection_config(
     library_root: Path,
     radarr_url: str,
     api_key: str,
-    folder_name_source: str = "managed",
     sync_enabled: bool = False,
 ) -> AppConfig:
     return AppConfig(
@@ -49,7 +48,7 @@ def _projection_config(
             url=radarr_url,
             api_key=api_key,
             sync_enabled=sync_enabled,
-            projection=RadarrProjectionConfig(movie_folder_name_source=folder_name_source),
+            projection=RadarrProjectionConfig(),
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
@@ -138,7 +137,6 @@ def test_radarr_e2e_projection_can_use_radarr_title_year_folder_naming() -> None
             library_root=library_root,
             radarr_url=radarr_url,
             api_key=api_key,
-            folder_name_source="radarr",
         )
     )
     service.reconcile()

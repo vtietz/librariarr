@@ -294,7 +294,6 @@ def test_reconcile_uses_sonarr_title_for_library_folder_when_configured(tmp_path
     source_file.write_text("x", encoding="utf-8")
 
     config = _make_config(managed_root, library_root, sonarr_sync_enabled=True)
-    config.sonarr.projection.series_folder_name_source = "sonarr"
     service = LibrariArrService(config)
 
     fake = FakeSonarr(

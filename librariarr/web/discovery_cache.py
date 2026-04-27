@@ -30,6 +30,14 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
     all_movie_paths: set[Path] = set()
     excluded_movie_paths: list[Path] = []
 
+    for mapping in config.paths.movie_root_mappings:
+        managed_root = Path(mapping.managed_root)
+        all_folders = discover_movie_folders(managed_root, video_exts, [])
+        all_movie_paths.update(all_folders)
+        if exclude_paths:
+            included = discover_movie_folders(managed_root, video_exts, exclude_paths)
+            excluded_movie_paths.extend(sorted(all_folders - included, key=lambda path: str(path)))
+
     for mapping in config.paths.series_root_mappings:
         nested_root = Path(mapping.nested_root)
         all_folders = discover_movie_folders(nested_root, video_exts, [])

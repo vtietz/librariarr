@@ -428,3 +428,43 @@ def test_reconcile_file_ingest_noop_when_inodes_match(tmp_path: Path) -> None:
 
     assert managed_file.exists()
     assert managed_file.read_text(encoding="utf-8") == "content"
+
+
+def test_duplicate_movie_in_two_subfolders_only_radarr_path_projected(tmp_path: Path) -> None:
+    """When the same movie exists in two nested subfolders, only the folder
+    that Radarr's path points to is projected. The other folder is ignored."""
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    # Same movie in two different subfolders
+    folder_a = managed_root / "Studio_A" / "Duplicate Movie (2023)"
+    folder_b = managed_root / "Studio_B" / "Duplicate Movie (2023)"
+    folder_a.mkdir(parents=True)
+    folder_b.mkdir(parents=True)
+
+    file_a = folder_a / "Duplicate.Movie.2023.1080p.mkv"
+    file_b = folder_b / "Duplicate.Movie.2023.720p.mkv"
+    file_a.write_text("version-a", encoding="utf-8")
+    file_b.write_text("version-b", encoding="utf-8")
+
+    # Radarr knows about this movie once, pointing to folder_a
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(99, "Duplicate Movie", 2023, folder_a)],
+    )
+
+    service.reconcile()
+
+    # folder_a's file is projected (flattened to Title (Year)/)
+    projected_a = _projected_file(
+        library_root, "Duplicate Movie (2023)", "Duplicate.Movie.2023.1080p.mkv"
+    )
+    assert projected_a.exists()
+    assert projected_a.samefile(file_a)
+
+    # folder_b's file is NOT projected — Radarr doesn't know about it
+    projected_b = _projected_file(
+        library_root, "Duplicate Movie (2023)", "Duplicate.Movie.2023.720p.mkv"
+    )
+    assert not projected_b.exists()

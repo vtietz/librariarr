@@ -29,8 +29,8 @@ A fair portion of this codebase was shaped through conversational AI collaborati
 ## Core Features
 
 - **Hardlink projection** (managed → library): projects video files and allowlisted extras from your curated folders into flat Arr-compatible library roots using hardlinks. Zero storage overhead.
-- **Two-tier ingest** (library → managed): when Radarr imports a new movie, the folder is moved into your curated tree. When Radarr upgrades quality, file-level inode comparison detects new files and moves them in — no duplicates.
-- **Auto-discovery**: scans managed roots for folders not yet in Radarr/Sonarr and auto-adds them with configurable quality profile mapping.
+- **Two-tier ingest** (library → managed): when Radarr imports a new movie, the entire folder is moved into your curated tree. When Radarr upgrades quality, file-level inode comparison detects the replacement and moves the new file in (backing up the old one first).
+- **Auto-discovery**: scans managed roots for folders not yet in Radarr/Sonarr, looks up each title via the Radarr/Sonarr API, and auto-adds matches with configurable quality profiles. Folders that don't match are skipped and retried on change.
 - **Webhook-scoped reconcile**: Radarr/Sonarr Connect webhooks trigger targeted per-movie/series reconcile within seconds instead of waiting for periodic scans.
 - **Filesystem watchers + periodic reconcile**: filesystem events trigger debounced incremental reconcile; scheduled full reconcile catches any drift.
 - **Idempotent and safe**: relink-on-replace for changed files, unknown user files in library roots are never touched.
@@ -58,46 +58,25 @@ flowchart LR
 
 ## How It Works
 
-Example managed-to-projected movie layout (path-preserving mode):
+You organize movies however you like — age buckets, collections, studios. LibrariArr projects them into the flat structure Radarr expects, using hardlinks (same content, zero extra storage).
 
-This example shows the same files in two places:
-- Managed source tree (where you organize media).
-- Projected Radarr library tree (hardlink view that Radarr reads).
-
-In this example, projection preserves relative subfolders because it assumes:
-- `radarr.projection.movie_folder_name_source=managed`
-- a broad mapping like `/data/movies -> /data/radarr_library`
-
-If you want a flatter projected layout, use narrower root mappings (for example one mapping per age bucket) and/or set `movie_folder_name_source` to Arr title-based naming.
-
-```text
-[MAPPING USED IN THIS EXAMPLE]
-/data/movies  ->  /data/radarr_library
-
-[MANAGED SOURCE]
-/data/movies/
-  age_12/Studio/Foo (2020)/Foo.2020.1080p.x265.mkv
-  age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
-
-[PROJECTED LIBRARY VIEW]
-/data/radarr_library/
-  age_12/Studio/Foo (2020)/Foo.2020.1080p.x265.mkv
-  age_16/Other/Bar (2011)/Bar.2011.2160p.REMUX.mkv
-
-NOTE: In path-preserving mode, the relative subpath (age_12/Studio/...) is intentionally the same.
-Only the root changes from /data/movies to /data/radarr_library.
-
-[FLATTER ALTERNATIVE EXAMPLE]
-Mappings:
-  /data/movies/age_12 -> /data/radarr_library/age_12
-  /data/movies/age_16 -> /data/radarr_library/age_16
-
-Projected:
-  /data/radarr_library/age_12/Foo (2020)/Foo.2020.1080p.x265.mkv
-  /data/radarr_library/age_16/Bar (2011)/Bar.2011.2160p.REMUX.mkv
+```yaml
+# config.yaml — one mapping per age bucket
+paths:
+  movie_root_mappings:
+    - managed_root: "/data/movies/age_12"
+      library_root: "/data/radarr_library/age_12"
+    - managed_root: "/data/movies/age_16"
+      library_root: "/data/radarr_library/age_16"
 ```
 
-The projected files are hardlinks to the managed files (same content, different path entry).
+| Your folders | What Radarr sees | Notes |
+|---|---|---|
+| `…/age_12/Foo (2020)/Foo.mkv` | `…/age_12/Foo (2020)/Foo.mkv` | direct child → flat |
+| `…/age_16/Bar (2011)/Bar.mkv` | `…/age_16/Bar (2011)/Bar.mkv` | direct child → flat |
+| `…/age_12/Studio/Qux (2023)/Qux.mkv` | `…/age_12/Qux (2023)/Qux.mkv` | `Studio/` stripped — always flat |
+
+No matter how deep your managed folder structure is, Radarr always sees a flat `Title (Year)/` folder directly under its root. Intermediate directories (studios, collections, genres) are stripped automatically.
 
 On reconcile, LibrariArr:
 
@@ -110,29 +89,38 @@ On reconcile, LibrariArr:
 
 ### When Radarr downloads a new movie
 
-- Radarr places the movie in the library root (its configured root folder).
-- Webhook or filesystem event triggers reconcile.
-- **Ingest** moves the folder from library root into your managed root.
-- **Projection** hardlinks it back into the library root.
-- Result: movie lives in your curated tree, Radarr sees it in the library root.
+1. Radarr places the movie in a library root (its configured root folder).
+2. Webhook or filesystem event triggers reconcile.
+3. **Folder-level ingest** moves the entire folder from library root into your managed root.
+4. **Projection** hardlinks the files back into the library root.
+5. Result: movie lives in your curated tree; Radarr still sees it in the library root.
 
 ### When Radarr upgrades quality
 
-- Radarr replaces the file in the library root with a better version.
-- **File-level ingest** detects the new file (different inode) and moves it to managed root.
-- **Projection** re-hardlinks the upgraded file back into the library root.
-- Your curated folder now has the upgraded file, no duplicates.
+1. Radarr replaces the video file in the library root with a better version (new file, different inode).
+2. **File-level ingest** detects the inode mismatch and:
+   - backs up the old file in managed root (temp suffix),
+   - **moves** the upgraded file from library root into managed root (same filename Radarr gave it),
+   - deletes the old backup on success.
+3. **Projection** re-hardlinks the upgraded file back into the library root.
+4. Result: your curated folder has the upgraded file; no duplicates remain.
+
+> **Extras handling**: allowlisted extras (subtitles, `movie.nfo`, posters — see `managed_extras_allowlist`) are projected and ingested alongside video files. Non-allowlisted extras are left in the library root.
+>
+> **Tip**: enable Radarr's "Movie Metadata" setting (*Settings → Metadata → Kodi (XBMC) / NFO*) so Radarr writes a fresh `movie.nfo` after each import or upgrade. This ensures metadata always matches the current video file.
 
 ### When you add a movie folder manually
 
-- Drop a movie folder into your managed root.
-- LibrariArr discovers it's not in Radarr and auto-adds it (if `auto_add_unmatched` is enabled).
-- Projection hardlinks it into the library root so Radarr can see it.
+1. Drop a folder into your managed root following the `Title (Year)` naming convention.
+2. LibrariArr parses the folder name, searches Radarr for a match, and auto-adds it (if `auto_add_unmatched` is enabled).
+3. **If no Radarr match is found** (unknown title, ambiguous name), the folder is **skipped** and a warning is logged. It will be retried automatically when the folder is modified.
+4. Projection hardlinks the files into the library root so Radarr can see them.
 
-### When you rename/move a movie folder
+### When you rename or move a movie folder
 
-- Filesystem events trigger incremental reconcile.
-- Projection updates to match the current managed folder state.
+1. Filesystem events trigger incremental reconcile.
+2. Projection updates hardlinks to match the current managed folder state.
+3. Radarr's path is updated via API if needed.
 
 ## Quick Start (Users: Docker Compose)
 

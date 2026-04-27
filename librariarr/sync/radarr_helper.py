@@ -25,6 +25,18 @@ from .radarr_profile import (
 )
 
 
+def _managed_equivalent(library_path: str, mappings: list[tuple[Path, Path]]) -> Path | None:
+    """Resolve a library path back to its managed-root equivalent."""
+    path = Path(library_path)
+    for managed_root, library_root in mappings:
+        try:
+            relative = path.relative_to(library_root)
+        except ValueError:
+            continue
+        return managed_root / relative
+    return None
+
+
 class RadarrSyncHelper:
     def __init__(
         self,
@@ -378,17 +390,22 @@ class RadarrSyncHelper:
         folder: Path,
         managed_root: Path,
     ) -> tuple[Path, Path] | None:
-        """Resolve shadow/library target path and root for a managed folder."""
+        """Resolve library target path and root for a managed folder.
+
+        Always flattens to ``library_root / folder.name`` regardless of how
+        deep *folder* is nested under *managed_root*.  This matches the
+        projection planner which always produces flat ``Title (Year)/`` folders.
+        """
         for mapping in self.config.paths.movie_root_mappings:
             configured_managed_root = Path(mapping.managed_root)
             if configured_managed_root != managed_root:
                 continue
             try:
-                relative_folder = folder.relative_to(configured_managed_root)
+                folder.relative_to(configured_managed_root)
             except ValueError:
                 break
             configured_library_root = Path(mapping.library_root)
-            return configured_library_root / relative_folder, configured_library_root
+            return configured_library_root / folder.name, configured_library_root
         return None
 
     def _find_existing_movie(self, candidate: dict, target_path: Path) -> dict | None:
@@ -410,6 +427,133 @@ class RadarrSyncHelper:
                 return movie
 
         return None
+
+    def _reconcile_existing_movie(
+        self,
+        *,
+        existing_movie: dict,
+        target_folder: Path,
+        canonical_name: str,
+        folder: Path,
+    ) -> dict | None:
+        """Handle auto-add when the movie already exists in Radarr."""
+        existing_path = str(existing_movie.get("path") or "").strip()
+        target_path = str(target_folder)
+        path_updated = False
+
+        if existing_path != target_path:
+            result = self._try_update_existing_path(
+                existing_movie, existing_path, target_folder, canonical_name
+            )
+            if result == "skipped_lower_priority":
+                return existing_movie
+            if result == "failed":
+                return None
+            path_updated = result == "updated"
+
+        self._log_duplicate_or_skip(
+            existing_movie, existing_path, target_path, path_updated, canonical_name, folder
+        )
+        return existing_movie
+
+    def _try_update_existing_path(
+        self,
+        existing_movie: dict,
+        existing_path: str,
+        target_folder: Path,
+        canonical_name: str,
+    ) -> str:
+        """Attempt to update an existing movie's path.
+
+        Returns ``"updated"``, ``"skipped_lower_priority"``, or ``"failed"``.
+        """
+        existing_priority = self._managed_root_priority(Path(existing_path))
+        new_priority = self._managed_root_priority(target_folder)
+        if (
+            existing_priority is not None
+            and new_priority is not None
+            and new_priority > existing_priority
+        ):
+            self.log.warning(
+                "Duplicate folder ignored: movie_id=%s already tracked at "
+                "higher-priority path. existing=%s duplicate=%s "
+                "(existing_idx=%s new_idx=%s)",
+                existing_movie.get("id"),
+                existing_path,
+                target_folder,
+                existing_priority,
+                new_priority,
+            )
+            return "skipped_lower_priority"
+
+        try:
+            self._radarr().update_movie_path(existing_movie, str(target_folder))
+            existing_movie["path"] = str(target_folder)
+            self.log.info(
+                "Radarr path reconciliation updated movie_id=%s canonical=%s from=%s to=%s",
+                existing_movie.get("id"),
+                canonical_name,
+                existing_path,
+                target_folder,
+            )
+            return "updated"
+        except requests.RequestException as exc:
+            self.log.warning(
+                "Radarr path reconciliation failed for movie_id=%s canonical=%s from=%s to=%s: %s",
+                existing_movie.get("id"),
+                canonical_name,
+                existing_path,
+                target_folder,
+                exc,
+            )
+            return "failed"
+
+    def _log_duplicate_or_skip(
+        self,
+        existing_movie: dict,
+        existing_path: str,
+        target_path: str,
+        path_updated: bool,
+        canonical_name: str,
+        folder: Path,
+    ) -> None:
+        """Log appropriate message for an existing movie encounter."""
+        if not path_updated and existing_path != target_path:
+            self.log.warning(
+                "Duplicate folder ignored: movie_id=%s canonical=%s already tracked "
+                "at %s; folder %s will not be projected",
+                existing_movie.get("id"),
+                canonical_name,
+                existing_path,
+                folder,
+            )
+            return
+
+        if not path_updated:
+            managed_mappings = [
+                (Path(m.managed_root), Path(m.library_root))
+                for m in self.config.paths.movie_root_mappings
+            ]
+            existing_managed = _managed_equivalent(existing_path, managed_mappings)
+            if existing_managed is not None and existing_managed.resolve() != folder.resolve():
+                self.log.warning(
+                    "Duplicate folder ignored: movie_id=%s canonical=%s tracked "
+                    "via managed folder %s; duplicate folder %s will not be projected",
+                    existing_movie.get("id"),
+                    canonical_name,
+                    existing_managed,
+                    folder,
+                )
+                return
+
+        self.log.debug(
+            "Radarr movie already exists; auto-add skipped movie_id=%s "
+            "canonical=%s path_reconciled=%s effective_path=%s",
+            existing_movie.get("id"),
+            canonical_name,
+            path_updated,
+            existing_movie.get("path"),
+        )
 
     def auto_add_movie_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
         ref = parse_movie_ref(folder.name)
@@ -458,65 +602,12 @@ class RadarrSyncHelper:
         canonical_name = self._canonical_name_from_movie(candidate, folder)
         existing_movie = self._find_existing_movie(candidate, target_folder)
         if existing_movie is not None:
-            existing_path = str(existing_movie.get("path") or "").strip()
-            target_path = str(target_folder)
-            path_updated = False
-            if existing_path != target_path:
-                # Deterministic tie-break: only update the Arr path when the
-                # new folder has equal or higher priority (lower config index)
-                # than the folder Arr currently points to.  This prevents
-                # reconcile from "flipping" paths between duplicate folders in
-                # different age roots.
-                existing_priority = self._managed_root_priority(Path(existing_path))
-                new_priority = self._managed_root_priority(target_folder)
-                if (
-                    existing_priority is not None
-                    and new_priority is not None
-                    and new_priority > existing_priority
-                ):
-                    self.log.debug(
-                        "Skipping path update for movie_id=%s; existing path has "
-                        "higher root priority (existing_idx=%s new_idx=%s) "
-                        "folder=%s existing_path=%s",
-                        existing_movie.get("id"),
-                        existing_priority,
-                        new_priority,
-                        target_folder,
-                        existing_path,
-                    )
-                    return existing_movie
-
-                try:
-                    self._radarr().update_movie_path(existing_movie, target_path)
-                    existing_movie["path"] = target_path
-                    path_updated = True
-                    self.log.info(
-                        "Radarr path reconciliation updated movie_id=%s canonical=%s from=%s to=%s",
-                        existing_movie.get("id"),
-                        canonical_name,
-                        existing_path,
-                        target_folder,
-                    )
-                except requests.RequestException as exc:
-                    self.log.warning(
-                        "Radarr path reconciliation failed for movie_id=%s canonical=%s "
-                        "from=%s to=%s: %s",
-                        existing_movie.get("id"),
-                        canonical_name,
-                        existing_path,
-                        target_folder,
-                        exc,
-                    )
-                    return None
-            self.log.debug(
-                "Radarr movie already exists; auto-add skipped movie_id=%s canonical=%s "
-                "path_reconciled=%s effective_path=%s",
-                existing_movie.get("id"),
-                canonical_name,
-                path_updated,
-                existing_movie.get("path"),
+            return self._reconcile_existing_movie(
+                existing_movie=existing_movie,
+                target_folder=target_folder,
+                canonical_name=canonical_name,
+                folder=folder,
             )
-            return existing_movie
 
         try:
             added_movie = self._radarr().add_movie_from_lookup(
