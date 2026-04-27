@@ -33,8 +33,16 @@ class MovieProjectionOrchestrator:
             preserve_unknown_files=config.radarr.projection.preserve_unknown_files,
         )
 
-    def reconcile(self, scoped_movie_ids: set[int] | None) -> dict[str, Any]:
-        if scoped_movie_ids is None:
+    def reconcile(
+        self,
+        scoped_movie_ids: set[int] | None,
+        inventory: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if inventory is not None:
+            movies = inventory
+        elif scoped_movie_ids is None:
+            movies = self.radarr.get_movies()
+        elif len(scoped_movie_ids) > self.config.runtime.scoped_fetch_threshold:
             movies = self.radarr.get_movies()
         else:
             movies = self.radarr.get_movies_by_ids(scoped_movie_ids)

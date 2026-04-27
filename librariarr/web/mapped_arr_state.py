@@ -48,6 +48,36 @@ def _arr_state_for_mapped_entry(
     return "not_managed"
 
 
+def _fetch_radarr_movies_and_roots(
+    config: AppConfig,
+    movies_inventory: list[dict[str, Any]] | None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]] | None:
+    """Return (movies, root_folders) or None when Radarr is unreachable."""
+    if movies_inventory is not None:
+        try:
+            client = RadarrClient(
+                config.radarr.url,
+                config.radarr.api_key,
+                refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
+            )
+            root_folders = client.get_root_folders()
+        except Exception:
+            root_folders = []
+        return movies_inventory, root_folders
+
+    client = RadarrClient(
+        config.radarr.url,
+        config.radarr.api_key,
+        refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
+    )
+    try:
+        movies = client.get_movies()
+        root_folders = client.get_root_folders()
+    except Exception:
+        return None
+    return movies, root_folders
+
+
 def enrich_mapped_directories_with_radarr_state(
     items: list[dict[str, Any]],
     *,
@@ -55,6 +85,7 @@ def enrich_mapped_directories_with_radarr_state(
     selected_roots: set[str],
     lowered_search: str,
     include_missing_virtual_paths: bool = True,
+    movies_inventory: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     enriched = [dict(item) for item in items]
 
@@ -70,16 +101,8 @@ def enrich_mapped_directories_with_radarr_state(
             )
         return enriched
 
-    client = RadarrClient(
-        config.radarr.url,
-        config.radarr.api_key,
-        refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
-    )
-
-    try:
-        movies = client.get_movies()
-        root_folders = client.get_root_folders()
-    except Exception:
+    fetch_result = _fetch_radarr_movies_and_roots(config, movies_inventory)
+    if fetch_result is None:
         for entry in enriched:
             entry.update(
                 {
@@ -90,6 +113,7 @@ def enrich_mapped_directories_with_radarr_state(
                 }
             )
         return enriched
+    movies, root_folders = fetch_result
 
     radarr_roots = [
         _normalize_media_path(str(folder.get("path") or ""))
@@ -224,6 +248,7 @@ def enrich_mapped_directories_with_sonarr_state(
     selected_roots: set[str],
     lowered_search: str,
     include_missing_virtual_paths: bool = True,
+    series_inventory: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich items that still have arr_state='not_managed' with Sonarr data."""
     enriched = [dict(item) for item in items]
@@ -231,20 +256,31 @@ def enrich_mapped_directories_with_sonarr_state(
     if not config.sonarr.enabled:
         return enriched
 
-    client = SonarrClient(
-        config.sonarr.url,
-        config.sonarr.api_key,
-        refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
-    )
-
-    try:
-        all_series = client.get_series()
-        root_folders = client.get_root_folders()
-    except Exception:
-        for entry in enriched:
-            if entry.get("arr_state") == "not_managed":
-                entry["arr_state"] = "arr_unreachable"
-        return enriched
+    if series_inventory is not None:
+        all_series = series_inventory
+        try:
+            client = SonarrClient(
+                config.sonarr.url,
+                config.sonarr.api_key,
+                refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
+            )
+            root_folders = client.get_root_folders()
+        except Exception:
+            root_folders = []
+    else:
+        client = SonarrClient(
+            config.sonarr.url,
+            config.sonarr.api_key,
+            refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
+        )
+        try:
+            all_series = client.get_series()
+            root_folders = client.get_root_folders()
+        except Exception:
+            for entry in enriched:
+                if entry.get("arr_state") == "not_managed":
+                    entry["arr_state"] = "arr_unreachable"
+            return enriched
 
     sonarr_roots = [
         _normalize_media_path(str(folder.get("path") or ""))
@@ -303,6 +339,8 @@ def enrich_mapped_directories_with_arr_state(
     selected_roots: set[str],
     lowered_search: str,
     include_missing_virtual_paths: bool = True,
+    movies_inventory: list[dict[str, Any]] | None = None,
+    series_inventory: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     """Enrich items with both Radarr and Sonarr state."""
     enriched = enrich_mapped_directories_with_radarr_state(
@@ -311,6 +349,7 @@ def enrich_mapped_directories_with_arr_state(
         selected_roots=selected_roots,
         lowered_search=lowered_search,
         include_missing_virtual_paths=include_missing_virtual_paths,
+        movies_inventory=movies_inventory,
     )
     enriched = enrich_mapped_directories_with_sonarr_state(
         enriched,
@@ -318,5 +357,6 @@ def enrich_mapped_directories_with_arr_state(
         selected_roots=selected_roots,
         lowered_search=lowered_search,
         include_missing_virtual_paths=include_missing_virtual_paths,
+        series_inventory=series_inventory,
     )
     return enriched

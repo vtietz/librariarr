@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
+from ..inventory_snapshot import get_inventory_snapshot_store
 from ..projection import MovieProjectionOrchestrator, SonarrProjectionOrchestrator
 from ..quality import VIDEO_EXTENSIONS
 from ..runtime import ReconcileSchedule, RuntimeSyncLoop, get_runtime_status_tracker
@@ -97,6 +99,7 @@ class ServiceBootstrapMixin:
         self._radarr_missing_managed_roots: set[str] = set()
         self._sonarr_missing_managed_roots: set[str] = set()
         self.runtime_status_tracker = get_runtime_status_tracker()
+        self.inventory_snapshot_store = get_inventory_snapshot_store()
 
     def _build_series_root_mappings(self, config: AppConfig) -> list[tuple[Path, Path]]:
         return [
@@ -165,6 +168,7 @@ class ServiceBootstrapMixin:
             managed_root.mkdir(parents=True, exist_ok=True)
             library_root.mkdir(parents=True, exist_ok=True)
         self._run_sync_preflight_checks()
+        self._wait_for_arr_readiness()
 
         def _on_reconcile_complete() -> None:
             from ..web.discovery_cache import get_discovery_warnings_cache
@@ -189,3 +193,43 @@ class ServiceBootstrapMixin:
             tracked_video_extensions=self.video_exts,
         )
         runtime_loop.run(stop_event=stop_event)
+
+    def _wait_for_arr_readiness(self) -> None:
+        max_attempts = 5
+        delay = 2.0
+        for attempt in range(max_attempts):
+            radarr_ok = not self.radarr_enabled
+            sonarr_ok = not (self.sonarr_enabled and self.sonarr_sync_enabled)
+            if self.radarr_enabled:
+                try:
+                    self.radarr.get_system_status()
+                    radarr_ok = True
+                except Exception:
+                    pass
+            if self.sonarr_enabled and self.sonarr_sync_enabled:
+                try:
+                    self.sonarr.get_system_status()
+                    sonarr_ok = True
+                except Exception:
+                    pass
+            if radarr_ok and sonarr_ok:
+                LOG.info(
+                    "Arr readiness probe passed (attempt %s/%s)",
+                    attempt + 1,
+                    max_attempts,
+                )
+                return
+            LOG.info(
+                "Arr readiness probe waiting: attempt=%s/%s radarr=%s sonarr=%s retry_in=%.0fs",
+                attempt + 1,
+                max_attempts,
+                radarr_ok,
+                sonarr_ok,
+                delay,
+            )
+            time.sleep(delay)
+            delay = min(delay * 2, 30.0)
+        LOG.warning(
+            "Arr readiness probe exhausted %s attempts; proceeding anyway",
+            max_attempts,
+        )

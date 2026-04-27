@@ -231,11 +231,19 @@ class SonarrSyncHelper:
             return configured_shadow_root / relative_folder, configured_shadow_root
         return None
 
-    def _find_existing_series(self, candidate: dict, target_path: Path) -> dict | None:
-        try:
-            existing_series = self._sonarr().get_series()
-        except requests.RequestException:
-            return None
+    def _find_existing_series(
+        self,
+        candidate: dict,
+        target_path: Path,
+        series_cache: list[dict] | None = None,
+    ) -> dict | None:
+        if series_cache is not None:
+            existing_series = series_cache
+        else:
+            try:
+                existing_series = self._sonarr().get_series()
+            except requests.RequestException:
+                return None
 
         candidate_tvdb_id = candidate.get("tvdbId")
         if isinstance(candidate_tvdb_id, int):
@@ -251,7 +259,12 @@ class SonarrSyncHelper:
 
         return None
 
-    def auto_add_series_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
+    def auto_add_series_for_folder(
+        self,
+        folder: Path,
+        managed_root: Path,
+        series_cache: list[dict] | None = None,
+    ) -> dict | None:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
 
@@ -293,7 +306,7 @@ class SonarrSyncHelper:
         language_profile_id = self._resolve_auto_add_language_profile_id(folder)
 
         canonical_name = self._canonical_name_from_series(candidate, folder)
-        existing_series = self._find_existing_series(candidate, target_folder)
+        existing_series = self._find_existing_series(candidate, target_folder, series_cache)
         if existing_series is not None:
             existing_path = str(existing_series.get("path") or "").strip()
             target_path = str(target_folder)

@@ -229,7 +229,7 @@ def test_reconcile_projects_auto_added_movies_immediately_in_incremental_mode(
 
     projection_calls: list[set[int] | None] = []
 
-    def _capture_projection(scoped_movie_ids: set[int] | None) -> dict[str, int]:
+    def _capture_projection(scoped_movie_ids: set[int] | None, **kwargs) -> dict[str, int]:
         projection_calls.append(None if scoped_movie_ids is None else set(scoped_movie_ids))
         return {
             "scoped_movie_count": len(scoped_movie_ids or set()),
@@ -334,7 +334,7 @@ def test_full_reconcile_projects_all_movies_even_with_ingest_ids(tmp_path: Path)
         ]
     )
 
-    service._ingest_movies_from_library_roots = lambda _affected_paths: {1}
+    service._ingest_movies_from_library_roots = lambda _affected_paths, **kw: {1}
 
     service.reconcile(affected_paths=None)
 

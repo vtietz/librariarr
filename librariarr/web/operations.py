@@ -12,6 +12,7 @@ from fastapi import APIRouter, Request
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
+from ..inventory_snapshot import get_inventory_snapshot_store
 from ..runtime import get_runtime_status_tracker
 from .discovery_cache import get_discovery_warnings_cache
 from .full_reconcile_ops import queue_full_reconcile
@@ -359,6 +360,15 @@ def build_operations_router() -> APIRouter:
     )
     router.include_router(build_jobs_router(job_manager_or_http_fn=job_manager_or_http))
     router.include_router(build_runtime_router(runtime_status=runtime_status))
+
+    def _enrich_with_snapshot(items, **kwargs):
+        store = get_inventory_snapshot_store()
+        snap = store.snapshot
+        if snap.timestamp > 0:
+            kwargs.setdefault("movies_inventory", snap.movies)
+            kwargs.setdefault("series_inventory", snap.series)
+        return enrich_mapped_directories_with_arr_state(items, **kwargs)
+
     router.include_router(
         build_fs_router(
             load_config_or_http_fn=load_config_or_http,
@@ -367,7 +377,7 @@ def build_operations_router() -> APIRouter:
             mapped_cache=mapped_cache,
             discovery_cache=discovery_cache,
             shadow_roots_fn=_library_roots,
-            enrich_mapped_directories_with_radarr_state_fn=enrich_mapped_directories_with_arr_state,
+            enrich_mapped_directories_with_radarr_state_fn=_enrich_with_snapshot,
             apply_path_mapping_outcomes_fn=apply_path_mapping_outcomes,
         )
     )

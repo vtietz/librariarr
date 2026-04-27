@@ -33,8 +33,19 @@ class SonarrProjectionOrchestrator:
             preserve_unknown_files=config.sonarr.projection.preserve_unknown_files,
         )
 
-    def reconcile(self, scoped_series_ids: set[int] | None) -> dict[str, Any]:
-        series_items = self.sonarr.get_series()
+    def reconcile(
+        self,
+        scoped_series_ids: set[int] | None,
+        inventory: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        if inventory is not None:
+            series_items = inventory
+        elif scoped_series_ids is None:
+            series_items = self.sonarr.get_series()
+        elif len(scoped_series_ids) > self.config.runtime.scoped_fetch_threshold:
+            series_items = self.sonarr.get_series()
+        else:
+            series_items = self.sonarr.get_series_by_ids(scoped_series_ids)
         plans = build_series_projection_plans(
             config=self.config,
             series_items=series_items,

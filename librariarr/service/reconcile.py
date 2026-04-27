@@ -52,10 +52,32 @@ class ServiceReconcileMixin:
                     force=self._arr_root_poll_interval is None,
                 )
 
-            ingested_movie_ids = self._ingest_movies_from_library_roots(affected_paths)
+            movies_inventory: list[dict] | None = None
+            series_inventory: list[dict] | None = None
+            if self.radarr_enabled:
+                try:
+                    movies_inventory = self.radarr.get_movies()
+                except Exception as exc:
+                    self._log_sync_config_hint(exc)
+                    LOG.warning("Radarr inventory fetch failed: %s", exc)
+            if self.sonarr_enabled and self.sonarr_sync_enabled:
+                try:
+                    series_inventory = self.sonarr.get_series()
+                except Exception as exc:
+                    self._log_sonarr_sync_config_hint(exc)
+                    LOG.warning("Sonarr inventory fetch failed: %s", exc)
+            self._publish_inventory_snapshot(movies_inventory, series_inventory)
 
-            auto_added_movie_ids = self._auto_add_unmatched_movies(affected_paths)
-            auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
+            ingested_movie_ids = self._ingest_movies_from_library_roots(
+                affected_paths, movies_inventory=movies_inventory
+            )
+
+            auto_added_movie_ids = self._auto_add_unmatched_movies(
+                affected_paths, movies_inventory=movies_inventory
+            )
+            auto_added_series_ids = self._auto_add_unmatched_series(
+                affected_paths, series_inventory=series_inventory
+            )
 
             scoped_movie_ids: set[int] | None = None
             queued_movie_ids: set[int] = set()
@@ -173,7 +195,9 @@ class ServiceReconcileMixin:
                     scoped_ids=scoped_movie_ids,
                 )
                 try:
-                    movie_projection_metrics = self.movie_projection.reconcile(scoped_movie_ids)
+                    movie_projection_metrics = self.movie_projection.reconcile(
+                        scoped_movie_ids, inventory=movies_inventory
+                    )
                     if getattr(self, "runtime_status_tracker", None) is not None:
                         planned_movies = int(movie_projection_metrics.get("planned_movies") or 0)
                         skipped_movies = int(movie_projection_metrics.get("skipped_movies") or 0)
@@ -223,7 +247,9 @@ class ServiceReconcileMixin:
                     scoped_ids=scoped_series_ids,
                 )
                 try:
-                    series_projection_metrics = self.sonarr_projection.reconcile(scoped_series_ids)
+                    series_projection_metrics = self.sonarr_projection.reconcile(
+                        scoped_series_ids, inventory=series_inventory
+                    )
                 except Exception as exc:
                     had_projection_error = True
                     self._log_sonarr_sync_config_hint(exc)
@@ -352,16 +378,23 @@ class ServiceReconcileMixin:
                 )
             return had_projection_error
 
-    def _ingest_movies_from_library_roots(self, affected_paths: set[Path] | None) -> set[int]:
+    def _ingest_movies_from_library_roots(
+        self,
+        affected_paths: set[Path] | None,
+        movies_inventory: list[dict] | None = None,
+    ) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.config.ingest.enabled):
             return set()
 
-        try:
-            movies = self.radarr.get_movies()
-        except Exception as exc:
-            self._log_sync_config_hint(exc)
-            LOG.warning("Skipping ingest scan because Radarr movie inventory fetch failed: %s", exc)
-            return set()
+        if movies_inventory is not None:
+            movies = movies_inventory
+        else:
+            try:
+                movies = self.radarr.get_movies()
+            except Exception as exc:
+                self._log_sync_config_hint(exc)
+                LOG.warning("Skipping ingest: Radarr inventory fetch failed: %s", exc)
+                return set()
 
         moved_movie_ids: set[int] = set()
 
@@ -510,19 +543,20 @@ class ServiceReconcileMixin:
     def _auto_add_unmatched_movies(
         self,
         affected_paths: set[Path] | None,
+        movies_inventory: list[dict] | None = None,
     ) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):
             return set()
 
-        try:
-            movies = self.radarr.get_movies()
-        except Exception as exc:
-            self._log_sync_config_hint(exc)
-            LOG.warning(
-                "Skipping Radarr auto-add scan because movie inventory fetch failed: %s",
-                exc,
-            )
-            return set()
+        if movies_inventory is not None:
+            movies = movies_inventory
+        else:
+            try:
+                movies = self.radarr.get_movies()
+            except Exception as exc:
+                self._log_sync_config_hint(exc)
+                LOG.warning("Skipping Radarr auto-add: inventory fetch failed: %s", exc)
+                return set()
 
         existing_paths = {
             managed_path.resolve(strict=False)
@@ -580,21 +614,25 @@ class ServiceReconcileMixin:
         )
         return added_movie_ids
 
-    def _auto_add_unmatched_series(self, affected_paths: set[Path] | None) -> set[int]:
+    def _auto_add_unmatched_series(
+        self,
+        affected_paths: set[Path] | None,
+        series_inventory: list[dict] | None = None,
+    ) -> set[int]:
         if not (
             self.sonarr_enabled and self.sonarr_sync_enabled and self.sonarr_auto_add_unmatched
         ):
             return set()
 
-        try:
-            series = self.sonarr.get_series()
-        except Exception as exc:
-            self._log_sonarr_sync_config_hint(exc)
-            LOG.warning(
-                "Skipping Sonarr auto-add scan because series inventory fetch failed: %s",
-                exc,
-            )
-            return set()
+        if series_inventory is not None:
+            series = series_inventory
+        else:
+            try:
+                series = self.sonarr.get_series()
+            except Exception as exc:
+                self._log_sonarr_sync_config_hint(exc)
+                LOG.warning("Skipping Sonarr auto-add: inventory fetch failed: %s", exc)
+                return set()
 
         existing_paths = {
             managed_path.resolve(strict=False)
@@ -628,7 +666,9 @@ class ServiceReconcileMixin:
                 self.runtime_status_tracker.update_active_reconcile_metrics(
                     {"active_series_root": str(managed_root)}
                 )
-            added_series = self.sonarr_sync.auto_add_series_for_folder(folder, managed_root)
+            added_series = self.sonarr_sync.auto_add_series_for_folder(
+                folder, managed_root, series_cache=series
+            )
             if not isinstance(added_series, dict):
                 continue
             series_id = added_series.get("id")
@@ -648,6 +688,11 @@ class ServiceReconcileMixin:
             len(unmatched_folders),
         )
         return added_series_ids
+
+    def _publish_inventory_snapshot(self, movies: list[dict] | None, series: list[dict] | None):
+        store = getattr(self, "inventory_snapshot_store", None)
+        if store is not None:
+            store.update(movies=movies, series=series, timestamp=time.time())
 
     def reconcile_full(self) -> bool:
         return self.reconcile(affected_paths=None, force_full_scope=True)

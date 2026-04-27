@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable
 from typing import Any
 
 import requests
@@ -130,6 +131,30 @@ class SonarrClient:
     def get_series(self) -> list[dict[str, Any]]:
         series = self._request("GET", "/series")
         return series if isinstance(series, list) else []
+
+    def get_series_item(self, series_id: int) -> dict[str, Any] | None:
+        item = self._request("GET", f"/series/{series_id}")
+        return item if isinstance(item, dict) else None
+
+    def get_series_by_ids(self, series_ids: Iterable[int]) -> list[dict[str, Any]]:
+        result: list[dict[str, Any]] = []
+        unique_ids = sorted(
+            {int(sid) for sid in series_ids if isinstance(sid, int) and not isinstance(sid, bool)}
+        )
+
+        for sid in unique_ids:
+            try:
+                item = self.get_series_item(sid)
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else None
+                if status_code == 404:
+                    LOG.debug("Scoped Sonarr series id not found: %s", sid)
+                    continue
+                raise
+            if item is not None:
+                result.append(item)
+
+        return result
 
     def get_system_status(self) -> dict[str, Any]:
         status = self._request("GET", "/system/status")

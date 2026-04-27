@@ -47,6 +47,7 @@ class RuntimeConfig:
     debounce_seconds: int = 8
     maintenance_interval_minutes: int = 1440
     arr_root_poll_interval_minutes: int = 1
+    scoped_fetch_threshold: int = 50
     scan_video_extensions: list[str] | None = field(
         default_factory=lambda: list(DEFAULT_SCAN_VIDEO_EXTENSIONS)
     )
@@ -95,7 +96,7 @@ class SonarrConfig:
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
     auto_add_season_folder: bool = True
-    request_timeout_seconds: int = 30
+    request_timeout_seconds: int = 120
     request_retry_attempts: int = 2
     request_retry_backoff_seconds: float = 0.5
     projection: SonarrProjectionConfig = field(default_factory=lambda: SonarrProjectionConfig())
