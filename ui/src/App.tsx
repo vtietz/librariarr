@@ -105,10 +105,6 @@ export default function App() {
   }, [reloadFromDisk]);
 
   useEffect(() => {
-    if (activeTab !== "dashboard") {
-      return;
-    }
-
     let active = true;
     let inFlight = false;
 
@@ -138,7 +134,7 @@ export default function App() {
       active = false;
       window.clearInterval(interval);
     };
-  }, [activeTab]);
+  }, []);
 
   useEffect(() => {
     const syncFromPath = () => {
@@ -261,12 +257,10 @@ export default function App() {
           </Tabs.List>
 
           <Tabs.Panel value="dashboard" pt="md">
-            {activeTab === "dashboard" && (
-              <Dashboard
-                hasUnsavedChanges={hasUnsavedChanges}
-                runtimeStatus={runtimeStatus}
-              />
-            )}
+            <Dashboard
+              hasUnsavedChanges={hasUnsavedChanges}
+              runtimeStatus={runtimeStatus}
+            />
           </Tabs.Panel>
 
           <Tabs.Panel value="config" pt="md">
