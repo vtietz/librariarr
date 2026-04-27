@@ -7,7 +7,7 @@ Use the wrapper scripts for all development operations in this repository.
 - Linux/macOS: use `./run.sh <command>`
 - Windows: use `run.bat <command>`
 - Prefer wrapper commands for setup, build, run, logs, one-shot sync, tests, quality checks, and dev mode.
-- After bigger code changes, automatically run `test` and `quality` wrappers before finishing.
+- **After every code change** (no matter how small), run `./run.sh quality-autofix` then `./run.sh test` before responding. Do not skip this step.
 - When running `quality`, avoid redirecting output to custom files; prefer terminal output directly (or bounded output like `... | tail -n 200`) to avoid file-write approval prompts.
 - Always provide a commit message proposal in final responses after code changes.
 - Never create README files unless the user explicitly requests README changes.

@@ -69,9 +69,7 @@ class ServiceReconcileMixin:
                         scoped_movie_ids = set(ingested_movie_ids)
                     else:
                         scoped_movie_ids.update(ingested_movie_ids)
-                if auto_added_movie_ids and (
-                    incremental_mode or scoped_movie_ids is not None
-                ):
+                if auto_added_movie_ids and (incremental_mode or scoped_movie_ids is not None):
                     if scoped_movie_ids is None:
                         scoped_movie_ids = set(auto_added_movie_ids)
                     else:
@@ -553,7 +551,9 @@ class ServiceReconcileMixin:
                     {"active_movie_root": str(managed_root)}
                 )
             added_movie = self.radarr_sync.auto_add_movie_for_folder(
-                folder, managed_root, movies_cache=movies,
+                folder,
+                managed_root,
+                movies_cache=movies,
             )
             if not isinstance(added_movie, dict):
                 continue
@@ -561,8 +561,7 @@ class ServiceReconcileMixin:
             if isinstance(movie_id, int):
                 added_movie_ids.add(movie_id)
                 LOG.info(
-                    "Auto-added movie_id=%s for batched projection: "
-                    "managed_root=%s folder=%s",
+                    "Auto-added movie_id=%s for batched projection: managed_root=%s folder=%s",
                     movie_id,
                     managed_root,
                     folder,

@@ -29,7 +29,7 @@ LIBRARIARR_PYTEST_ARGS="tests/unit/sync/test_naming.py -v" ./run.sh test
 LIBRARIARR_PYTEST_ARGS="tests/unit/sync/test_naming.py::test_specific -v" ./run.sh test
 ```
 
-After substantial code changes, run both `./run.sh test` and `./run.sh quality` before finishing.
+**After every code change** (no matter how small), run `./run.sh quality-autofix` then `./run.sh test` before responding. Do not skip this step.
 
 ## Code Style
 
