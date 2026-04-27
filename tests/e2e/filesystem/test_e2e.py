@@ -24,6 +24,10 @@ class _FakeRadarr:
     def get_movies(self) -> list[dict]:
         return self.movies
 
+    def get_movies_by_ids(self, movie_ids: list[int]) -> list[dict]:
+        ids = set(movie_ids)
+        return [movie for movie in self.movies if int(movie.get("id", -1)) in ids]
+
 
 def _movie(movie_id: int, title: str, year: int, path: Path) -> dict:
     return {
