@@ -421,6 +421,11 @@ export type RuntimeStatusResponse = {
     active_series_root?: string | null;
     full_reconcile_stats?: Record<string, number | string> | null;
   } & ReconcileProgressFields | null;
+  last_full_reconcile: (ReconcileProgressFields & {
+    state: "ok" | "error";
+    full_reconcile_stats?: Record<string, number | string> | null;
+    finished_at: number | null;
+  }) | null;
   known_links_in_memory?: number;
   mapped_cache?: {
     ready: boolean;

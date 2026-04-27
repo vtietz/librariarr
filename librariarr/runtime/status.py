@@ -32,6 +32,7 @@ class RuntimeStatusTracker:
                 "task_id": None,
             },
             "last_reconcile": None,
+            "last_full_reconcile": None,
             "updated_at": None,
         }
 
@@ -182,6 +183,8 @@ class RuntimeStatusTracker:
                 summary[key] = value
 
             self._state["last_reconcile"] = summary
+            if success and isinstance(summary.get("full_reconcile_stats"), dict):
+                self._state["last_full_reconcile"] = deepcopy(summary)
             self._state["current_task"] = {
                 "state": "idle" if success else "error",
                 "phase": None,

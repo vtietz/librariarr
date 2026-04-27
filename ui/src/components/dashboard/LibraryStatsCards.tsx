@@ -82,18 +82,29 @@ function CoverageCard({
 }
 
 export default function LibraryStatsCards({ runtimeStatus }: Props) {
+  // Prefer last full reconcile for library-wide coverage stats.
+  // Incremental reconciles only report scoped counts (e.g. 1 movie)
+  // which would be misleading as overall library metrics.
+  const fullReconcile = runtimeStatus?.last_full_reconcile ?? null;
   const currentTask =
     runtimeStatus?.current_task.state === "running"
       ? runtimeStatus.current_task
       : null;
   const lastReconcile = runtimeStatus?.last_reconcile ?? null;
 
-  // Use current task metrics if available, otherwise fall back to last reconcile.
+  const hasFullMetrics =
+    fullReconcile != null &&
+    (typeof fullReconcile.matched_movies === "number" ||
+      typeof fullReconcile.matched_series === "number");
   const hasCurrentMetrics =
     currentTask != null &&
     (typeof currentTask.matched_movies === "number" ||
       typeof currentTask.matched_series === "number");
-  const metrics = hasCurrentMetrics ? currentTask : lastReconcile;
+  const metrics = hasFullMetrics
+    ? fullReconcile
+    : hasCurrentMetrics
+      ? currentTask
+      : lastReconcile;
 
   return (
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
