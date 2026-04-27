@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Iterable
 from typing import Any
 
 import requests
@@ -129,6 +130,34 @@ class RadarrClient:
 
     def get_movies(self) -> list[dict[str, Any]]:
         return self._request("GET", "/movie")
+
+    def get_movie(self, movie_id: int) -> dict[str, Any] | None:
+        movie = self._request("GET", f"/movie/{movie_id}")
+        return movie if isinstance(movie, dict) else None
+
+    def get_movies_by_ids(self, movie_ids: Iterable[int]) -> list[dict[str, Any]]:
+        movies: list[dict[str, Any]] = []
+        unique_ids = sorted(
+            {
+                int(movie_id)
+                for movie_id in movie_ids
+                if isinstance(movie_id, int) and not isinstance(movie_id, bool)
+            }
+        )
+
+        for movie_id in unique_ids:
+            try:
+                movie = self.get_movie(movie_id)
+            except requests.HTTPError as exc:
+                status_code = exc.response.status_code if exc.response is not None else None
+                if status_code == 404:
+                    LOG.debug("Scoped Radarr movie id not found: %s", movie_id)
+                    continue
+                raise
+            if movie is not None:
+                movies.append(movie)
+
+        return movies
 
     def get_system_status(self) -> dict[str, Any]:
         status = self._request("GET", "/system/status")

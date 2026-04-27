@@ -34,7 +34,10 @@ class MovieProjectionOrchestrator:
         )
 
     def reconcile(self, scoped_movie_ids: set[int] | None) -> dict[str, Any]:
-        movies = self.radarr.get_movies()
+        if scoped_movie_ids is None:
+            movies = self.radarr.get_movies()
+        else:
+            movies = self.radarr.get_movies_by_ids(scoped_movie_ids)
         plans = build_movie_projection_plans(
             config=self.config,
             movies=movies,

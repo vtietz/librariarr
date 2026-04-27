@@ -55,6 +55,19 @@ class FakeRadarr:
         self.get_movies_calls += 1
         return self.movies
 
+    def get_movies_by_ids(self, movie_ids: list[int] | set[int]) -> list[dict]:
+        allowed_ids = {
+            int(movie_id)
+            for movie_id in movie_ids
+            if isinstance(movie_id, int) and not isinstance(movie_id, bool)
+        }
+        self.get_movies_calls += 1
+        return [
+            movie
+            for movie in self.movies
+            if isinstance(movie.get("id"), int) and int(movie["id"]) in allowed_ids
+        ]
+
     def get_system_status(self) -> dict:
         self.get_system_status_calls += 1
         if self.system_status_error is not None:

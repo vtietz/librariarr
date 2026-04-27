@@ -1,3 +1,4 @@
+import pytest
 import requests
 
 from librariarr.clients.radarr import RadarrClient
@@ -191,3 +192,59 @@ def test_request_does_not_retry_post_on_timeout(monkeypatch) -> None:
         raise AssertionError("Expected timeout to be raised for non-retried POST")
 
     assert calls["count"] == 1
+
+
+def test_get_movies_by_ids_fetches_sorted_unique_ids(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+    calls: list[str] = []
+
+    def _fake_request(method: str, path: str, **kwargs):
+        del kwargs
+        calls.append(path)
+        assert method == "GET"
+        movie_id = int(path.rsplit("/", maxsplit=1)[1])
+        return {"id": movie_id, "title": f"Movie {movie_id}"}
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    movies = client.get_movies_by_ids([2, 1, 2])
+
+    assert [movie["id"] for movie in movies] == [1, 2]
+    assert calls == ["/movie/1", "/movie/2"]
+
+
+def test_get_movies_by_ids_skips_404(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+
+    class _Response:
+        status_code = 404
+
+    def _fake_request(method: str, path: str, **kwargs):
+        del kwargs
+        assert method == "GET"
+        movie_id = int(path.rsplit("/", maxsplit=1)[1])
+        if movie_id == 2:
+            raise requests.HTTPError("not found", response=_Response())
+        return {"id": movie_id}
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    movies = client.get_movies_by_ids([1, 2])
+
+    assert [movie["id"] for movie in movies] == [1]
+
+
+def test_get_movies_by_ids_reraises_non_404(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+
+    class _Response:
+        status_code = 500
+
+    def _fake_request(method: str, path: str, **kwargs):
+        del method, path, kwargs
+        raise requests.HTTPError("boom", response=_Response())
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    with pytest.raises(requests.HTTPError):
+        client.get_movies_by_ids([1])

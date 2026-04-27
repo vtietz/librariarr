@@ -4,8 +4,7 @@ services:
     container_name: gluetun
     cap_add:
       - NET_ADMIN
-    devices:
-      - /dev/net/tun:/dev/net/tun
+    privileged: true
     env_file: .env
     environment:
       - FIREWALL_INPUT_PORTS=${HOST_PORT_SABNZBD}

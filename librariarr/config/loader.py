@@ -174,11 +174,11 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     auto_add_quality_profile_id = (
         int(auto_add_quality_profile_raw) if auto_add_quality_profile_raw is not None else None
     )
-    request_timeout_seconds = max(1, int(radarr.get("request_timeout_seconds", 30)))
-    request_retry_attempts = max(0, int(radarr.get("request_retry_attempts", 2)))
+    request_timeout_seconds = max(1, int(radarr.get("request_timeout_seconds", 120)))
+    request_retry_attempts = max(0, int(radarr.get("request_retry_attempts", 1)))
     request_retry_backoff_seconds = max(
         0.0,
-        float(radarr.get("request_retry_backoff_seconds", 0.5)),
+        float(radarr.get("request_retry_backoff_seconds", 1.0)),
     )
     auto_add_search_on_add = bool(radarr.get("auto_add_search_on_add", False))
     auto_add_monitored = bool(radarr.get("auto_add_monitored", True))

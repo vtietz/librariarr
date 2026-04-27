@@ -53,11 +53,11 @@ radarr:
   # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
   # HTTP request timeout (seconds) for Radarr API calls.
-  request_timeout_seconds: 30
+  request_timeout_seconds: 120
   # Retries for transient failures on idempotent methods (GET/PUT/DELETE/HEAD/OPTIONS).
-  request_retry_attempts: 2
+  request_retry_attempts: 1
   # Exponential backoff base delay (seconds): delay = base * 2^attempt.
-  request_retry_backoff_seconds: 0.5
+  request_retry_backoff_seconds: 1.0
   projection:
     managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
     managed_extras_allowlist:

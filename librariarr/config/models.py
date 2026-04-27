@@ -75,9 +75,9 @@ class RadarrConfig:
     auto_add_quality_profile_id: int | None = None
     auto_add_search_on_add: bool = False
     auto_add_monitored: bool = True
-    request_timeout_seconds: int = 30
-    request_retry_attempts: int = 2
-    request_retry_backoff_seconds: float = 0.5
+    request_timeout_seconds: int = 120
+    request_retry_attempts: int = 1
+    request_retry_backoff_seconds: float = 1.0
     projection: RadarrProjectionConfig = field(default_factory=lambda: RadarrProjectionConfig())
     mapping: RadarrMappingConfig = field(default_factory=RadarrMappingConfig)
 

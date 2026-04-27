@@ -29,9 +29,9 @@ def test_load_config_uses_default_arr_request_settings(tmp_path: Path) -> None:
 
     config = load_config(config_path)
 
-    assert config.radarr.request_timeout_seconds == 30
-    assert config.radarr.request_retry_attempts == 2
-    assert config.radarr.request_retry_backoff_seconds == 0.5
+    assert config.radarr.request_timeout_seconds == 120
+    assert config.radarr.request_retry_attempts == 1
+    assert config.radarr.request_retry_backoff_seconds == 1.0
     assert config.sonarr.request_timeout_seconds == 30
     assert config.sonarr.request_retry_attempts == 2
     assert config.sonarr.request_retry_backoff_seconds == 0.5
