@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
 from pathlib import Path
 
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
@@ -54,40 +53,8 @@ class ServiceReconcileMixin:
                 )
 
             ingested_movie_ids = self._ingest_movies_from_library_roots(affected_paths)
-            immediate_projected_movie_ids: set[int] = set()
 
-            def _project_movie_immediately(movie_id: int) -> None:
-                if not self.radarr_enabled:
-                    return
-                if self.movie_projection is None:
-                    return
-
-                self.movie_projection.radarr = self.radarr
-                log_projection_dispatch(
-                    arr="radarr",
-                    trigger_source=trigger_source,
-                    reconcile_mode=reconcile_mode,
-                    scope_kind="scoped_immediate",
-                    full_scope_reason="-",
-                    scoped_ids={movie_id},
-                )
-                try:
-                    self.movie_projection.reconcile({movie_id})
-                except Exception as exc:
-                    self._log_sync_config_hint(exc)
-                    LOG.warning(
-                        "Failed immediate movie projection for movie_id=%s during auto-add "
-                        "reconciliation: %s",
-                        movie_id,
-                        exc,
-                    )
-                else:
-                    immediate_projected_movie_ids.add(movie_id)
-
-            auto_added_movie_ids = self._auto_add_unmatched_movies(
-                affected_paths,
-                on_movie_id_added=_project_movie_immediately,
-            )
+            auto_added_movie_ids = self._auto_add_unmatched_movies(affected_paths)
             auto_added_series_ids = self._auto_add_unmatched_series(affected_paths)
 
             scoped_movie_ids: set[int] | None = None
@@ -96,25 +63,19 @@ class ServiceReconcileMixin:
                 queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
                 if not force_full_scope and queued_movie_ids:
                     scoped_movie_ids = queued_movie_ids
-            deferred_auto_added_movie_ids = auto_added_movie_ids - immediate_projected_movie_ids
             if not force_full_scope:
                 if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
                     if scoped_movie_ids is None:
                         scoped_movie_ids = set(ingested_movie_ids)
                     else:
                         scoped_movie_ids.update(ingested_movie_ids)
-                if deferred_auto_added_movie_ids and (
+                if auto_added_movie_ids and (
                     incremental_mode or scoped_movie_ids is not None
                 ):
                     if scoped_movie_ids is None:
-                        scoped_movie_ids = set(deferred_auto_added_movie_ids)
+                        scoped_movie_ids = set(auto_added_movie_ids)
                     else:
-                        scoped_movie_ids.update(deferred_auto_added_movie_ids)
-
-                if incremental_mode and scoped_movie_ids is None and immediate_projected_movie_ids:
-                    # Avoid an unnecessary full projection fallback when all newly discovered
-                    # IDs were already projected immediately in this reconcile cycle.
-                    scoped_movie_ids = set()
+                        scoped_movie_ids.update(auto_added_movie_ids)
 
             movie_scope_kind = "scoped" if scoped_movie_ids is not None else "full"
             if movie_scope_kind == "scoped":
@@ -545,8 +506,6 @@ class ServiceReconcileMixin:
     def _auto_add_unmatched_movies(
         self,
         affected_paths: set[Path] | None,
-        *,
-        on_movie_id_added: Callable[[int], None] | None = None,
     ) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):
             return set()
@@ -593,21 +552,21 @@ class ServiceReconcileMixin:
                 self.runtime_status_tracker.update_active_reconcile_metrics(
                     {"active_movie_root": str(managed_root)}
                 )
-            added_movie = self.radarr_sync.auto_add_movie_for_folder(folder, managed_root)
+            added_movie = self.radarr_sync.auto_add_movie_for_folder(
+                folder, managed_root, movies_cache=movies,
+            )
             if not isinstance(added_movie, dict):
                 continue
             movie_id = added_movie.get("id")
             if isinstance(movie_id, int):
                 added_movie_ids.add(movie_id)
                 LOG.info(
-                    "Queued movie_id=%s for immediate movie projection after Radarr path "
-                    "reconciliation: discovered_managed_root=%s discovered_folder=%s",
+                    "Auto-added movie_id=%s for batched projection: "
+                    "managed_root=%s folder=%s",
                     movie_id,
                     managed_root,
                     folder,
                 )
-                if on_movie_id_added is not None:
-                    on_movie_id_added(movie_id)
 
         LOG.info(
             "Radarr auto-add processed: added=%s total_unmatched=%s",

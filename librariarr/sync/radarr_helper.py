@@ -408,11 +408,19 @@ class RadarrSyncHelper:
             return configured_library_root / folder.name, configured_library_root
         return None
 
-    def _find_existing_movie(self, candidate: dict, target_path: Path) -> dict | None:
-        try:
-            existing_movies = self._radarr().get_movies()
-        except requests.RequestException:
-            return None
+    def _find_existing_movie(
+        self,
+        candidate: dict,
+        target_path: Path,
+        movies_cache: list[dict] | None = None,
+    ) -> dict | None:
+        if movies_cache is not None:
+            existing_movies = movies_cache
+        else:
+            try:
+                existing_movies = self._radarr().get_movies()
+            except requests.RequestException:
+                return None
 
         candidate_tmdb_id = candidate.get("tmdbId")
         if isinstance(candidate_tmdb_id, int):
@@ -555,7 +563,12 @@ class RadarrSyncHelper:
             existing_movie.get("path"),
         )
 
-    def auto_add_movie_for_folder(self, folder: Path, managed_root: Path) -> dict | None:
+    def auto_add_movie_for_folder(
+        self,
+        folder: Path,
+        managed_root: Path,
+        movies_cache: list[dict] | None = None,
+    ) -> dict | None:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
 
@@ -600,7 +613,7 @@ class RadarrSyncHelper:
             return None
 
         canonical_name = self._canonical_name_from_movie(candidate, folder)
-        existing_movie = self._find_existing_movie(candidate, target_folder)
+        existing_movie = self._find_existing_movie(candidate, target_folder, movies_cache)
         if existing_movie is not None:
             return self._reconcile_existing_movie(
                 existing_movie=existing_movie,
