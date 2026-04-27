@@ -561,7 +561,7 @@ class ServiceReconcileMixin:
             if isinstance(movie_id, int):
                 added_movie_ids.add(movie_id)
                 LOG.info(
-                    "Auto-added movie_id=%s for batched projection: managed_root=%s folder=%s",
+                    "Resolved movie_id=%s for batched projection: managed_root=%s folder=%s",
                     movie_id,
                     managed_root,
                     folder,

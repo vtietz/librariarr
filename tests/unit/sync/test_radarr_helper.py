@@ -284,7 +284,7 @@ def test_resolve_auto_add_profile_does_not_pick_incompatible_sd_profile(tmp_path
     assert profile_id == 7
 
 
-def test_canonical_name_from_movie_uses_folder_name(tmp_path: Path) -> None:
+def test_canonical_name_from_movie_uses_radarr_title_year(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
     helper = RadarrSyncHelper(
         config=config,
@@ -297,7 +297,7 @@ def test_canonical_name_from_movie_uses_folder_name(tmp_path: Path) -> None:
         tmp_path / "Face Off Source (1997)",
     )
 
-    assert canonical_name == "Face Off Source (1997)"
+    assert canonical_name == "Face/Off\\Redux (1997)"
 
 
 def test_auto_add_no_safe_lookup_logs_once_for_unchanged_folder(
@@ -389,6 +389,40 @@ def test_auto_add_movie_uses_shadow_target_path(tmp_path: Path) -> None:
     assert isinstance(added, dict)
     assert len(fake.add_calls) == 1
     assert fake.add_calls[0]["path"] == str(shadow_root / folder.name)
+    assert fake.add_calls[0]["root_folder_path"] == str(shadow_root)
+
+
+def test_auto_add_shadow_path_uses_radarr_title_not_folder_name(tmp_path: Path) -> None:
+    """When the managed folder name differs from Radarr's title (e.g. extra
+    tags like 'Remastered FSK16'), the shadow path must use Radarr's canonical
+    Title (Year) — not the managed folder name."""
+    managed_root = tmp_path / "movies"
+    shadow_root = tmp_path / "shadow"
+    folder = managed_root / "Sieben (1995) Remastered FSK16"
+    folder.mkdir(parents=True)
+    shadow_root.mkdir(parents=True)
+
+    config = _make_config(tmp_path)
+    config.paths.movie_root_mappings = [
+        MovieRootMapping(managed_root=str(managed_root), library_root=str(shadow_root))
+    ]
+    config.radarr.auto_add_quality_profile_id = 7
+    expected_shadow = shadow_root / "Se7en (1995)"
+    fake = FakeRadarr(
+        lookup_results=[{"title": "Se7en", "year": 1995, "tmdbId": 807}],
+        add_movie_result={"id": 42, "path": str(expected_shadow)},
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger(__name__),
+        get_radarr_client=lambda: fake,
+    )
+
+    added = helper.auto_add_movie_for_folder(folder, managed_root)
+
+    assert isinstance(added, dict)
+    assert len(fake.add_calls) == 1
+    assert fake.add_calls[0]["path"] == str(expected_shadow)
     assert fake.add_calls[0]["root_folder_path"] == str(shadow_root)
 
 
@@ -600,12 +634,12 @@ def test_auto_add_updates_path_when_existing_path_not_in_managed_root(
     assert fake.update_calls == [(77, str(expected))]
 
 
-def test_auto_add_logs_warning_for_duplicate_folder_in_same_root(
+def test_auto_add_does_not_warn_for_shadow_path_managed_equivalent_mismatch(
     tmp_path: Path,
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    """When a discovered folder matches a movie already tracked at a different
-    path under the same managed root, a WARNING is logged."""
+    """When movie path is already the canonical shadow path, differing managed
+    subfolder origins should be treated as already-tracked (debug), not WARNING."""
     managed_root = tmp_path / "movies"
     library_root = tmp_path / "library"
     folder_a = managed_root / "Studio_A" / "Fixture Movie (2022)"
@@ -646,7 +680,7 @@ def test_auto_add_logs_warning_for_duplicate_folder_in_same_root(
         get_radarr_client=lambda: fake,
     )
 
-    # folder_b discovers the same movie — should warn, not silently skip
+    # folder_b discovers the same movie and resolves to the same shadow target.
     with caplog.at_level(logging.WARNING, logger="test_duplicate"):
         result = helper.auto_add_movie_for_folder(folder_b, managed_root)
 
@@ -655,7 +689,4 @@ def test_auto_add_logs_warning_for_duplicate_folder_in_same_root(
     assert fake.add_calls == []
 
     warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
-    assert any(
-        "Duplicate folder ignored" in msg or "will not be projected" in msg
-        for msg in warning_messages
-    ), f"Expected duplicate warning, got: {warning_messages}"
+    assert warning_messages == []

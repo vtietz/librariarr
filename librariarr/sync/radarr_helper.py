@@ -361,7 +361,12 @@ class RadarrSyncHelper:
         return self._resolve_profile_from_quality_map(folder, profiles)
 
     def _canonical_name_from_movie(self, movie: dict, fallback_folder: Path) -> str:
-        del movie
+        title = str(movie.get("title") or "").strip()
+        year = movie.get("year")
+        if title and isinstance(year, int):
+            return f"{title} ({year})"
+        if title:
+            return title
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
     def _managed_root_priority(self, folder: Path) -> int | None:
@@ -385,16 +390,15 @@ class RadarrSyncHelper:
                 continue
         return None
 
-    def _library_target_for_folder(
+    def _library_root_for_managed_root(
         self,
         folder: Path,
         managed_root: Path,
-    ) -> tuple[Path, Path] | None:
-        """Resolve library target path and root for a managed folder.
+    ) -> Path | None:
+        """Resolve the library root corresponding to a managed folder.
 
-        Always flattens to ``library_root / folder.name`` regardless of how
-        deep *folder* is nested under *managed_root*.  This matches the
-        projection planner which always produces flat ``Title (Year)/`` folders.
+        Returns the ``library_root`` from the first mapping whose
+        ``managed_root`` matches, or ``None`` when no mapping applies.
         """
         for mapping in self.config.paths.movie_root_mappings:
             configured_managed_root = Path(mapping.managed_root)
@@ -404,8 +408,7 @@ class RadarrSyncHelper:
                 folder.relative_to(configured_managed_root)
             except ValueError:
                 break
-            configured_library_root = Path(mapping.library_root)
-            return configured_library_root / folder.name, configured_library_root
+            return Path(mapping.library_root)
         return None
 
     def _find_existing_movie(
@@ -544,9 +547,9 @@ class RadarrSyncHelper:
             ]
             existing_managed = _managed_equivalent(existing_path, managed_mappings)
             if existing_managed is not None and existing_managed.resolve() != folder.resolve():
-                self.log.warning(
-                    "Duplicate folder ignored: movie_id=%s canonical=%s tracked "
-                    "via managed folder %s; duplicate folder %s will not be projected",
+                self.log.debug(
+                    "Radarr movie already tracked at canonical shadow path; "
+                    "movie_id=%s canonical=%s managed_equivalent=%s folder=%s",
                     existing_movie.get("id"),
                     canonical_name,
                     existing_managed,
@@ -572,8 +575,8 @@ class RadarrSyncHelper:
         ref = parse_movie_ref(folder.name)
         term = f"{ref.title} {ref.year}" if ref.year is not None else ref.title
 
-        library_target = self._library_target_for_folder(folder, managed_root)
-        if library_target is None:
+        library_root = self._library_root_for_managed_root(folder, managed_root)
+        if library_root is None:
             self.log.warning(
                 "Skipping auto-add for folder=%s because no movie_root_mapping matched "
                 "managed_root=%s",
@@ -581,7 +584,6 @@ class RadarrSyncHelper:
                 managed_root,
             )
             return None
-        target_folder, target_root = library_target
 
         if self._should_skip_no_safe_lookup_retry(folder):
             return None
@@ -613,6 +615,8 @@ class RadarrSyncHelper:
             return None
 
         canonical_name = self._canonical_name_from_movie(candidate, folder)
+        target_folder = library_root / safe_path_component(canonical_name)
+
         existing_movie = self._find_existing_movie(candidate, target_folder, movies_cache)
         if existing_movie is not None:
             return self._reconcile_existing_movie(
@@ -626,7 +630,7 @@ class RadarrSyncHelper:
             added_movie = self._radarr().add_movie_from_lookup(
                 candidate,
                 path=str(target_folder),
-                root_folder_path=str(target_root),
+                root_folder_path=str(library_root),
                 quality_profile_id=quality_profile_id,
                 monitored=self.config.radarr.auto_add_monitored,
                 search_for_movie=self.config.radarr.auto_add_search_on_add,
