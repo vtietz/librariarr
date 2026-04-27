@@ -114,9 +114,7 @@ def test_radarr_e2e_projection_relinks_when_managed_file_is_replaced() -> None:
     )
     service.reconcile()
 
-    expected_folder = safe_path_component(
-        f"{seeded_movie['title']} ({seeded_movie['year']})"
-    )
+    expected_folder = safe_path_component(f"{seeded_movie['title']} ({seeded_movie['year']})")
     projected_file = library_root / expected_folder / source_file.name
     assert projected_file.exists()
     assert projected_file.samefile(source_file)
@@ -178,9 +176,7 @@ def test_radarr_e2e_projection_preserves_unknown_library_files() -> None:
     )
     service.reconcile()
 
-    expected_folder = safe_path_component(
-        f"{seeded_movie['title']} ({seeded_movie['year']})"
-    )
+    expected_folder = safe_path_component(f"{seeded_movie['title']} ({seeded_movie['year']})")
     projected_folder = library_root / expected_folder
     projected_file = projected_folder / source_file.name
     unknown_file = projected_folder / "notes.txt"
