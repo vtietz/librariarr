@@ -19,10 +19,12 @@ function CoverageCard({
   label,
   matched,
   unmatched,
+  inProgress,
 }: {
   label: string;
   matched: number | undefined;
   unmatched: number | undefined;
+  inProgress: { seen: number; projected: number } | null;
 }) {
   const matchedVal = typeof matched === "number" ? matched : 0;
   const unmatchedVal = typeof unmatched === "number" ? unmatched : 0;
@@ -70,6 +72,20 @@ function CoverageCard({
                 )
               )}
             </>
+          ) : inProgress ? (
+            <>
+              <Group gap={4} align="baseline">
+                <Text size="xl" fw={700} lh={1}>
+                  {inProgress.seen}
+                </Text>
+                <Text size="sm" c="dimmed">
+                  seen
+                </Text>
+              </Group>
+              <Text size="xs" c="blue">
+                {inProgress.projected} projected — syncing…
+              </Text>
+            </>
           ) : (
             <Text size="sm" c="dimmed">
               Waiting for data
@@ -106,17 +122,34 @@ export default function LibraryStatsCards({ runtimeStatus }: Props) {
       ? currentTask
       : lastReconcile;
 
+  const movieInProgress =
+    currentTask != null && !hasFullMetrics && !hasCurrentMetrics
+      ? {
+          seen: currentTask.movie_folders_seen ?? 0,
+          projected: currentTask.movie_items_projected ?? 0,
+        }
+      : null;
+  const seriesInProgress =
+    currentTask != null && !hasFullMetrics && !hasCurrentMetrics
+      ? {
+          seen: currentTask.series_folders_seen ?? 0,
+          projected: currentTask.series_items_projected ?? 0,
+        }
+      : null;
+
   return (
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
       <CoverageCard
         label="Movies"
         matched={metrics?.matched_movies}
         unmatched={metrics?.unmatched_movies}
+        inProgress={movieInProgress}
       />
       <CoverageCard
         label="Series"
         matched={metrics?.matched_series}
         unmatched={metrics?.unmatched_series}
+        inProgress={seriesInProgress}
       />
     </SimpleGrid>
   );

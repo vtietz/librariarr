@@ -301,6 +301,7 @@ def create_app(  # noqa: C901
         runtime_thread = None
         runtime_stop_event = None
         runtime_lock_handle = None
+        LOG.info("LibrariArr web app starting (config=%s)", config_path)
         job_manager.start()
         warmup_mapped_directories_cache(config_path)
         warmup_discovery_warnings_cache(config_path)
@@ -316,6 +317,7 @@ def create_app(  # noqa: C901
 
             if runtime_lock_handle is not None:
                 try:
+                    LOG.info("Loading config and initializing runtime...")
                     runtime_config = load_config(config_path)
                     service = LibrariArrService(runtime_config)
                     runtime_stop_event = threading.Event()

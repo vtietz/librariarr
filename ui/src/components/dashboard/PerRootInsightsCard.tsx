@@ -83,6 +83,7 @@ function RootRow({ root }: { root: RootStat }) {
 
 export default function PerRootInsightsCard({ runtimeStatus }: Props) {
   const roots = runtimeStatus?.library_root_stats ?? [];
+  const isReconciling = runtimeStatus?.current_task?.state === "running";
 
   return (
     <Card withBorder>
@@ -94,7 +95,7 @@ export default function PerRootInsightsCard({ runtimeStatus }: Props) {
       </Group>
       {roots.length === 0 && (
         <Text size="sm" c="dimmed">
-          Waiting for first reconcile…
+          {isReconciling ? "Syncing — root stats appear after first reconcile…" : "Waiting for first reconcile…"}
         </Text>
       )}
       <Stack gap="md">
