@@ -60,16 +60,15 @@ def build_series_projection_plans(
             )
             continue
 
+        library_folder = _resolve_library_folder(
+            series=series,
+            relative_series_folder=relative_series_folder,
+            mapping=mapping,
+        )
         if path_mode == "library":
             managed_folder = mapping.managed_root / relative_series_folder
-            library_folder = series_path
         else:
             managed_folder = series_path
-            library_folder = _resolve_library_folder(
-                series=series,
-                relative_series_folder=relative_series_folder,
-                mapping=mapping,
-            )
 
         if not managed_folder.exists() or not managed_folder.is_dir():
             plans.append(

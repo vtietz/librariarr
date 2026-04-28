@@ -233,6 +233,54 @@ def test_e2e_projection_scopes_to_webhook_movie_ids(tmp_path: Path) -> None:
 
 
 @pytest.mark.fs_e2e
+def test_e2e_projection_flattens_nested_library_path(tmp_path: Path) -> None:
+    """When Radarr's stored path is nested under library_root, the planner should
+    still produce a flat ``Title (Year)`` library folder and the orchestrator should
+    update the Radarr path to match."""
+    managed_root, library_root = _make_roots(tmp_path, "flatten_nested_library")
+
+    # User has a nested managed structure:
+    #   managed_root / Collection / Movie (2024)
+    movie_dir = managed_root / "Film Collection" / "Great Movie (2024)"
+    movie_dir.mkdir(parents=True)
+    source_file = movie_dir / "Great.Movie.2024.1080p.mkv"
+    source_file.write_text("stub", encoding="utf-8")
+
+    # Radarr has the movie stored at a NESTED library path (the bug scenario):
+    nested_library_path = library_root / "Film Collection" / "Great Movie (2024)"
+
+    config = AppConfig(
+        paths=PathsConfig(
+            series_root_mappings=[],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
+            ],
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            sync_enabled=False,
+        ),
+        cleanup=CleanupConfig(remove_orphaned_links=True),
+        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+    )
+
+    radarr = _FakeRadarr(movies=[_movie(1, "Great Movie", 2024, nested_library_path)])
+    service = LibrariArrService(config)
+    service.radarr = radarr
+
+    service.reconcile()
+
+    # The projection should land in the FLAT library folder, not the nested one.
+    flat_projected = library_root / "Great Movie (2024)" / source_file.name
+    assert flat_projected.exists(), f"Expected flat projection at {flat_projected}"
+    assert flat_projected.samefile(source_file)
+
+    # The nested library path should NOT have been created.
+    assert not (nested_library_path / source_file.name).exists()
+
+
+@pytest.mark.fs_e2e
 def test_e2e_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
     managed_root, shadow_root = _make_roots(tmp_path, "ingest_moves_shadow_to_nested")
     nested_root = managed_root / "age_12"

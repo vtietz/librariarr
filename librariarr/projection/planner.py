@@ -60,16 +60,15 @@ def build_movie_projection_plans(
             )
             continue
 
+        library_folder = _resolve_library_folder(
+            movie=movie,
+            relative_movie_folder=relative_movie_folder,
+            mapping=mapping,
+        )
         if path_mode == "library":
             managed_folder = mapping.managed_root / relative_movie_folder
-            library_folder = movie_path
         else:
             managed_folder = movie_path
-            library_folder = _resolve_library_folder(
-                movie=movie,
-                relative_movie_folder=relative_movie_folder,
-                mapping=mapping,
-            )
 
         if not managed_folder.exists() or not managed_folder.is_dir():
             plans.append(

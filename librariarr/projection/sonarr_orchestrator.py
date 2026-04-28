@@ -9,7 +9,7 @@ from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
 from .bootstrap import probe_movie_root_mappings
 from .executor import MovieProjectionExecutor
-from .models import MovieProjectionMapping
+from .models import MovieProjectionMapping, MovieProjectionPlan
 from .provenance import ProjectionStateStore
 from .sonarr_planner import build_series_projection_plans
 
@@ -52,6 +52,11 @@ class SonarrProjectionOrchestrator:
             mappings=self.mappings,
             scoped_series_ids=scoped_series_ids,
         )
+        normalized = self._normalize_arr_paths(series_items, plans)
+        if normalized:
+            self.log.info(
+                "Normalized %s Sonarr series path(s) to flat library structure", normalized
+            )
         probes = probe_movie_root_mappings(self.mappings)
         scoped_count = (
             len(scoped_series_ids) if scoped_series_ids is not None else len(series_items)
@@ -79,7 +84,43 @@ class SonarrProjectionOrchestrator:
             "unchanged_files": metrics.unchanged_files,
             "skipped_files": metrics.skipped_files,
             "per_root": metrics.per_root_list(),
+            "normalized_paths": normalized,
         }
+
+    def _normalize_arr_paths(
+        self,
+        series_items: list[dict[str, Any]],
+        plans: list[MovieProjectionPlan],
+    ) -> int:
+        """Update Sonarr series paths nested under a library root to flat canonical form."""
+        plans_by_id = {p.movie_id: p for p in plans if not p.skip_reason}
+        library_roots = {str(m.library_root) for m in self.mappings}
+        normalized = 0
+        for series in series_items:
+            series_id = series.get("id")
+            if not isinstance(series_id, int) or series_id not in plans_by_id:
+                continue
+            current_path = str(series.get("path") or "").strip()
+            if not current_path:
+                continue
+            if not any(current_path.startswith(lr) for lr in library_roots):
+                continue
+            plan = plans_by_id[series_id]
+            expected_path = str(plan.library_folder)
+            if current_path == expected_path:
+                continue
+            try:
+                if self.sonarr.update_series_path(series, expected_path):
+                    normalized += 1
+            except Exception as exc:
+                self.log.warning(
+                    "Failed to normalize Sonarr path for series_id=%s from=%s to=%s: %s",
+                    series_id,
+                    current_path,
+                    expected_path,
+                    exc,
+                )
+        return normalized
 
 
 def _sonarr_projection_state_db_path() -> Path:
