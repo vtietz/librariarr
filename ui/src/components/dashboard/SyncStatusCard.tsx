@@ -1,6 +1,6 @@
-import { Badge, Button, Card, Group, Stack, Text } from "@mantine/core";
+import { Badge, Button, Card, Group, Loader, Stack, Text } from "@mantine/core";
 import type { RuntimeStatusResponse } from "../../api/client";
-import { formatAge } from "../dashboardFormatters";
+import { formatAge, formatElapsed } from "../dashboardFormatters";
 
 type Props = {
   hasUnsavedChanges: boolean;
@@ -27,6 +27,53 @@ function stateBadgeColor(state: string): string {
     return "red";
   }
   return "gray";
+}
+
+function phaseLabel(phase: string | null | undefined): string {
+  switch (phase) {
+    case "reconcile":
+      return "Starting…";
+    case "running":
+      return "Running…";
+    case "scope_resolved":
+      return "Resolving scope…";
+    case "indexed":
+      return "Projecting…";
+    case "applied":
+      return "Applying…";
+    case "cleaned":
+      return "Cleaning up…";
+    case "completed":
+      return "Finishing…";
+    default:
+      return "Working…";
+  }
+}
+
+function buildProgressText(
+  task: RuntimeStatusResponse["current_task"],
+): string | null {
+  if (task.state !== "running") return null;
+
+  const parts: string[] = [phaseLabel(task.phase)];
+
+  const moviesSeen = task.movie_folders_seen ?? 0;
+  const seriesSeen = task.series_folders_seen ?? 0;
+  if (moviesSeen > 0 || seriesSeen > 0) {
+    const items: string[] = [];
+    if (moviesSeen > 0) items.push(`${moviesSeen} movies`);
+    if (seriesSeen > 0) items.push(`${seriesSeen} series`);
+    parts.push(items.join(", "));
+  }
+
+  const links = task.created_links ?? 0;
+  if (links > 0) parts.push(`${links} links`);
+
+  if (task.started_at) {
+    parts.push(formatElapsed(task.started_at));
+  }
+
+  return parts.join(" · ");
 }
 
 function buildLastSyncText(
@@ -77,6 +124,9 @@ export default function SyncStatusCard({
   const healthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for status";
   const taskState = runtimeStatus?.current_task.state ?? "idle";
   const lastSyncText = buildLastSyncText(runtimeStatus?.last_reconcile ?? null);
+  const progressText = buildProgressText(
+    runtimeStatus?.current_task ?? { state: "idle", phase: null, trigger_source: null, started_at: null, updated_at: null, error: null },
+  );
 
   return (
     <Card withBorder>
@@ -102,6 +152,14 @@ export default function SyncStatusCard({
         <Text size="sm" c="dimmed">
           {healthReason}
         </Text>
+        {progressText && (
+          <Group gap="xs">
+            <Loader size={12} />
+            <Text size="xs" c="blue">
+              {progressText}
+            </Text>
+          </Group>
+        )}
         <Group justify="space-between" align="center">
           <Text size="xs" c="dimmed">
             {lastSyncText}

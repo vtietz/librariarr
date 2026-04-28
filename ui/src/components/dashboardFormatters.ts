@@ -13,3 +13,13 @@ export function formatAge(timestamp: number | null | undefined): string {
   const hours = Math.floor(minutes / 60);
   return `${hours}h ago`;
 }
+
+export function formatElapsed(startTimestamp: number): string {
+  const seconds = Math.max(0, Math.round(Date.now() / 1000 - startTimestamp));
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainSec = seconds % 60;
+  return `${minutes}m ${remainSec}s`;
+}

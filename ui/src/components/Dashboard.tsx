@@ -19,7 +19,10 @@ export default function Dashboard({
   const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
     ReturnType<typeof getDiscoveryWarnings>
   > | null>(null);
-  const [runningReconcile, setRunningReconcile] = useState(false);
+  const [queuingReconcile, setQueuingReconcile] = useState(false);
+
+  const taskIsRunning = runtimeStatus?.current_task?.state === "running";
+  const runningReconcile = queuingReconcile || taskIsRunning;
 
   useEffect(() => {
     let active = true;
@@ -54,13 +57,13 @@ export default function Dashboard({
   }, []);
 
   const handleRunReconcile = async () => {
-    setRunningReconcile(true);
+    setQueuingReconcile(true);
     try {
       await runFullReconcile();
     } catch (error) {
       console.error("[Dashboard] Failed to queue maintenance reconcile", error);
     } finally {
-      setRunningReconcile(false);
+      setQueuingReconcile(false);
     }
   };
 

@@ -104,6 +104,9 @@ export default function App() {
     void reloadFromDisk();
   }, [reloadFromDisk]);
 
+  const isReconcileRunning = runtimeStatus?.current_task?.state === "running";
+  const pollInterval = isReconcileRunning ? 1000 : 3000;
+
   useEffect(() => {
     let active = true;
     let inFlight = false;
@@ -128,13 +131,13 @@ export default function App() {
     void loadRuntimeStatus();
     const interval = window.setInterval(() => {
       void loadRuntimeStatus();
-    }, 3000);
+    }, pollInterval);
 
     return () => {
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [pollInterval]);
 
   useEffect(() => {
     const syncFromPath = () => {
