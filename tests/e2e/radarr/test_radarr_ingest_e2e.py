@@ -66,7 +66,7 @@ def test_radarr_e2e_ingest_folder_level_new_movie() -> None:
 
     managed_folder = managed_root / lib_folder_name
     managed_video = managed_folder / video_file.name
-    projected_video = library_root / lib_folder_name / video_file.name
+    projected_video = library_root / "Fixture Ingest Folder (2015)" / video_file.name
 
     assert managed_video.exists(), "Video should be moved to managed root"
     assert projected_video.exists(), "Projection should hardlink it back"
@@ -132,7 +132,7 @@ def test_radarr_e2e_ingest_file_level_upgrade() -> None:
     service.reconcile()
 
     managed_new = managed_folder / new_video.name
-    projected_new = lib_folder / new_video.name
+    projected_new = library_root / "Fixture Ingest Upgrade (2018)" / new_video.name
 
     assert managed_new.exists(), "New file should be ingested into managed root"
     assert managed_new.read_text(encoding="utf-8") == "new-quality-1080p"
@@ -202,5 +202,7 @@ def test_radarr_e2e_ingest_noop_when_hardlinks_match() -> None:
     # Managed file should be untouched (same inode)
     assert managed_video.exists()
     assert managed_video.stat().st_ino == managed_inode
-    assert lib_video.exists()
-    assert lib_video.samefile(managed_video)
+    # Projection should be at flat Title (Year) path
+    flat_lib_video = library_root / "Fixture Ingest Noop (2020)" / managed_video.name
+    assert flat_lib_video.exists()
+    assert flat_lib_video.samefile(managed_video)
