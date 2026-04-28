@@ -190,8 +190,19 @@ Then open `http://localhost:8787` for the LibrariArr GUI.
 
 ### Linux note: inotify watch limits
 
-If logs show `OSError: [Errno 28] inotify watch limit reached`, increase host
-inotify limits (run on the Docker host, not inside the container):
+Large media libraries can exceed Linux's default inotify watch limit. When this
+happens LibrariArr logs a warning and falls back to **polling mode**, which scans
+for changes once per minute instead of reacting instantly.
+
+Check your current limits:
+
+```bash
+cat /proc/sys/fs/inotify/max_user_watches
+cat /proc/sys/fs/inotify/max_user_instances
+```
+
+To restore instant detection, increase the limit on the **Docker host** (not
+inside the container):
 
 ```bash
 sudo sysctl -w fs.inotify.max_user_watches=524288
@@ -205,6 +216,9 @@ printf 'fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=1024\n
   sudo tee /etc/sysctl.d/99-librariarr-inotify.conf
 sudo sysctl --system
 ```
+
+After applying the fix, restart the LibrariArr container. The log will confirm
+whether inotify or polling mode is active.
 
 5. Stop when needed:
 

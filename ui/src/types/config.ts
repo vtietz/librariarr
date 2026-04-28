@@ -60,6 +60,7 @@ export type ConfigModel = {
     debounce_seconds: number;
     maintenance_interval_minutes: number;
     arr_root_poll_interval_minutes: number;
+    polling_fallback_interval_seconds: number;
     scan_video_extensions: string[] | null;
   };
   analysis: {

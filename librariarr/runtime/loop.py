@@ -80,6 +80,7 @@ class RuntimeSyncLoop:
         status_tracker: RuntimeStatusTracker | None = None,
         on_reconcile_complete: Callable[[], None] | None = None,
         tracked_video_extensions: set[str] | None = None,
+        polling_fallback_interval_seconds: int = 60,
     ) -> None:
         self.nested_roots = nested_roots
         self.shadow_roots = shadow_roots
@@ -90,6 +91,7 @@ class RuntimeSyncLoop:
         self.on_reconcile_complete = on_reconcile_complete
         self.log = logger
         self.status_tracker = status_tracker
+        self.polling_fallback_interval_seconds = max(10, polling_fallback_interval_seconds)
         self.tracked_video_extensions = {
             self._normalize_extension(ext)
             for ext in (tracked_video_extensions or set())
@@ -154,7 +156,7 @@ class RuntimeSyncLoop:
             "Inotify watch limit reached; falling back to polling observer mode. "
             "Filesystem sync remains active but may react slower to changes.",
         )
-        polling_observer = PollingObserver()
+        polling_observer = PollingObserver(timeout=self.polling_fallback_interval_seconds)
         watched_roots = self._schedule_observer_roots(polling_observer, handler)
         polling_observer.start()
         return polling_observer, watched_roots, "polling"

@@ -418,6 +418,12 @@ Audio language token notes:
 - LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
 - Set `0` to disable this poller.
 
+`runtime.polling_fallback_interval_seconds`:
+- Polling interval used when inotify watch limit is exceeded and LibrariArr falls back to polling-based filesystem monitoring.
+- Only applies in fallback mode; ignored when inotify watches are active.
+- Minimum enforced: `10`. Default: `60`.
+- Lower values increase I/O load; higher values delay detection of manual filesystem changes (webhook-triggered reconciles are unaffected).
+
 `runtime.auto_add_batch_size`:
 - Maximum unmatched folders processed per reconcile cycle for auto-add/path-reconcile.
 - Applies separately to movie and series flows.

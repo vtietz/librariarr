@@ -440,6 +440,9 @@ def test_runtime_sync_loop_falls_back_to_polling_on_inotify_limit(
     class WorkingPollingObserver:
         started = False
 
+        def __init__(self, **_kwargs) -> None:
+            pass
+
         def schedule(self, *_args, **_kwargs) -> None:
             return None
 

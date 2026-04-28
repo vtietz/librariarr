@@ -84,6 +84,7 @@ class ServiceBootstrapMixin:
         )
 
         self._debounce_seconds = max(1, config.runtime.debounce_seconds)
+        self._polling_fallback_interval_seconds = config.runtime.polling_fallback_interval_seconds
         maintenance_minutes = config.runtime.maintenance_interval_minutes
         root_poll_minutes = config.runtime.arr_root_poll_interval_minutes
         self._maintenance_interval = (
@@ -191,6 +192,7 @@ class ServiceBootstrapMixin:
             status_tracker=self.runtime_status_tracker,
             on_reconcile_complete=_on_reconcile_complete,
             tracked_video_extensions=self.video_exts,
+            polling_fallback_interval_seconds=self._polling_fallback_interval_seconds,
         )
         runtime_loop.run(stop_event=stop_event)
 

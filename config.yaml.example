@@ -168,6 +168,11 @@ runtime:
   # Minutes between Arr root-folder checks used to auto-trigger reconcile when
   # configured managed roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
+  # Polling interval (seconds) when inotify watch limit is exceeded and
+  # LibrariArr falls back to polling-based filesystem monitoring.
+  # Only used in fallback mode; ignored when inotify is active.
+  # Minimum enforced: 10. Default: 60.
+  polling_fallback_interval_seconds: 60
   # Max unmatched folders processed per reconcile cycle across roots (movies/series each).
   # Lower = faster visible progress, higher = better backlog throughput.
   # Recommended responsive range: 5-25 (common default: 10).
