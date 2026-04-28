@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from librariarr.service import LibrariArrService
+from librariarr.sync.naming import safe_path_component
 from tests.e2e.radarr.radarr_e2e_helpers import (
     projection_config,
     resolve_case_root,
@@ -12,6 +13,17 @@ from tests.e2e.radarr.radarr_e2e_helpers import (
     wait_for_api_key,
     wait_for_radarr,
 )
+
+
+def _expected_flat_folder(movie: dict) -> str:
+    """Derive the flat ``Title (Year)`` folder name the planner would produce."""
+    title = str(movie.get("title") or "").strip()
+    year = movie.get("year")
+    if title and isinstance(year, int):
+        return safe_path_component(f"{title} ({year})")
+    if title:
+        return safe_path_component(title)
+    return safe_path_component(f"movie-{movie.get('id')}")
 
 
 @pytest.mark.e2e
@@ -49,6 +61,7 @@ def test_radarr_e2e_ingest_folder_level_new_movie() -> None:
     get_resp = session.get(f"{radarr_url}/api/v3/movie/{movie_id}", timeout=20)
     get_resp.raise_for_status()
     payload = get_resp.json()
+    expected_flat = _expected_flat_folder(payload)
     payload["path"] = str(lib_folder)
     update_resp = session.put(f"{radarr_url}/api/v3/movie/{movie_id}", json=payload, timeout=20)
     update_resp.raise_for_status()
@@ -66,7 +79,7 @@ def test_radarr_e2e_ingest_folder_level_new_movie() -> None:
 
     managed_folder = managed_root / lib_folder_name
     managed_video = managed_folder / video_file.name
-    projected_video = library_root / "Fixture Ingest Folder (2015)" / video_file.name
+    projected_video = library_root / expected_flat / video_file.name
 
     assert managed_video.exists(), "Video should be moved to managed root"
     assert projected_video.exists(), "Projection should hardlink it back"
@@ -116,6 +129,7 @@ def test_radarr_e2e_ingest_file_level_upgrade() -> None:
     get_resp = session.get(f"{radarr_url}/api/v3/movie/{movie_id}", timeout=20)
     get_resp.raise_for_status()
     payload = get_resp.json()
+    expected_flat = _expected_flat_folder(payload)
     payload["path"] = str(lib_folder)
     update_resp = session.put(f"{radarr_url}/api/v3/movie/{movie_id}", json=payload, timeout=20)
     update_resp.raise_for_status()
@@ -132,7 +146,7 @@ def test_radarr_e2e_ingest_file_level_upgrade() -> None:
     service.reconcile()
 
     managed_new = managed_folder / new_video.name
-    projected_new = library_root / "Fixture Ingest Upgrade (2018)" / new_video.name
+    projected_new = library_root / expected_flat / new_video.name
 
     assert managed_new.exists(), "New file should be ingested into managed root"
     assert managed_new.read_text(encoding="utf-8") == "new-quality-1080p"
@@ -184,6 +198,7 @@ def test_radarr_e2e_ingest_noop_when_hardlinks_match() -> None:
     get_resp = session.get(f"{radarr_url}/api/v3/movie/{movie_id}", timeout=20)
     get_resp.raise_for_status()
     payload = get_resp.json()
+    expected_flat = _expected_flat_folder(payload)
     payload["path"] = str(lib_folder)
     update_resp = session.put(f"{radarr_url}/api/v3/movie/{movie_id}", json=payload, timeout=20)
     update_resp.raise_for_status()
@@ -203,6 +218,6 @@ def test_radarr_e2e_ingest_noop_when_hardlinks_match() -> None:
     assert managed_video.exists()
     assert managed_video.stat().st_ino == managed_inode
     # Projection should be at flat Title (Year) path
-    flat_lib_video = library_root / "Fixture Ingest Noop (2020)" / managed_video.name
+    flat_lib_video = library_root / expected_flat / managed_video.name
     assert flat_lib_video.exists()
     assert flat_lib_video.samefile(managed_video)
