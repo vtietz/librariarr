@@ -66,6 +66,19 @@ class ProjectionStateStore:
                 )
                 return {str(row[0]) for row in cursor.fetchall()}
 
+    def get_managed_entries_for_movie(self, movie_id: int) -> list[tuple[str, str]]:
+        with self._lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    """
+                    SELECT dest_path, source_path
+                    FROM projected_files
+                    WHERE movie_id = ? AND managed = 1
+                    """,
+                    (movie_id,),
+                )
+                return [(str(row[0]), str(row[1])) for row in cursor.fetchall()]
+
     def upsert_projected_files(self, records: list[ProjectedFileState]) -> None:
         if not records:
             return
