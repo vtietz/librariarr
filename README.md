@@ -212,9 +212,26 @@ sudo sysctl -w fs.inotify.max_user_instances=1024
 Persist after reboot:
 
 ```bash
+# Standard Linux (Debian, Ubuntu, etc.)
 printf 'fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=1024\n' | \
   sudo tee /etc/sysctl.d/99-librariarr-inotify.conf
 sudo sysctl --system
+```
+
+On **Synology DSM** the `/etc/sysctl.d/` directory does not exist. Use one of:
+
+```bash
+# Option A: append to /etc/sysctl.conf (may be reset on DSM major updates)
+printf 'fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=1024\n' >> /etc/sysctl.conf
+sysctl -p
+```
+
+```
+# Option B (recommended): DSM → Control Panel → Task Scheduler →
+#   Create → Triggered Task → User-defined script
+# Event: Boot-up, User: root, Script:
+sysctl -w fs.inotify.max_user_watches=524288
+sysctl -w fs.inotify.max_user_instances=1024
 ```
 
 After applying the fix, restart the LibrariArr container. The log will confirm
