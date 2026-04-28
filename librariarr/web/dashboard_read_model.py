@@ -17,6 +17,8 @@ LOG = logging.getLogger(__name__)
 
 
 class DashboardReadModel:
+    _TASK_STALE_AFTER_SECONDS = 300
+
     def __init__(
         self,
         *,
@@ -168,6 +170,17 @@ class DashboardReadModel:
         if self._failure_count > 0 and self._last_refresh_error:
             status = "degraded"
             reasons.append(self._last_refresh_error)
+
+        current_task = payload.get("current_task") or {}
+        if isinstance(current_task, dict) and current_task.get("state") == "running":
+            updated_at = current_task.get("updated_at")
+            if isinstance(updated_at, int | float):
+                stale_age = max(0.0, now - float(updated_at))
+                if stale_age > self._TASK_STALE_AFTER_SECONDS:
+                    status = "degraded"
+                    reasons.append(
+                        f"reconcile task appears stuck ({int(stale_age)}s without progress update)"
+                    )
 
         active = max(
             int(jobs_summary_payload.get("active") or 0),

@@ -108,6 +108,7 @@ class SonarrClient:
 
         for attempt in range(total_attempts):
             try:
+                started = time.monotonic()
                 response = self.session.request(
                     method_name,
                     self._url(path),
@@ -116,10 +117,19 @@ class SonarrClient:
                 )
                 response.raise_for_status()
                 self._record_cb_success()
+                elapsed = time.monotonic() - started
+                LOG.debug(
+                    "Sonarr request succeeded: %s %s status=%s elapsed=%.3fs",
+                    method_name,
+                    path,
+                    getattr(response, "status_code", "?"),
+                    elapsed,
+                )
                 if response.content:
                     return response.json()
                 return None
             except requests.RequestException as exc:
+                LOG.debug("Sonarr request failed: %s %s error=%s", method_name, path, exc)
                 if attempt >= self.retry_attempts or not self._can_retry_request(method_name, exc):
                     self._record_cb_failure()
                     raise
