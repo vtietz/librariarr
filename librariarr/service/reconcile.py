@@ -46,7 +46,6 @@ class ServiceReconcileMixin:
                     trigger_source,
                 )
                 refresh_arr_root_availability = True
-
             if refresh_arr_root_availability:
                 self._update_arr_root_folder_availability(
                     force=self._arr_root_poll_interval is None,
@@ -54,6 +53,7 @@ class ServiceReconcileMixin:
 
             movies_inventory: list[dict] | None = None
             series_inventory: list[dict] | None = None
+            _tracker = getattr(self, "runtime_status_tracker", None)
             if self.radarr_enabled:
                 try:
                     movies_inventory = self.radarr.get_movies()
@@ -67,18 +67,15 @@ class ServiceReconcileMixin:
                     self._log_sonarr_sync_config_hint(exc)
                     LOG.warning("Sonarr inventory fetch failed: %s", exc)
             self._publish_inventory_snapshot(movies_inventory, series_inventory)
-
             ingested_movie_ids = self._ingest_movies_from_library_roots(
                 affected_paths, movies_inventory=movies_inventory
             )
-
             auto_added_movie_ids = self._auto_add_unmatched_movies(
                 affected_paths, movies_inventory=movies_inventory
             )
             auto_added_series_ids = self._auto_add_unmatched_series(
                 affected_paths, series_inventory=series_inventory
             )
-
             scoped_movie_ids: set[int] | None = None
             queued_movie_ids: set[int] = set()
             if self.radarr_enabled:
@@ -152,9 +149,9 @@ class ServiceReconcileMixin:
                 auto_added_series_ids=auto_added_series_ids,
             )
 
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_reconcile_phase("scope_resolved")
-                self.runtime_status_tracker.update_active_reconcile_metrics(
+            if _tracker is not None:
+                _tracker.update_reconcile_phase("scope_resolved")
+                _tracker.update_active_reconcile_metrics(
                     {
                         "movie_items_targeted": (
                             len(scoped_movie_ids) if scoped_movie_ids is not None else None
@@ -167,7 +164,6 @@ class ServiceReconcileMixin:
                         "created_links": 0,
                     }
                 )
-
             had_projection_error = False
             movie_projection_metrics = dict.fromkeys(
                 [
@@ -198,10 +194,10 @@ class ServiceReconcileMixin:
                     movie_projection_metrics = self.movie_projection.reconcile(
                         scoped_movie_ids, inventory=movies_inventory
                     )
-                    if getattr(self, "runtime_status_tracker", None) is not None:
+                    if _tracker is not None:
                         planned_movies = int(movie_projection_metrics.get("planned_movies") or 0)
                         skipped_movies = int(movie_projection_metrics.get("skipped_movies") or 0)
-                        self.runtime_status_tracker.update_active_reconcile_metrics(
+                        _tracker.update_active_reconcile_metrics(
                             {
                                 "movie_folders_seen": planned_movies,
                                 "movie_items_projected": max(0, planned_movies - skipped_movies),
@@ -210,6 +206,10 @@ class ServiceReconcileMixin:
                                 ),
                             }
                         )
+                        movie_per_root = movie_projection_metrics.get("per_root") or []
+                        _tracker.update_library_root_stats(
+                            [{**r, "arr_type": "radarr"} for r in movie_per_root]
+                        )
                 except Exception as exc:
                     had_projection_error = True
                     self._log_sync_config_hint(exc)
@@ -217,10 +217,8 @@ class ServiceReconcileMixin:
                         "Continuing reconcile without Radarr projection due to request failure: %s",
                         exc,
                     )
-
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_reconcile_phase("indexed")
-
+            if _tracker is not None:
+                _tracker.update_reconcile_phase("indexed")
             series_projection_metrics = dict.fromkeys(
                 [
                     "scoped_series_count",
@@ -250,6 +248,11 @@ class ServiceReconcileMixin:
                     series_projection_metrics = self.sonarr_projection.reconcile(
                         scoped_series_ids, inventory=series_inventory
                     )
+                    if _tracker is not None:
+                        series_per_root = series_projection_metrics.get("per_root") or []
+                        _tracker.update_library_root_stats(
+                            [{**r, "arr_type": "sonarr"} for r in series_per_root]
+                        )
                 except Exception as exc:
                     had_projection_error = True
                     self._log_sonarr_sync_config_hint(exc)
@@ -258,9 +261,8 @@ class ServiceReconcileMixin:
                         exc,
                     )
 
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_reconcile_phase("applied")
-                self.runtime_status_tracker.update_reconcile_phase("cleaned")
+            if _tracker is not None:
+                _tracker.update_reconcile_phase("cleaned")
 
             movie_projected_files = int(movie_projection_metrics.get("projected_files") or 0)
             series_projected_files = int(series_projection_metrics.get("projected_files") or 0)
@@ -277,7 +279,6 @@ class ServiceReconcileMixin:
                 - int(series_projection_metrics.get("skipped_series") or 0),
             )
             unmatched_series = int(series_projection_metrics.get("skipped_series") or 0)
-
             duration_seconds = round(time.time() - started, 2)
             outcome = "updated"
             if (
@@ -289,8 +290,8 @@ class ServiceReconcileMixin:
             ):
                 outcome = "no_changes"
 
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_active_reconcile_metrics(
+            if _tracker is not None:
+                _tracker.update_active_reconcile_metrics(
                     {
                         "active_movie_root": None,
                         "active_series_root": None,
@@ -315,12 +316,6 @@ class ServiceReconcileMixin:
                         ),
                     }
                 )
-                movie_per_root = movie_projection_metrics.get("per_root") or []
-                series_per_root = series_projection_metrics.get("per_root") or []
-                all_per_root = [{**r, "arr_type": "radarr"} for r in movie_per_root] + [
-                    {**r, "arr_type": "sonarr"} for r in series_per_root
-                ]
-                self.runtime_status_tracker.update_library_root_stats(all_per_root)
 
             LOG.info(
                 "Reconcile finished: source=%s mode=%s affected_paths=%s trigger_path=%s "
@@ -336,11 +331,11 @@ class ServiceReconcileMixin:
                 matched_series,
                 duration_seconds,
             )
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_reconcile_phase("completed")
+            if _tracker is not None:
+                _tracker.update_reconcile_phase("completed")
             if force_full_scope:
-                if getattr(self, "runtime_status_tracker", None) is not None:
-                    self.runtime_status_tracker.update_active_reconcile_metrics(
+                if _tracker is not None:
+                    _tracker.update_active_reconcile_metrics(
                         {
                             "full_reconcile_stats": {
                                 "outcome": outcome,
@@ -397,7 +392,6 @@ class ServiceReconcileMixin:
                 return set()
 
         moved_movie_ids: set[int] = set()
-
         for movie in movies:
             moved_movie_id = self._ingest_movie_if_needed(
                 movie,
@@ -586,10 +580,9 @@ class ServiceReconcileMixin:
             managed_root = resolve_managed_root_for_folder(folder, self.movie_root_mappings)
             if managed_root is None:
                 continue
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_active_reconcile_metrics(
-                    {"active_movie_root": str(managed_root)}
-                )
+            _t = getattr(self, "runtime_status_tracker", None)
+            if _t is not None:
+                _t.update_active_reconcile_metrics({"active_movie_root": str(managed_root)})
             added_movie = self.radarr_sync.auto_add_movie_for_folder(
                 folder,
                 managed_root,
@@ -662,10 +655,9 @@ class ServiceReconcileMixin:
             managed_root = resolve_managed_root_for_folder(folder, self.series_root_mappings)
             if managed_root is None:
                 continue
-            if getattr(self, "runtime_status_tracker", None) is not None:
-                self.runtime_status_tracker.update_active_reconcile_metrics(
-                    {"active_series_root": str(managed_root)}
-                )
+            _t = getattr(self, "runtime_status_tracker", None)
+            if _t is not None:
+                _t.update_active_reconcile_metrics({"active_series_root": str(managed_root)})
             added_series = self.sonarr_sync.auto_add_series_for_folder(
                 folder, managed_root, series_cache=series
             )
@@ -693,6 +685,15 @@ class ServiceReconcileMixin:
         store = getattr(self, "inventory_snapshot_store", None)
         if store is not None:
             store.update(movies=movies, series=series, timestamp=time.time())
+        tracker = getattr(self, "runtime_status_tracker", None)
+        if tracker is not None:
+            tracker.update_reconcile_phase("inventory_fetched")
+            tracker.update_active_reconcile_metrics(
+                {
+                    "movie_folders_seen": len(movies) if movies else 0,
+                    "series_folders_seen": len(series) if series else 0,
+                }
+            )
 
     def reconcile_full(self) -> bool:
         return self.reconcile(affected_paths=None, force_full_scope=True)

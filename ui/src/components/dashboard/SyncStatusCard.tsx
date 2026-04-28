@@ -33,8 +33,12 @@ function phaseLabel(phase: string | null | undefined): string {
   switch (phase) {
     case "reconcile":
       return "Starting…";
+    case "startup_full_reconcile":
+      return "Starting…";
     case "running":
       return "Running…";
+    case "inventory_fetched":
+      return "Fetched inventory…";
     case "scope_resolved":
       return "Resolving scope…";
     case "indexed":
