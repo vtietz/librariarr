@@ -44,6 +44,7 @@ class CleanupConfig:
 
 @dataclass
 class RuntimeConfig:
+    startup_reconcile_mode: str = "smart"
     debounce_seconds: int = 8
     maintenance_interval_minutes: int = 1440
     arr_root_poll_interval_minutes: int = 1

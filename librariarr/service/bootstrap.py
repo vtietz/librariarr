@@ -84,6 +84,7 @@ class ServiceBootstrapMixin:
         )
 
         self._debounce_seconds = max(1, config.runtime.debounce_seconds)
+        self._startup_reconcile_mode = str(config.runtime.startup_reconcile_mode or "smart")
         self._polling_fallback_interval_seconds = config.runtime.polling_fallback_interval_seconds
         maintenance_minutes = config.runtime.maintenance_interval_minutes
         root_poll_minutes = config.runtime.arr_root_poll_interval_minutes
@@ -151,8 +152,10 @@ class ServiceBootstrapMixin:
             self.sonarr_auto_add_unmatched,
         )
         LOG.info(
-            "  Runtime: debounce_seconds=%s maintenance_interval_seconds=%s "
+            "  Runtime: startup_reconcile_mode=%s debounce_seconds=%s "
+            "maintenance_interval_seconds=%s "
             "arr_root_poll_interval_seconds=%s",
+            self._startup_reconcile_mode,
             self._debounce_seconds,
             self._maintenance_interval if self._maintenance_interval is not None else "disabled",
             (
@@ -193,6 +196,7 @@ class ServiceBootstrapMixin:
             on_reconcile_complete=_on_reconcile_complete,
             tracked_video_extensions=self.video_exts,
             polling_fallback_interval_seconds=self._polling_fallback_interval_seconds,
+            startup_reconcile_mode=self._startup_reconcile_mode,
         )
         runtime_loop.run(stop_event=stop_event)
 

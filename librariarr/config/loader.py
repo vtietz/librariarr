@@ -340,6 +340,8 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     )
 
     runtime = RuntimeConfig(
+        startup_reconcile_mode=str(runtime_raw.get("startup_reconcile_mode", "smart")).strip()
+        or "smart",
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),
         maintenance_interval_minutes=int(periodic_reconcile_minutes),
         arr_root_poll_interval_minutes=int(runtime_raw.get("arr_root_poll_interval_minutes", 1)),

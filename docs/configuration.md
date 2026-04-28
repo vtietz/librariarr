@@ -402,6 +402,13 @@ Audio language token notes:
 
 ## Runtime
 
+`runtime.startup_reconcile_mode`:
+- Controls how startup reconcile runs:
+  - `smart` (default): compares a lightweight filesystem baseline and runs targeted startup reconcile only for changed roots.
+  - `full`: always runs full startup reconcile.
+  - `off`: skips startup reconcile and waits for filesystem events, poll triggers, or maintenance.
+- `smart` falls back to full reconcile when no previous baseline exists.
+
 `runtime.debounce_seconds`:
 - Debounce window for filesystem events.
 - Filesystem events trigger incremental reconcile for configured managed/library roots.

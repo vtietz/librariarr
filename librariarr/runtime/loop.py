@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import errno
 import logging
+import os
 import threading
 import time
 from collections.abc import Callable
@@ -52,6 +53,7 @@ class _SyncEventHandler(FileSystemEventHandler):
 class RuntimeSyncLoop:
     _NOISY_EVENT_TYPES = frozenset({"opened", "closed", "closed_no_write"})
     _SHADOW_TRIGGER_EVENT_TYPES = frozenset({"created", "deleted", "moved"})
+    _VALID_STARTUP_RECONCILE_MODES = frozenset({"smart", "full", "off"})
 
     def _summarize_paths(self, paths: set[Path] | list[Path], limit: int = 1) -> str:
         if not paths:
@@ -81,6 +83,7 @@ class RuntimeSyncLoop:
         on_reconcile_complete: Callable[[], None] | None = None,
         tracked_video_extensions: set[str] | None = None,
         polling_fallback_interval_seconds: int = 60,
+        startup_reconcile_mode: str = "smart",
     ) -> None:
         self.nested_roots = nested_roots
         self.shadow_roots = shadow_roots
@@ -92,11 +95,13 @@ class RuntimeSyncLoop:
         self.log = logger
         self.status_tracker = status_tracker
         self.polling_fallback_interval_seconds = max(10, polling_fallback_interval_seconds)
+        self.startup_reconcile_mode = self._normalize_startup_reconcile_mode(startup_reconcile_mode)
         self.tracked_video_extensions = {
             self._normalize_extension(ext)
             for ext in (tracked_video_extensions or set())
             if self._normalize_extension(ext)
         }
+        self._last_reconcile_succeeded: bool | None = None
         self._dirty_paths: set[Path] = set()
         self._dirty_paths_lock = threading.Lock()
         if self.status_tracker is not None:
@@ -118,14 +123,7 @@ class RuntimeSyncLoop:
             self.log.info("Runtime observer mode: polling")
 
         try:
-            if self.status_tracker is not None:
-                self.status_tracker.mark_reconcile_started(
-                    trigger_source="startup", phase="startup_full_reconcile"
-                )
-                self.status_tracker.update_reconcile_phase("running")
-            self._run_reconcile_with_handling(
-                "Startup Full Reconcile failed", force_full_scope=True
-            )
+            self._run_startup_reconcile_cycle()
             while stop_event is None or not stop_event.is_set():
                 poll_triggered = self._poll_reconcile_trigger_safe()
                 self._run_due_reconcile_cycle(poll_triggered)
@@ -192,6 +190,70 @@ class RuntimeSyncLoop:
         except Exception:
             self.log.exception("Poll-based reconcile trigger failed")
             return False
+
+    def _run_startup_reconcile_cycle(self) -> None:
+        if self.startup_reconcile_mode == "off":
+            self.log.info("Startup reconcile skipped (mode=off)")
+            self.schedule.mark_sync()
+            return
+
+        if self.startup_reconcile_mode == "full":
+            self.log.info("Startup reconcile mode=full")
+            if self.status_tracker is not None:
+                self.status_tracker.mark_reconcile_started(
+                    trigger_source="startup", phase="startup_full_reconcile"
+                )
+                self.status_tracker.update_reconcile_phase("running")
+            self._run_reconcile_with_handling(
+                "Startup Full Reconcile failed",
+                force_full_scope=True,
+            )
+            self._maybe_store_filesystem_baseline()
+            return
+
+        previous_probe = self._load_filesystem_baseline()
+        current_probe = self._collect_filesystem_probe()
+        changed_roots = self._detect_changed_roots(previous_probe, current_probe)
+
+        if previous_probe is None:
+            self.log.info("Startup reconcile mode=smart; no baseline found, running full reconcile")
+            if self.status_tracker is not None:
+                self.status_tracker.mark_reconcile_started(
+                    trigger_source="startup", phase="startup_full_reconcile"
+                )
+                self.status_tracker.update_reconcile_phase("running")
+            self._run_reconcile_with_handling(
+                "Startup Full Reconcile failed",
+                force_full_scope=True,
+            )
+            self._maybe_store_filesystem_baseline(current_probe)
+            return
+
+        if not changed_roots:
+            self.log.info(
+                "Startup reconcile mode=smart; no filesystem drift detected, "
+                "skipping startup reconcile"
+            )
+            self.schedule.mark_sync()
+            self._store_filesystem_baseline(current_probe)
+            return
+
+        self.log.info(
+            "Startup reconcile mode=smart; running targeted startup reconcile "
+            "for %s roots (first_root=%s)",
+            len(changed_roots),
+            self._first_path(changed_roots),
+        )
+        if self.status_tracker is not None:
+            self.status_tracker.mark_reconcile_started(
+                trigger_source="startup", phase="startup_incremental_reconcile"
+            )
+            self.status_tracker.update_reconcile_phase("running")
+        self._run_reconcile_with_handling(
+            "Startup targeted reconcile failed; runtime will retry on next cycle",
+            affected_paths=changed_roots,
+        )
+        self._maybe_store_filesystem_baseline(current_probe)
 
     def _run_due_reconcile_cycle(self, poll_triggered: bool) -> None:
         should_maintenance, should_event_sync = self.schedule.due()
@@ -333,6 +395,115 @@ class RuntimeSyncLoop:
             return ""
         return f".{normalized}"
 
+    def _normalize_startup_reconcile_mode(self, mode: str) -> str:
+        normalized = str(mode or "smart").strip().lower()
+        if normalized in self._VALID_STARTUP_RECONCILE_MODES:
+            return normalized
+        self.log.warning(
+            "Unsupported startup_reconcile_mode=%r; falling back to 'smart'",
+            mode,
+        )
+        return "smart"
+
+    def _iter_probe_roots(self) -> list[Path]:
+        ordered: list[Path] = []
+        seen: set[Path] = set()
+        for root in [*self.nested_roots, *self.shadow_roots]:
+            if root in seen:
+                continue
+            seen.add(root)
+            ordered.append(root)
+        return ordered
+
+    def _collect_filesystem_probe(self) -> dict[str, object]:
+        roots_probe: dict[str, dict[str, int]] = {}
+        for root in self._iter_probe_roots():
+            root_key = str(root)
+            file_count = 0
+            dir_count = 0
+            max_mtime_ns = 0
+
+            if root.exists():
+                try:
+                    max_mtime_ns = max(max_mtime_ns, root.stat().st_mtime_ns)
+                except OSError:
+                    pass
+
+                for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+                    dir_count += len(dirnames)
+                    try:
+                        max_mtime_ns = max(max_mtime_ns, Path(dirpath).stat().st_mtime_ns)
+                    except OSError:
+                        pass
+
+                    for filename in filenames:
+                        path = Path(dirpath) / filename
+                        if (
+                            self.tracked_video_extensions
+                            and path.suffix.lower() not in self.tracked_video_extensions
+                        ):
+                            continue
+                        file_count += 1
+                        try:
+                            max_mtime_ns = max(max_mtime_ns, path.stat().st_mtime_ns)
+                        except OSError:
+                            continue
+
+            roots_probe[root_key] = {
+                "file_count": file_count,
+                "dir_count": dir_count,
+                "max_mtime_ns": max_mtime_ns,
+            }
+
+        return {
+            "captured_at": time.time(),
+            "roots": roots_probe,
+        }
+
+    def _load_filesystem_baseline(self) -> dict[str, object] | None:
+        if self.status_tracker is None:
+            return None
+        snapshot = self.status_tracker.snapshot()
+        baseline = snapshot.get("filesystem_baseline")
+        if not isinstance(baseline, dict):
+            return None
+        roots = baseline.get("roots")
+        if not isinstance(roots, dict):
+            return None
+        return baseline
+
+    def _detect_changed_roots(
+        self,
+        previous_probe: dict[str, object] | None,
+        current_probe: dict[str, object],
+    ) -> set[Path]:
+        if previous_probe is None:
+            return set(self._iter_probe_roots())
+
+        previous_roots = previous_probe.get("roots")
+        current_roots = current_probe.get("roots")
+        if not isinstance(previous_roots, dict) or not isinstance(current_roots, dict):
+            return set(self._iter_probe_roots())
+
+        changed_roots: set[Path] = set()
+        for root in self._iter_probe_roots():
+            key = str(root)
+            previous = previous_roots.get(key)
+            current = current_roots.get(key)
+            if previous != current:
+                changed_roots.add(root)
+        return changed_roots
+
+    def _store_filesystem_baseline(self, probe: dict[str, object] | None) -> None:
+        if self.status_tracker is None:
+            return
+        self.status_tracker.set_filesystem_baseline(probe)
+
+    def _maybe_store_filesystem_baseline(self, probe: dict[str, object] | None = None) -> None:
+        if self._last_reconcile_succeeded is False:
+            return
+        self._store_filesystem_baseline(probe or self._collect_filesystem_probe())
+
     def _is_shadow_event(self, paths: list[Path]) -> bool:
         for path in paths:
             for root in self.shadow_roots:
@@ -373,6 +544,7 @@ class RuntimeSyncLoop:
                 followup_pending = self.reconcile(affected_paths, force_full_scope=True)
             else:
                 followup_pending = self.reconcile(affected_paths)
+            self._last_reconcile_succeeded = True
             if self.on_reconcile_complete is not None:
                 try:
                     self.on_reconcile_complete()
@@ -395,6 +567,7 @@ class RuntimeSyncLoop:
                 )
             else:
                 self.log.exception(error_log_message)
+            self._last_reconcile_succeeded = False
             if self.status_tracker is not None:
                 self.status_tracker.mark_reconcile_finished(
                     success=False,

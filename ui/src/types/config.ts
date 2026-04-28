@@ -57,6 +57,7 @@ export type ConfigModel = {
     missing_grace_seconds: number;
   };
   runtime: {
+    startup_reconcile_mode: string;
     debounce_seconds: number;
     maintenance_interval_minutes: number;
     arr_root_poll_interval_minutes: number;

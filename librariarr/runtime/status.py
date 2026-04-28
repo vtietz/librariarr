@@ -34,6 +34,7 @@ class RuntimeStatusTracker:
             "last_reconcile": None,
             "last_full_reconcile": None,
             "library_root_stats": [],
+            "filesystem_baseline": None,
             "updated_at": None,
         }
 
@@ -165,6 +166,14 @@ class RuntimeStatusTracker:
             )
             self._touch_locked()
 
+    def set_filesystem_baseline(self, baseline: dict[str, Any] | None) -> None:
+        with self._lock:
+            if isinstance(baseline, dict):
+                self._state["filesystem_baseline"] = deepcopy(baseline)
+            else:
+                self._state["filesystem_baseline"] = None
+            self._touch_locked()
+
     def mark_reconcile_finished(
         self,
         *,
@@ -251,6 +260,10 @@ class RuntimeStatusTracker:
                 self._state["library_root_stats"] = [
                     dict(entry) for entry in library_root_stats if isinstance(entry, dict)
                 ]
+
+            baseline = payload.get("filesystem_baseline")
+            if isinstance(baseline, dict):
+                self._state["filesystem_baseline"] = deepcopy(baseline)
 
             restored_task = payload.get("current_task")
             if isinstance(restored_task, dict):

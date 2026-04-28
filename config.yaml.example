@@ -159,6 +159,11 @@ cleanup:
   missing_grace_seconds: 21600
 
 runtime:
+  # Startup reconcile strategy:
+  # - smart: compare lightweight filesystem baseline and only reconcile changed roots
+  # - full: always run full startup reconcile
+  # - off: skip startup reconcile and rely on events/poll/maintenance
+  startup_reconcile_mode: "smart"
   # Debounce window for filesystem event bursts (seconds).
   # Lower values improve "time to first visible result" after new files appear.
   # Recommended responsive range: 2-4.
