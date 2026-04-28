@@ -280,6 +280,7 @@ def create_app(  # noqa: C901
     state_store = PersistentStateStore(_default_state_path(config_path))
     job_manager = JobManager(state_store=state_store)
     runtime_status_tracker = get_runtime_status_tracker()
+    runtime_status_tracker.restore_from_snapshot(state_store.load_dashboard())
     mapped_cache = get_mapped_directories_cache()
     discovery_cache = get_discovery_warnings_cache()
     mapped_cache.attach_state(state_store=state_store, task_manager=job_manager)

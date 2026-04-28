@@ -237,6 +237,52 @@ class RuntimeStatusTracker:
 
         return payload
 
+    def restore_from_snapshot(self, payload: dict[str, Any] | None) -> None:
+        if not isinstance(payload, dict):
+            return
+
+        with self._lock:
+            for key in ("last_reconcile", "last_full_reconcile"):
+                value = payload.get(key)
+                self._state[key] = deepcopy(value) if isinstance(value, dict) else None
+
+            library_root_stats = payload.get("library_root_stats")
+            if isinstance(library_root_stats, list):
+                self._state["library_root_stats"] = [
+                    dict(entry) for entry in library_root_stats if isinstance(entry, dict)
+                ]
+
+            restored_task = payload.get("current_task")
+            if isinstance(restored_task, dict):
+                if restored_task.get("state") == "running":
+                    self._state["current_task"] = {
+                        "state": "error",
+                        "phase": None,
+                        "trigger_source": restored_task.get("trigger_source"),
+                        "started_at": None,
+                        "updated_at": time.time(),
+                        "error": "task interrupted by restart",
+                        "task_id": None,
+                    }
+                elif restored_task.get("state") in {"idle", "error"}:
+                    self._state["current_task"] = {
+                        "state": restored_task.get("state"),
+                        "phase": restored_task.get("phase"),
+                        "trigger_source": restored_task.get("trigger_source"),
+                        "started_at": restored_task.get("started_at"),
+                        "updated_at": restored_task.get("updated_at") or time.time(),
+                        "error": restored_task.get("error"),
+                        "task_id": None,
+                    }
+
+            self._state["runtime_running"] = False
+            self._state["watched_nested_roots"] = 0
+            self._state["watched_shadow_roots"] = 0
+            self._state["watched_roots_total"] = 0
+            self._state["dirty_paths_queued"] = 0
+            self._state["next_event_reconcile_due_at"] = None
+            self._touch_locked()
+
     def _touch_locked(self) -> None:
         self._state["updated_at"] = time.time()
 
