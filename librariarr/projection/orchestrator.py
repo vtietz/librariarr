@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +38,7 @@ class MovieProjectionOrchestrator:
         self,
         scoped_movie_ids: set[int] | None,
         inventory: list[dict[str, Any]] | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         if inventory is not None:
             movies = inventory
@@ -64,6 +66,7 @@ class MovieProjectionOrchestrator:
             plans=plans,
             probes=probes,
             scoped_movie_count=scoped_count,
+            progress_callback=progress_callback,
         )
         self.log.info(
             "Movie projection reconcile: scoped_movies=%s planned_movies=%s skipped_movies=%s "

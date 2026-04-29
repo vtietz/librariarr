@@ -3,6 +3,7 @@ from __future__ import annotations
 import errno
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 
 from .models import (
@@ -32,15 +33,22 @@ class MovieProjectionExecutor:
         plans: list[MovieProjectionPlan],
         probes: dict[tuple[str, str], MappingProbeResult],
         scoped_movie_count: int,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> ProjectionApplyMetrics:
         metrics = ProjectionApplyMetrics(scoped_movie_count=scoped_movie_count)
+        total_plans = len(plans)
 
-        for plan in plans:
+        if progress_callback is not None:
+            progress_callback(0, total_plans)
+
+        for processed_count, plan in enumerate(plans, start=1):
             metrics.planned_movies += 1
             metrics.record_plan(plan.mapping)
             if plan.skip_reason is not None or plan.mapping is None:
                 metrics.skipped_movies += 1
                 metrics.record_skip(plan.mapping)
+                if progress_callback is not None:
+                    progress_callback(processed_count, total_plans)
                 continue
 
             probe_key = (str(plan.mapping.managed_root), str(plan.mapping.library_root))
@@ -48,6 +56,8 @@ class MovieProjectionExecutor:
             if not self._is_mapping_actionable(probe):
                 metrics.skipped_movies += 1
                 metrics.record_skip(plan.mapping)
+                if progress_callback is not None:
+                    progress_callback(processed_count, total_plans)
                 continue
 
             metrics.record_match(plan.mapping)
@@ -76,6 +86,8 @@ class MovieProjectionExecutor:
                 metrics.record_file_projected(plan.mapping)
 
             self.state_store.upsert_projected_files(upserts)
+            if progress_callback is not None:
+                progress_callback(processed_count, total_plans)
 
         return metrics
 

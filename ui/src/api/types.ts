@@ -5,6 +5,10 @@ type ReconcileProgressFields = {
   series_items_targeted?: number | null;
   movie_items_projected?: number;
   series_items_projected?: number;
+  movie_items_processed?: number;
+  series_items_processed?: number;
+  movie_items_total?: number;
+  series_items_total?: number;
   created_links?: number;
   matched_movies?: number;
   unmatched_movies?: number;

@@ -302,6 +302,10 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                 ),
                 "movie_items_projected": 0,
                 "series_items_projected": 0,
+                "movie_items_processed": 0,
+                "series_items_processed": 0,
+                "movie_items_total": 0,
+                "series_items_total": 0,
                 "created_links": 0,
             }
         )
@@ -341,9 +345,28 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             scoped_ids=scope["scoped_movie_ids"],
         )
         try:
+            last_movie_progress = -1
+
+            def _movie_progress(processed: int, total: int) -> None:
+                nonlocal last_movie_progress
+                if tracker is None:
+                    return
+                # Throttle frequent updates while still reporting completion promptly.
+                if processed != total and processed - last_movie_progress < 25:
+                    return
+                last_movie_progress = processed
+                tracker.update_reconcile_phase("indexed")
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "movie_items_processed": processed,
+                        "movie_items_total": total,
+                    }
+                )
+
             metrics = self.movie_projection.reconcile(
                 scope["scoped_movie_ids"],
                 inventory=movies_inventory,
+                progress_callback=_movie_progress,
             )
             if tracker is not None:
                 planned_movies = int(metrics.get("planned_movies") or 0)
@@ -352,6 +375,8 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                     {
                         "movie_folders_seen": planned_movies,
                         "movie_items_projected": max(0, planned_movies - skipped_movies),
+                        "movie_items_processed": planned_movies,
+                        "movie_items_total": planned_movies,
                         "created_links": int(metrics.get("projected_files") or 0),
                     }
                 )
@@ -403,11 +428,38 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             scoped_ids=scope["scoped_series_ids"],
         )
         try:
+            last_series_progress = -1
+
+            def _series_progress(processed: int, total: int) -> None:
+                nonlocal last_series_progress
+                if tracker is None:
+                    return
+                if processed != total and processed - last_series_progress < 25:
+                    return
+                last_series_progress = processed
+                tracker.update_reconcile_phase("cleaned")
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "series_items_processed": processed,
+                        "series_items_total": total,
+                    }
+                )
+
             metrics = self.sonarr_projection.reconcile(
                 scope["scoped_series_ids"],
                 inventory=series_inventory,
+                progress_callback=_series_progress,
             )
             if tracker is not None:
+                planned_series = int(metrics.get("planned_series") or 0)
+                skipped_series = int(metrics.get("skipped_series") or 0)
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "series_items_projected": max(0, planned_series - skipped_series),
+                        "series_items_processed": planned_series,
+                        "series_items_total": planned_series,
+                    }
+                )
                 series_per_root = metrics.get("per_root") or []
                 tracker.update_library_root_stats(
                     [{**r, "arr_type": "sonarr"} for r in series_per_root]

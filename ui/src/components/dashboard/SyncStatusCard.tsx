@@ -73,6 +73,21 @@ function buildProgressText(
   const links = task.created_links ?? 0;
   if (links > 0) parts.push(`${links} links`);
 
+  const movieProcessed = task.movie_items_processed ?? 0;
+  const movieTotal = task.movie_items_total ?? 0;
+  const seriesProcessed = task.series_items_processed ?? 0;
+  const seriesTotal = task.series_items_total ?? 0;
+  const progressCounters: string[] = [];
+  if (movieTotal > 0) {
+    progressCounters.push(`${movieProcessed}/${movieTotal} movies processed`);
+  }
+  if (seriesTotal > 0) {
+    progressCounters.push(`${seriesProcessed}/${seriesTotal} series processed`);
+  }
+  if (progressCounters.length > 0) {
+    parts.push(progressCounters.join(", "));
+  }
+
   if (task.started_at) {
     parts.push(formatElapsed(task.started_at));
   }
