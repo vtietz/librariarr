@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -16,61 +17,88 @@ def build_series_projection_plans(
     series_items: list[dict[str, Any]],
     mappings: list[MovieProjectionMapping],
     scoped_series_ids: set[int] | None,
+    planning_progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[MovieProjectionPlan]:
     plans: list[MovieProjectionPlan] = []
     sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
 
-    for series in series_items:
-        series_id = series.get("id")
-        if not isinstance(series_id, int):
-            continue
-        if scoped_series_ids is not None and series_id not in scoped_series_ids:
-            continue
+    target_series = [
+        series
+        for series in series_items
+        if isinstance(series.get("id"), int)
+        and (scoped_series_ids is None or int(series.get("id")) in scoped_series_ids)
+    ]
+    total_targets = len(target_series)
+    _emit_planning_progress(planning_progress_callback, 0, total_targets)
 
-        series_path_raw = str(series.get("path") or "").strip()
-        title = str(series.get("title") or f"series-{series_id}")
-        if not series_path_raw:
-            plans.append(
-                MovieProjectionPlan(
-                    movie_id=series_id,
-                    title=title,
-                    managed_folder=Path("."),
-                    library_folder=Path("."),
-                    mapping=None,
-                    skip_reason="missing_series_path",
+    for processed_count, series in enumerate(target_series, start=1):
+        try:
+            series_id = series.get("id")
+            if not isinstance(series_id, int):
+                continue
+
+            series_path_raw = str(series.get("path") or "").strip()
+            title = str(series.get("title") or f"series-{series_id}")
+            if not series_path_raw:
+                plans.append(
+                    MovieProjectionPlan(
+                        movie_id=series_id,
+                        title=title,
+                        managed_folder=Path("."),
+                        library_folder=Path("."),
+                        mapping=None,
+                        skip_reason="missing_series_path",
+                    )
                 )
-            )
-            continue
+                continue
 
-        series_path = Path(series_path_raw)
-        mapping, relative_series_folder, path_mode = _resolve_mapping_for_series_path(
-            series_path,
-            sorted_mappings,
-        )
-        if mapping is None or relative_series_folder is None or path_mode is None:
-            plans.append(
-                MovieProjectionPlan(
-                    movie_id=series_id,
-                    title=title,
-                    managed_folder=series_path,
-                    library_folder=Path("."),
-                    mapping=None,
-                    skip_reason="no_matching_series_managed_root",
+            series_path = Path(series_path_raw)
+            mapping, relative_series_folder, path_mode = _resolve_mapping_for_series_path(
+                series_path,
+                sorted_mappings,
+            )
+            if mapping is None or relative_series_folder is None or path_mode is None:
+                plans.append(
+                    MovieProjectionPlan(
+                        movie_id=series_id,
+                        title=title,
+                        managed_folder=series_path,
+                        library_folder=Path("."),
+                        mapping=None,
+                        skip_reason="no_matching_series_managed_root",
+                    )
                 )
+                continue
+
+            library_folder = _resolve_library_folder(
+                series=series,
+                relative_series_folder=relative_series_folder,
+                mapping=mapping,
             )
-            continue
+            if path_mode == "library":
+                managed_folder = mapping.managed_root / relative_series_folder
+            else:
+                managed_folder = series_path
 
-        library_folder = _resolve_library_folder(
-            series=series,
-            relative_series_folder=relative_series_folder,
-            mapping=mapping,
-        )
-        if path_mode == "library":
-            managed_folder = mapping.managed_root / relative_series_folder
-        else:
-            managed_folder = series_path
+            if not managed_folder.exists() or not managed_folder.is_dir():
+                plans.append(
+                    MovieProjectionPlan(
+                        movie_id=series_id,
+                        title=title,
+                        managed_folder=managed_folder,
+                        library_folder=library_folder,
+                        mapping=mapping,
+                        skip_reason="managed_series_folder_missing",
+                    )
+                )
+                continue
 
-        if not managed_folder.exists() or not managed_folder.is_dir():
+            files = _collect_projection_files(
+                managed_folder=managed_folder,
+                library_folder=library_folder,
+                managed_video_extensions=set(config.sonarr.projection.managed_video_extensions),
+                extras_allowlist=config.sonarr.projection.managed_extras_allowlist,
+            )
             plans.append(
                 MovieProjectionPlan(
                     movie_id=series_id,
@@ -78,27 +106,11 @@ def build_series_projection_plans(
                     managed_folder=managed_folder,
                     library_folder=library_folder,
                     mapping=mapping,
-                    skip_reason="managed_series_folder_missing",
+                    files=files,
                 )
             )
-            continue
-
-        files = _collect_projection_files(
-            managed_folder=managed_folder,
-            library_folder=library_folder,
-            managed_video_extensions=set(config.sonarr.projection.managed_video_extensions),
-            extras_allowlist=config.sonarr.projection.managed_extras_allowlist,
-        )
-        plans.append(
-            MovieProjectionPlan(
-                movie_id=series_id,
-                title=title,
-                managed_folder=managed_folder,
-                library_folder=library_folder,
-                mapping=mapping,
-                files=files,
-            )
-        )
+        finally:
+            _emit_planning_progress(planning_progress_callback, processed_count, total_targets)
 
     return plans
 
@@ -195,3 +207,12 @@ def _classify_file(
             return "extra"
 
     return None
+
+
+def _emit_planning_progress(
+    callback: Callable[[int, int], None] | None,
+    processed: int,
+    total: int,
+) -> None:
+    if callback is not None:
+        callback(processed, total)

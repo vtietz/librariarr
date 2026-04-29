@@ -345,6 +345,23 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             scoped_ids=scope["scoped_movie_ids"],
         )
         try:
+            last_movie_planning_progress = -1
+
+            def _movie_planning_progress(processed: int, total: int) -> None:
+                nonlocal last_movie_planning_progress
+                if tracker is None:
+                    return
+                if processed != total and processed - last_movie_planning_progress < 25:
+                    return
+                last_movie_planning_progress = processed
+                tracker.update_reconcile_phase("planning_movies")
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "movie_items_processed": processed,
+                        "movie_items_total": total,
+                    }
+                )
+
             last_movie_progress = -1
 
             def _movie_progress(processed: int, total: int) -> None:
@@ -367,6 +384,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                 scope["scoped_movie_ids"],
                 inventory=movies_inventory,
                 progress_callback=_movie_progress,
+                planning_progress_callback=_movie_planning_progress,
             )
             if tracker is not None:
                 planned_movies = int(metrics.get("planned_movies") or 0)
@@ -428,6 +446,23 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             scoped_ids=scope["scoped_series_ids"],
         )
         try:
+            last_series_planning_progress = -1
+
+            def _series_planning_progress(processed: int, total: int) -> None:
+                nonlocal last_series_planning_progress
+                if tracker is None:
+                    return
+                if processed != total and processed - last_series_planning_progress < 25:
+                    return
+                last_series_planning_progress = processed
+                tracker.update_reconcile_phase("planning_series")
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "series_items_processed": processed,
+                        "series_items_total": total,
+                    }
+                )
+
             last_series_progress = -1
 
             def _series_progress(processed: int, total: int) -> None:
@@ -449,6 +484,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                 scope["scoped_series_ids"],
                 inventory=series_inventory,
                 progress_callback=_series_progress,
+                planning_progress_callback=_series_planning_progress,
             )
             if tracker is not None:
                 planned_series = int(metrics.get("planned_series") or 0)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import fnmatch
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -17,104 +18,115 @@ def build_movie_projection_plans(
     movies: list[dict[str, Any]],
     mappings: list[MovieProjectionMapping],
     scoped_movie_ids: set[int] | None,
+    planning_progress_callback: Callable[[int, int], None] | None = None,
 ) -> list[MovieProjectionPlan]:
     plans: list[MovieProjectionPlan] = []
     sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
     managed_lookup = _build_managed_folder_lookup(config=config, mappings=sorted_mappings)
 
-    for movie in movies:
-        movie_id = movie.get("id")
-        if not isinstance(movie_id, int):
-            continue
-        if scoped_movie_ids is not None and movie_id not in scoped_movie_ids:
-            continue
+    target_movies = [
+        movie
+        for movie in movies
+        if isinstance(movie.get("id"), int)
+        and (scoped_movie_ids is None or int(movie.get("id")) in scoped_movie_ids)
+    ]
+    total_targets = len(target_movies)
+    _emit_planning_progress(planning_progress_callback, 0, total_targets)
 
-        movie_path_raw = str(movie.get("path") or "").strip()
-        title = str(movie.get("title") or f"movie-{movie_id}")
-        if not movie_path_raw:
-            plans.append(
-                MovieProjectionPlan(
-                    movie_id=movie_id,
-                    title=title,
-                    managed_folder=Path("."),
-                    library_folder=Path("."),
-                    mapping=None,
-                    skip_reason="missing_movie_path",
-                )
-            )
-            continue
+    for processed_count, movie in enumerate(target_movies, start=1):
+        try:
+            movie_id = movie.get("id")
+            if not isinstance(movie_id, int):
+                continue
 
-        movie_path = Path(movie_path_raw)
-        mapping, relative_movie_folder, path_mode = _resolve_mapping_for_movie_path(
-            movie_path,
-            sorted_mappings,
-        )
-        if mapping is None or relative_movie_folder is None or path_mode is None:
-            plans.append(
-                MovieProjectionPlan(
-                    movie_id=movie_id,
-                    title=title,
-                    managed_folder=movie_path,
-                    library_folder=Path("."),
-                    mapping=None,
-                    skip_reason="no_matching_managed_root",
-                )
-            )
-            continue
-
-        library_folder = _resolve_library_folder(
-            movie=movie,
-            relative_movie_folder=relative_movie_folder,
-            mapping=mapping,
-        )
-        if path_mode == "library":
-            managed_folder = mapping.managed_root / relative_movie_folder
-        else:
-            managed_folder = movie_path
-
-        if not managed_folder.exists() or not managed_folder.is_dir():
-            fallback = _resolve_managed_fallback_folder(
-                movie=movie,
-                relative_movie_folder=relative_movie_folder,
-                default_mapping=mapping,
-                managed_lookup=managed_lookup,
-            )
-            if fallback is not None:
-                mapping, managed_folder = fallback
-                library_folder = _resolve_library_folder(
-                    movie=movie,
-                    relative_movie_folder=relative_movie_folder,
-                    mapping=mapping,
-                )
-            if not managed_folder.exists() or not managed_folder.is_dir():
+            movie_path_raw = str(movie.get("path") or "").strip()
+            title = str(movie.get("title") or f"movie-{movie_id}")
+            if not movie_path_raw:
                 plans.append(
                     MovieProjectionPlan(
                         movie_id=movie_id,
                         title=title,
-                        managed_folder=managed_folder,
-                        library_folder=library_folder,
-                        mapping=mapping,
-                        skip_reason="managed_folder_missing",
+                        managed_folder=Path("."),
+                        library_folder=Path("."),
+                        mapping=None,
+                        skip_reason="missing_movie_path",
                     )
                 )
                 continue
 
-        files = _collect_projection_files(
-            managed_folder=managed_folder,
-            library_folder=library_folder,
-            managed_video_extensions=set(config.radarr.projection.managed_video_extensions),
-            extras_allowlist=config.radarr.projection.managed_extras_allowlist,
-        )
-        plans.append(
-            MovieProjectionPlan(
-                movie_id=movie_id,
-                title=title,
+            movie_path = Path(movie_path_raw)
+            mapping, relative_movie_folder, path_mode = _resolve_mapping_for_movie_path(
+                movie_path,
+                sorted_mappings,
+            )
+            if mapping is None or relative_movie_folder is None or path_mode is None:
+                plans.append(
+                    MovieProjectionPlan(
+                        movie_id=movie_id,
+                        title=title,
+                        managed_folder=movie_path,
+                        library_folder=Path("."),
+                        mapping=None,
+                        skip_reason="no_matching_managed_root",
+                    )
+                )
+                continue
+
+            library_folder = _resolve_library_folder(
+                movie=movie,
+                relative_movie_folder=relative_movie_folder,
+                mapping=mapping,
+            )
+            if path_mode == "library":
+                managed_folder = mapping.managed_root / relative_movie_folder
+            else:
+                managed_folder = movie_path
+
+            if not managed_folder.exists() or not managed_folder.is_dir():
+                fallback = _resolve_managed_fallback_folder(
+                    movie=movie,
+                    relative_movie_folder=relative_movie_folder,
+                    default_mapping=mapping,
+                    managed_lookup=managed_lookup,
+                )
+                if fallback is not None:
+                    mapping, managed_folder = fallback
+                    library_folder = _resolve_library_folder(
+                        movie=movie,
+                        relative_movie_folder=relative_movie_folder,
+                        mapping=mapping,
+                    )
+                if not managed_folder.exists() or not managed_folder.is_dir():
+                    plans.append(
+                        MovieProjectionPlan(
+                            movie_id=movie_id,
+                            title=title,
+                            managed_folder=managed_folder,
+                            library_folder=library_folder,
+                            mapping=mapping,
+                            skip_reason="managed_folder_missing",
+                        )
+                    )
+                    continue
+
+            files = _collect_projection_files(
                 managed_folder=managed_folder,
                 library_folder=library_folder,
-                mapping=mapping,
-                files=files,
+                managed_video_extensions=set(config.radarr.projection.managed_video_extensions),
+                extras_allowlist=config.radarr.projection.managed_extras_allowlist,
             )
-        )
+            plans.append(
+                MovieProjectionPlan(
+                    movie_id=movie_id,
+                    title=title,
+                    managed_folder=managed_folder,
+                    library_folder=library_folder,
+                    mapping=mapping,
+                    files=files,
+                )
+            )
+        finally:
+            _emit_planning_progress(planning_progress_callback, processed_count, total_targets)
 
     return plans
 
@@ -278,3 +290,12 @@ def classify_file(
             return "extra"
 
     return None
+
+
+def _emit_planning_progress(
+    callback: Callable[[int, int], None] | None,
+    processed: int,
+    total: int,
+) -> None:
+    if callback is not None:
+        callback(processed, total)

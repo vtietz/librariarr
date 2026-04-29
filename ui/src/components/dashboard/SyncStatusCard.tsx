@@ -41,6 +41,14 @@ function phaseLabel(phase: string | null | undefined): string {
       return "Fetched inventory…";
     case "scope_resolved":
       return "Resolving scope…";
+    case "planning_movies":
+      return "Planning movie projection…";
+    case "planning_series":
+      return "Planning series projection…";
+    case "auto_add_movies":
+      return "Resolving unmatched movies…";
+    case "auto_add_series":
+      return "Resolving unmatched series…";
     case "indexed":
       return "Projecting…";
     case "applied":
@@ -72,6 +80,13 @@ function buildProgressText(
 
   const links = task.created_links ?? 0;
   if (links > 0) parts.push(`${links} links`);
+
+  if (task.active_movie_root) {
+    parts.push(`root ${task.active_movie_root}`);
+  }
+  if (task.active_series_root) {
+    parts.push(`series root ${task.active_series_root}`);
+  }
 
   const movieProcessed = task.movie_items_processed ?? 0;
   const movieTotal = task.movie_items_total ?? 0;

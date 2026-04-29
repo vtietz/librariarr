@@ -57,14 +57,36 @@ class ServiceAutoAddMixin:
         if not unmatched_folders:
             return set()
 
+        tracker = getattr(self, "runtime_status_tracker", None)
+        if tracker is not None:
+            tracker.update_reconcile_phase("auto_add_movies")
+            tracker.update_active_reconcile_metrics(
+                {
+                    "movie_items_processed": 0,
+                    "movie_items_total": len(unmatched_folders),
+                }
+            )
+
         added_movie_ids: set[int] = set()
-        for folder in unmatched_folders:
+        for processed_count, folder in enumerate(unmatched_folders, start=1):
             managed_root = resolve_managed_root_for_folder(folder, self.movie_root_mappings)
             if managed_root is None:
+                if tracker is not None:
+                    tracker.update_active_reconcile_metrics(
+                        {
+                            "movie_items_processed": processed_count,
+                            "movie_items_total": len(unmatched_folders),
+                        }
+                    )
                 continue
-            _t = getattr(self, "runtime_status_tracker", None)
-            if _t is not None:
-                _t.update_active_reconcile_metrics({"active_movie_root": str(managed_root)})
+            if tracker is not None:
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "active_movie_root": str(managed_root),
+                        "movie_items_processed": processed_count,
+                        "movie_items_total": len(unmatched_folders),
+                    }
+                )
             added_movie = self.radarr_sync.auto_add_movie_for_folder(
                 folder,
                 managed_root,
@@ -132,14 +154,36 @@ class ServiceAutoAddMixin:
         if not unmatched_folders:
             return set()
 
+        tracker = getattr(self, "runtime_status_tracker", None)
+        if tracker is not None:
+            tracker.update_reconcile_phase("auto_add_series")
+            tracker.update_active_reconcile_metrics(
+                {
+                    "series_items_processed": 0,
+                    "series_items_total": len(unmatched_folders),
+                }
+            )
+
         added_series_ids: set[int] = set()
-        for folder in unmatched_folders:
+        for processed_count, folder in enumerate(unmatched_folders, start=1):
             managed_root = resolve_managed_root_for_folder(folder, self.series_root_mappings)
             if managed_root is None:
+                if tracker is not None:
+                    tracker.update_active_reconcile_metrics(
+                        {
+                            "series_items_processed": processed_count,
+                            "series_items_total": len(unmatched_folders),
+                        }
+                    )
                 continue
-            _t = getattr(self, "runtime_status_tracker", None)
-            if _t is not None:
-                _t.update_active_reconcile_metrics({"active_series_root": str(managed_root)})
+            if tracker is not None:
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "active_series_root": str(managed_root),
+                        "series_items_processed": processed_count,
+                        "series_items_total": len(unmatched_folders),
+                    }
+                )
             added_series = self.sonarr_sync.auto_add_series_for_folder(
                 folder, managed_root, series_cache=series
             )

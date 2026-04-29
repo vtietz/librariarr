@@ -39,6 +39,7 @@ class SonarrProjectionOrchestrator:
         scoped_series_ids: set[int] | None,
         inventory: list[dict[str, Any]] | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
+        planning_progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         if inventory is not None:
             series_items = inventory
@@ -53,6 +54,7 @@ class SonarrProjectionOrchestrator:
             series_items=series_items,
             mappings=self.mappings,
             scoped_series_ids=scoped_series_ids,
+            planning_progress_callback=planning_progress_callback,
         )
         normalized = self._normalize_arr_paths(series_items, plans)
         if normalized:

@@ -41,6 +41,7 @@ class MovieProjectionOrchestrator:
         scoped_movie_ids: set[int] | None,
         inventory: list[dict[str, Any]] | None = None,
         progress_callback: Callable[[int, int], None] | None = None,
+        planning_progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
         if inventory is not None:
             movies = inventory
@@ -55,6 +56,7 @@ class MovieProjectionOrchestrator:
             movies=movies,
             mappings=self.mappings,
             scoped_movie_ids=scoped_movie_ids,
+            planning_progress_callback=planning_progress_callback,
         )
         normalized = self._normalize_arr_paths(movies, plans)
         if normalized:
