@@ -101,6 +101,10 @@ class RadarrWebhookQueue:
         with self._lock:
             movie_ids = set(self._events_by_movie_id.keys())
             self._events_by_movie_id.clear()
+            # After draining the queue, allow the same event keys to be queued again.
+            # Keeping dedupe keys across consumes can incorrectly suppress legitimate
+            # follow-up webhook events in tight reconcile loops and tests.
+            self._dedupe_keys.clear()
             return movie_ids
 
     def snapshot(self) -> dict[str, int]:
@@ -197,6 +201,9 @@ class SonarrWebhookQueue:
         with self._lock:
             series_ids = set(self._events_by_series_id.keys())
             self._events_by_series_id.clear()
+            # Mirror Radarr queue behavior: once consumed, accept the same event
+            # keys again for subsequent reconcile cycles.
+            self._dedupe_keys.clear()
             return series_ids
 
     def snapshot(self) -> dict[str, int]:
