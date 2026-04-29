@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig
+from ..sync.discovery import discover_movie_folders
 from ..sync.naming import safe_path_component
 from .models import MovieProjectionMapping, MovieProjectionPlan, PlannedProjectionFile
 
@@ -19,6 +20,7 @@ def build_movie_projection_plans(
 ) -> list[MovieProjectionPlan]:
     plans: list[MovieProjectionPlan] = []
     sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
+    managed_lookup = _build_managed_folder_lookup(config=config, mappings=sorted_mappings)
 
     for movie in movies:
         movie_id = movie.get("id")
@@ -71,17 +73,31 @@ def build_movie_projection_plans(
             managed_folder = movie_path
 
         if not managed_folder.exists() or not managed_folder.is_dir():
-            plans.append(
-                MovieProjectionPlan(
-                    movie_id=movie_id,
-                    title=title,
-                    managed_folder=managed_folder,
-                    library_folder=library_folder,
-                    mapping=mapping,
-                    skip_reason="managed_folder_missing",
-                )
+            fallback = _resolve_managed_fallback_folder(
+                movie=movie,
+                relative_movie_folder=relative_movie_folder,
+                default_mapping=mapping,
+                managed_lookup=managed_lookup,
             )
-            continue
+            if fallback is not None:
+                mapping, managed_folder = fallback
+                library_folder = _resolve_library_folder(
+                    movie=movie,
+                    relative_movie_folder=relative_movie_folder,
+                    mapping=mapping,
+                )
+            if not managed_folder.exists() or not managed_folder.is_dir():
+                plans.append(
+                    MovieProjectionPlan(
+                        movie_id=movie_id,
+                        title=title,
+                        managed_folder=managed_folder,
+                        library_folder=library_folder,
+                        mapping=mapping,
+                        skip_reason="managed_folder_missing",
+                    )
+                )
+                continue
 
         files = _collect_projection_files(
             managed_folder=managed_folder,
@@ -138,6 +154,73 @@ def _resolve_library_folder(
 
     fallback_name = relative_movie_folder.name or f"movie-{movie.get('id')}"
     return mapping.library_root / safe_path_component(fallback_name)
+
+
+def _build_managed_folder_lookup(
+    *,
+    config: AppConfig,
+    mappings: list[MovieProjectionMapping],
+) -> dict[str, list[tuple[MovieProjectionMapping, Path]]]:
+    lookup: dict[str, list[tuple[MovieProjectionMapping, Path]]] = {}
+    video_exts = set(
+        config.runtime.scan_video_extensions or config.radarr.projection.managed_video_extensions
+    )
+    exclude_patterns = list(config.paths.exclude_paths)
+
+    for mapping in mappings:
+        for folder in discover_movie_folders(mapping.managed_root, video_exts, exclude_patterns):
+            key = folder.name.strip().lower()
+            if not key:
+                continue
+            lookup.setdefault(key, []).append((mapping, folder))
+
+    return lookup
+
+
+def _resolve_managed_fallback_folder(
+    *,
+    movie: dict[str, Any],
+    relative_movie_folder: Path,
+    default_mapping: MovieProjectionMapping,
+    managed_lookup: dict[str, list[tuple[MovieProjectionMapping, Path]]],
+) -> tuple[MovieProjectionMapping, Path] | None:
+    for key in _managed_lookup_keys(movie=movie, relative_movie_folder=relative_movie_folder):
+        candidates = managed_lookup.get(key, [])
+        if not candidates:
+            continue
+
+        # Prefer candidates from the same managed root mapping first.
+        same_mapping = [item for item in candidates if item[0] == default_mapping]
+        if len(same_mapping) == 1:
+            return same_mapping[0]
+        if len(candidates) == 1:
+            return candidates[0]
+
+    return None
+
+
+def _managed_lookup_keys(*, movie: dict[str, Any], relative_movie_folder: Path) -> list[str]:
+    keys: list[str] = []
+
+    title = str(movie.get("title") or "").strip()
+    year = movie.get("year")
+    if title and isinstance(year, int):
+        keys.append(safe_path_component(f"{title} ({year})").lower())
+    if title:
+        keys.append(safe_path_component(title).lower())
+
+    leaf = relative_movie_folder.name.strip().lower()
+    if leaf:
+        keys.append(leaf)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for key in keys:
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        deduped.append(key)
+    return deduped
 
 
 def _collect_projection_files(

@@ -170,6 +170,33 @@ def test_projection_flattens_nested_library_path(tmp_path: Path) -> None:
 
 
 @pytest.mark.fs_e2e
+def test_projection_recovers_when_library_relative_path_is_stale(tmp_path: Path) -> None:
+    """If Radarr points to a stale library-relative folder path, projection should
+    still recover from managed master folders and rebuild canonical shadow links."""
+    managed_root, library_root = make_roots(tmp_path, "recover_stale_library_relative")
+
+    managed_folder = managed_root / "Reclassified" / "Great Movie (2024)"
+    managed_folder.mkdir(parents=True)
+    source_file = managed_folder / "Great.Movie.2024.1080p.mkv"
+    source_file.write_text("stub", encoding="utf-8")
+
+    stale_library_path = library_root / "Old Category" / "Great Movie (2024)"
+
+    config = make_radarr_config(managed_root=managed_root, library_root=library_root)
+
+    radarr = FakeRadarr(movies=[make_movie(1, "Great Movie", 2024, stale_library_path)])
+    service = LibrariArrService(config)
+    service.radarr = radarr
+
+    service.reconcile()
+
+    projected = library_root / "Great Movie (2024)" / source_file.name
+    assert projected.exists(), f"Expected projection at {projected}"
+    assert projected.samefile(source_file)
+    assert radarr.movies[0]["path"] == str(library_root / "Great Movie (2024)")
+
+
+@pytest.mark.fs_e2e
 def test_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
     managed_root, shadow_root = make_roots(tmp_path, "ingest_moves_shadow_to_nested")
     nested_root = managed_root / "age_12"
