@@ -202,7 +202,16 @@ Core hardlink projection pipeline:
 
 Scan managed roots for movie folders not yet in Radarr. Auto-add unmatched folders when `auto_add_unmatched` is enabled. Newly added movies trigger immediate projection.
 
-Implementation: `librariarr/sync/discovery.py`, wired via `_auto_add_unmatched_movies()` in reconcile.
+**Non-canonical managed folder names:** Managed folders do NOT need to follow `Title (Year)` naming exactly. Users commonly organize files with extra metadata in folder names (e.g. `A Rainy Day in New York (2019) FSK0` or `Barbie (2023) FSK6`). The naming module extracts the canonical `Title (Year)` portion using the regex `^Title (Year)(?:\s+...)?$`, stripping any suffix after the year parenthetical.
+
+Discovery uses the extracted canonical name to:
+1. Search Radarr's lookup API with `title year` to find the matching movie.
+2. Determine the canonical library path as `library_root / "Title (Year)"`.
+3. Match discovered managed folders against existing Radarr entries by canonical name (not exact path), so `Barbie (2023) FSK6` correctly maps to the Radarr entry at `library_root/Barbie (2023)`.
+
+The projection planner's fallback lookup also indexes managed folders by their canonical name, so a Radarr movie path referencing the canonical name will resolve to the actual on-disk managed folder regardless of suffix.
+
+Implementation: `librariarr/sync/naming.py` — `canonical_name_from_folder()`, `librariarr/service/reconcile_helpers.py` — `discover_unmatched_folders()`, `librariarr/projection/planner.py` — `_build_managed_folder_lookup()`.
 
 ### 7.4 Scope Resolution
 

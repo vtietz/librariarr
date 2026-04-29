@@ -197,6 +197,37 @@ def test_projection_recovers_when_library_relative_path_is_stale(tmp_path: Path)
 
 
 @pytest.mark.fs_e2e
+def test_projection_matches_non_canonical_managed_folder_name(tmp_path: Path) -> None:
+    """When managed folders have non-canonical names (e.g. extra suffixes like FSK6),
+    the planner should still resolve them via canonical-name fallback lookup and
+    project hardlinks into the canonical library path."""
+    managed_root, library_root = make_roots(tmp_path, "non_canonical_managed_name")
+
+    # Managed folder has a non-canonical suffix "FSK6"
+    movie_dir = managed_root / "A Rainy Day in New York (2019) FSK0"
+    movie_dir.mkdir(parents=True)
+    source_file = movie_dir / "A.Rainy.Day.in.New.York.2019.1080p.mkv"
+    source_file.write_text("stub", encoding="utf-8")
+
+    # Radarr's path uses the canonical name (without suffix) under library root
+    canonical_library_path = library_root / "A Rainy Day in New York (2019)"
+
+    config = make_radarr_config(managed_root=managed_root, library_root=library_root)
+
+    radarr = FakeRadarr(
+        movies=[make_movie(1, "A Rainy Day in New York", 2019, canonical_library_path)]
+    )
+    service = LibrariArrService(config)
+    service.radarr = radarr
+
+    service.reconcile()
+
+    projected = library_root / "A Rainy Day in New York (2019)" / source_file.name
+    assert projected.exists(), f"Expected projection at {projected}"
+    assert projected.samefile(source_file)
+
+
+@pytest.mark.fs_e2e
 def test_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
     managed_root, shadow_root = make_roots(tmp_path, "ingest_moves_shadow_to_nested")
     nested_root = managed_root / "age_12"

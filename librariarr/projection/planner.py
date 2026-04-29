@@ -8,7 +8,7 @@ from typing import Any
 
 from ..config import AppConfig
 from ..sync.discovery import discover_movie_folders
-from ..sync.naming import safe_path_component
+from ..sync.naming import canonical_name_from_folder, safe_path_component
 from .models import MovieProjectionMapping, MovieProjectionPlan, PlannedProjectionFile
 
 
@@ -184,7 +184,12 @@ def _build_managed_folder_lookup(
             key = folder.name.strip().lower()
             if not key:
                 continue
-            lookup.setdefault(key, []).append((mapping, folder))
+            entry = (mapping, folder)
+            lookup.setdefault(key, []).append(entry)
+
+            canonical_key = canonical_name_from_folder(folder.name).strip().lower()
+            if canonical_key and canonical_key != key:
+                lookup.setdefault(canonical_key, []).append(entry)
 
     return lookup
 

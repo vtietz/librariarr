@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from librariarr.service.reconcile_helpers import discover_unmatched_folders
 from librariarr.sync.discovery import (
     collect_current_links,
     discover_movie_folders,
@@ -191,3 +192,38 @@ def test_discover_movie_folders_honors_exclude_paths_case_insensitive(tmp_path: 
 
     assert valid_dir in found
     assert deleted_dir not in found
+
+
+def test_discover_unmatched_folders_matches_non_canonical_names(tmp_path: Path) -> None:
+    """Managed folders with non-canonical names (e.g. 'Title (Year) FSK6') should be
+    recognized as already matched when Radarr has a canonical path 'Title (Year)'."""
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    # Create managed folders with FSK suffixes
+    movie_a = managed_root / "A Rainy Day in New York (2019) FSK0"
+    movie_b = managed_root / "Barbie (2023) FSK6"
+    movie_a.mkdir(parents=True)
+    movie_b.mkdir(parents=True)
+    (movie_a / "movie.mkv").write_text("x", encoding="utf-8")
+    (movie_b / "movie.mkv").write_text("x", encoding="utf-8")
+
+    # existing_paths represents what managed_equivalent_path() returns:
+    # canonical names (without FSK suffix) resolved under managed_root
+    existing_paths = {
+        (managed_root / "A Rainy Day in New York (2019)").resolve(strict=False),
+        (managed_root / "Barbie (2023)").resolve(strict=False),
+    }
+
+    unmatched = discover_unmatched_folders(
+        mappings=[(managed_root, library_root)],
+        existing_paths=existing_paths,
+        affected_paths=None,
+        discover_fn=discover_movie_folders,
+        video_exts={".mkv"},
+        scan_exclude_paths=set(),
+    )
+
+    # Both folders should be recognized as matched (not unmatched)
+    assert movie_a not in unmatched
+    assert movie_b not in unmatched

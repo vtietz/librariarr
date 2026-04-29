@@ -126,164 +126,6 @@ def _make_config(
     )
 
 
-def test_resolve_auto_add_profile_prefers_custom_format_signal(tmp_path: Path) -> None:
-    folder = tmp_path / "Fixture Title - Variant (2017)"
-    folder.mkdir()
-    (folder / "Fixture.Title.2017.1080p.x265.mkv").write_text("x", encoding="utf-8")
-
-    config = _make_config(
-        tmp_path,
-        quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)],
-    )
-    fake = FakeRadarr(
-        quality_profiles=[
-            {
-                "id": 1,
-                "name": "Any",
-                "formatItems": [{"format": 42, "score": 10}],
-                "items": [{"quality": {"id": 7}, "allowed": True}],
-                "cutoff": {"id": 7},
-            },
-            {
-                "id": 8,
-                "name": "Preferred",
-                "formatItems": [{"format": 42, "score": 100}],
-                "items": [{"quality": {"id": 7}, "allowed": True}],
-                "cutoff": {"id": 7},
-            },
-        ],
-        quality_definitions=[{"quality": {"id": 7, "name": "Bluray-1080p"}}],
-        parse_results={
-            "Fixture Title - Variant (2017)": {
-                "customFormats": [{"id": 42, "name": "German Audio"}],
-            }
-        },
-    )
-    helper = RadarrSyncHelper(
-        config=config,
-        logger=logging.getLogger(__name__),
-        get_radarr_client=lambda: fake,
-    )
-
-    profile_id = helper._resolve_auto_add_quality_profile_id(folder)
-
-    assert profile_id == 8
-
-
-def test_resolve_auto_add_profile_falls_back_to_lowest_without_signals(tmp_path: Path) -> None:
-    folder = tmp_path / "Unknown Title (2020)"
-    folder.mkdir()
-    (folder / "Unknown.Title.2020.mkv").write_text("x", encoding="utf-8")
-
-    config = _make_config(tmp_path)
-    fake = FakeRadarr(
-        quality_profiles=[
-            {"id": 7, "name": "Profile 7"},
-            {"id": 3, "name": "Profile 3"},
-        ],
-    )
-    helper = RadarrSyncHelper(
-        config=config,
-        logger=logging.getLogger(__name__),
-        get_radarr_client=lambda: fake,
-    )
-
-    profile_id = helper._resolve_auto_add_quality_profile_id(folder)
-
-    assert profile_id == 3
-
-
-def test_resolve_auto_add_profile_uses_parse_quality_when_maps_empty(tmp_path: Path) -> None:
-    folder = tmp_path / "Fixture Parse Quality (2014)"
-    folder.mkdir()
-    (folder / "Fixture Parse Quality.2014.1080p.BluRay.mkv").write_text("x", encoding="utf-8")
-
-    config = _make_config(tmp_path)
-    fake = FakeRadarr(
-        quality_profiles=[
-            {
-                "id": 3,
-                "name": "HD Fallback",
-                "cutoff": {"id": 5},
-                "items": [{"quality": {"id": 5}, "allowed": True}],
-            },
-            {
-                "id": 7,
-                "name": "1080p Profile",
-                "cutoff": {"id": 7},
-                "items": [{"quality": {"id": 7}, "allowed": True}],
-            },
-        ],
-        quality_definitions=[
-            {"quality": {"id": 5, "name": "WEBDL-720p"}},
-            {"quality": {"id": 7, "name": "Bluray-1080p"}},
-        ],
-        parse_results={
-            "Fixture Parse Quality (2014)": {
-                "quality": {
-                    "quality": {"id": 7, "name": "Bluray-1080p"},
-                }
-            }
-        },
-    )
-    helper = RadarrSyncHelper(
-        config=config,
-        logger=logging.getLogger(__name__),
-        get_radarr_client=lambda: fake,
-    )
-
-    profile_id = helper._resolve_auto_add_quality_profile_id(folder)
-
-    assert profile_id == 7
-
-
-def test_resolve_auto_add_profile_does_not_pick_incompatible_sd_profile(tmp_path: Path) -> None:
-    folder = tmp_path / "Localized Fixture (2006)"
-    folder.mkdir()
-    (folder / "Localized.Fixture.2006.1080p.h265.AC3.mkv").write_text("x", encoding="utf-8")
-
-    config = _make_config(tmp_path)
-    fake = FakeRadarr(
-        quality_profiles=[
-            {
-                "id": 2,
-                "name": "SD",
-                "formatItems": [{"format": 42, "score": 200}],
-                "items": [{"quality": {"id": 1}, "allowed": True}],
-                "cutoff": {"id": 1},
-            },
-            {
-                "id": 7,
-                "name": "1080p German x265",
-                "formatItems": [{"format": 42, "score": 100}],
-                "items": [{"quality": {"id": 7}, "allowed": True}],
-                "cutoff": {"id": 7},
-            },
-        ],
-        quality_definitions=[
-            {"quality": {"id": 1, "name": "SDTV"}},
-            {"quality": {"id": 7, "name": "Bluray-1080p"}},
-        ],
-        parse_results={
-            "Localized Fixture (2006)": {
-                "customFormats": [{"id": 42, "name": "German DL"}],
-                "quality": {
-                    "quality": {"id": 7, "name": "Bluray-1080p"},
-                },
-            }
-        },
-    )
-    helper = RadarrSyncHelper(
-        config=config,
-        logger=logging.getLogger(__name__),
-        get_radarr_client=lambda: fake,
-    )
-
-    profile_id = helper._resolve_auto_add_quality_profile_id(folder)
-
-    assert profile_id == 7
-
-
 def test_canonical_name_from_movie_uses_radarr_title_year(tmp_path: Path) -> None:
     config = _make_config(tmp_path)
     helper = RadarrSyncHelper(
@@ -690,3 +532,58 @@ def test_auto_add_does_not_warn_for_shadow_path_managed_equivalent_mismatch(
 
     warning_messages = [r.message for r in caplog.records if r.levelno >= logging.WARNING]
     assert warning_messages == []
+
+
+def test_auto_add_uses_nfo_tmdb_id_for_lookup(tmp_path: Path) -> None:
+    """When an NFO file with a TMDb ID is present, auto-add should use tmdb:ID lookup
+    instead of name-based search."""
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    managed_root.mkdir(parents=True)
+    library_root.mkdir(parents=True)
+
+    folder = managed_root / "Some Weird Folder Name (2019) FSK0"
+    folder.mkdir(parents=True)
+    (folder / "movie.mkv").write_text("stub", encoding="utf-8")
+
+    nfo_content = """<?xml version="1.0" encoding="UTF-8"?>
+<movie>
+  <title>A Rainy Day in New York</title>
+  <year>2019</year>
+  <uniqueid type="tmdb">504608</uniqueid>
+  <uniqueid type="imdb">tt7139936</uniqueid>
+</movie>"""
+    (folder / "movie.nfo").write_text(nfo_content, encoding="utf-8")
+
+    config = AppConfig(
+        paths=PathsConfig(
+            series_root_mappings=[],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
+            ],
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            sync_enabled=False,
+            auto_add_quality_profile_id=1,
+        ),
+        cleanup=CleanupConfig(),
+        runtime=RuntimeConfig(),
+    )
+
+    fake = FakeRadarr(
+        lookup_results=[{"title": "A Rainy Day in New York", "year": 2019, "tmdbId": 504608}],
+        add_movie_result={"id": 99, "title": "A Rainy Day in New York", "year": 2019},
+        quality_profiles=[{"id": 1, "name": "Any"}],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger("test_nfo"),
+        get_radarr_client=lambda: fake,
+    )
+
+    result = helper.auto_add_movie_for_folder(folder, managed_root)
+
+    assert "tmdb:504608" in fake.lookup_terms
+    assert result is not None

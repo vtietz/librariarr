@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from ..projection.planner import classify_file
+from ..sync.naming import canonical_name_from_folder
 
 LOG = logging.getLogger(__name__)
 
@@ -23,12 +24,38 @@ def discover_unmatched_folders(
     for managed_root, _library_root in mappings:
         discovered_folders.update(discover_fn(managed_root, video_exts, scan_exclude_paths))
 
+    # Build a set of canonical leaf names from existing paths for fuzzy matching.
+    # This handles managed folders with non-canonical names (e.g. "Title (Year) FSK6")
+    # that map to canonical library paths ("Title (Year)") in Radarr.
+    existing_canonical_parents: dict[Path, set[str]] = {}
+    for ep in existing_paths:
+        parent = ep.parent
+        canonical_leaf = canonical_name_from_folder(ep.name).strip().lower()
+        existing_canonical_parents.setdefault(parent, set()).add(canonical_leaf)
+
     return sorted(
         folder
         for folder in discovered_folders
-        if folder.resolve(strict=False) not in existing_paths
+        if not _folder_matches_existing(folder, existing_paths, existing_canonical_parents)
         and folder_matches_affected_paths(folder, affected_paths)
     )
+
+
+def _folder_matches_existing(
+    folder: Path,
+    existing_paths: set[Path],
+    existing_canonical_parents: dict[Path, set[str]],
+) -> bool:
+    resolved = folder.resolve(strict=False)
+    if resolved in existing_paths:
+        return True
+    # Check if folder's canonical name matches an existing canonical name under same parent
+    parent = resolved.parent
+    canonical_leaf = canonical_name_from_folder(resolved.name).strip().lower()
+    parent_set = existing_canonical_parents.get(parent)
+    if parent_set and canonical_leaf in parent_set:
+        return True
+    return False
 
 
 def folder_matches_affected_paths(
