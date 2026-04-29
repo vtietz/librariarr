@@ -18,6 +18,7 @@ LOG = logging.getLogger(__name__)
 
 class DashboardReadModel:
     _TASK_STALE_AFTER_SECONDS = 300
+    _TASK_AUTO_FAIL_AFTER_SECONDS = 900
 
     def __init__(
         self,
@@ -104,6 +105,10 @@ class DashboardReadModel:
                     self.state_store.save_dashboard(stale_snapshot)
 
     def _build_snapshot(self) -> dict[str, Any]:
+        self.runtime_status_tracker.fail_stale_running_task(
+            max_age_seconds=self._TASK_AUTO_FAIL_AFTER_SECONDS,
+            error="reconcile task timed out waiting for progress updates",
+        )
         runtime_payload = self.runtime_status_tracker.snapshot()
         jobs_summary_payload = self.job_manager.summary()
         active_tasks_payload = self.job_manager.list_active_tasks(limit=30)

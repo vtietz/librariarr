@@ -233,6 +233,78 @@ class RuntimeStatusTracker:
                 result=finished_payload,
             )
 
+    def fail_stale_running_task(
+        self,
+        *,
+        max_age_seconds: float,
+        error: str | None = None,
+    ) -> bool:
+        now = time.time()
+        with self._lock:
+            current_task = self._state.get("current_task")
+            if not isinstance(current_task, dict):
+                return False
+            if current_task.get("state") != "running":
+                return False
+
+            updated_at = current_task.get("updated_at")
+            if not isinstance(updated_at, int | float):
+                return False
+
+            stale_age = max(0.0, now - float(updated_at))
+            if stale_age <= max(0.0, float(max_age_seconds)):
+                return False
+
+            task_id = self._current_task_id
+            started_at = current_task.get("started_at")
+            duration_seconds: float | None = None
+            if isinstance(started_at, int | float):
+                duration_seconds = round(max(0.0, now - float(started_at)), 2)
+
+            failure_message = error or (
+                f"reconcile task timed out after {int(stale_age)}s without progress"
+            )
+            summary: dict[str, Any] = {
+                "state": "error",
+                "trigger_source": current_task.get("trigger_source"),
+                "phase": current_task.get("phase"),
+                "started_at": started_at,
+                "finished_at": now,
+                "duration_seconds": duration_seconds,
+                "followup_pending": False,
+                "error": failure_message,
+                "task_id": task_id,
+            }
+            for key, value in current_task.items():
+                if key in summary:
+                    continue
+                summary[key] = value
+
+            self._state["last_reconcile"] = summary
+            self._state["current_task"] = {
+                "state": "error",
+                "phase": None,
+                "trigger_source": None,
+                "started_at": None,
+                "updated_at": now,
+                "error": failure_message,
+                "task_id": None,
+            }
+            finished_payload = deepcopy(summary)
+            self._current_task_id = None
+            callback = self._task_finish_callback
+            self._touch_locked()
+
+        if callback is not None and task_id is not None:
+            callback(
+                task_id=task_id,
+                success=False,
+                error=failure_message,
+                result=finished_payload,
+            )
+
+        return True
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             payload = deepcopy(self._state)
