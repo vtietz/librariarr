@@ -114,7 +114,7 @@ class ServiceIngestMixin:
         )
         if result.ingested_count > 0:
             LOG.info(
-                "File-level ingest for movie_id=%s: ingested=%s failed=%s",
+                "File-level fs operations for movie_id=%s: moved=%s failed=%s",
                 movie_id,
                 result.ingested_count,
                 result.failed_count,
@@ -209,4 +209,9 @@ def _move_folder(source_folder: Path, resolved_destination: Path) -> bool:
             exc,
         )
         return False
+    LOG.info(
+        "FS MOVE directory: source=%s destination=%s",
+        source_folder,
+        resolved_destination,
+    )
     return True

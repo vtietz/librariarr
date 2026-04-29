@@ -164,7 +164,11 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
                 exc,
             )
             return "failed"
-        LOG.info("Ingested new file from library root: %s -> %s", lib_file, managed_file)
+        LOG.info(
+            "FS MOVE file: source=%s destination=%s reason=managed_missing",
+            lib_file,
+            managed_file,
+        )
         return "ingested"
 
     try:
@@ -175,6 +179,7 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
         return "failed"
 
     if lib_stat.st_dev == managed_stat.st_dev and lib_stat.st_ino == managed_stat.st_ino:
+        LOG.debug("FS SKIP file (same inode): source=%s destination=%s", lib_file, managed_file)
         return "skipped"
 
     backup_path = managed_file.with_suffix(managed_file.suffix + ".librariarr-ingest-tmp")
@@ -187,6 +192,11 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
             exc,
         )
         return "failed"
+    LOG.info(
+        "FS RENAME file: source=%s destination=%s reason=backup_before_replace",
+        managed_file,
+        backup_path,
+    )
 
     try:
         lib_file.rename(managed_file)
@@ -202,7 +212,7 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
             )
         else:
             LOG.warning(
-                "Ingest move failed, restored previous file: src=%s dest=%s error=%s",
+                "FS RESTORE file after failed move: source=%s destination=%s error=%s",
                 lib_file,
                 managed_file,
                 exc,
@@ -210,5 +220,10 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
         return "failed"
 
     backup_path.unlink(missing_ok=True)
-    LOG.info("Ingested upgraded file from library root: %s -> %s", lib_file, managed_file)
+    LOG.info(
+        "FS MOVE file: source=%s destination=%s reason=replace_different_inode",
+        lib_file,
+        managed_file,
+    )
+    LOG.info("FS DELETE file: path=%s reason=cleanup_backup_after_replace", backup_path)
     return "ingested"

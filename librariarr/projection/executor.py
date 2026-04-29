@@ -123,6 +123,11 @@ class MovieProjectionExecutor:
                     exc,
                 )
                 return None
+            LOG.info(
+                "FS RENAME file: source=%s destination=%s reason=backup_before_link_replace",
+                dest_path,
+                backup_path,
+            )
 
             if not _hardlink_file(source_path, dest_path):
                 # Hardlink failed — restore the backup so we don't lose the file
@@ -144,6 +149,10 @@ class MovieProjectionExecutor:
 
             # Hardlink succeeded — clean up the backup
             backup_path.unlink(missing_ok=True)
+            LOG.info(
+                "FS DELETE file: path=%s reason=cleanup_backup_after_link_replace",
+                backup_path,
+            )
         else:
             if not _hardlink_file(source_path, dest_path):
                 return None
@@ -165,6 +174,7 @@ class MovieProjectionExecutor:
     def _remove_existing_dest(self, dest_path: Path) -> None:
         if dest_path.is_symlink() or dest_path.is_file():
             dest_path.unlink(missing_ok=True)
+            LOG.info("FS DELETE file: path=%s reason=remove_existing_dest", dest_path)
             return
         if dest_path.exists() and dest_path.is_dir():
             raise IsADirectoryError(f"Expected file destination, found directory: {dest_path}")
@@ -180,6 +190,7 @@ def _is_same_file(source_path: Path, dest_path: Path) -> bool:
 def _hardlink_file(source_path: Path, dest_path: Path) -> bool:
     try:
         os.link(source_path, dest_path)
+        LOG.info("FS LINK hardlink: source=%s destination=%s", source_path, dest_path)
         return True
     except OSError as exc:
         if exc.errno == errno.EXDEV:
