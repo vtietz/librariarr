@@ -230,6 +230,7 @@ class RadarrClient:
         payload = dict(movie)
         payload["path"] = new_path
         self._request("PUT", f"/movie/{movie['id']}", json=payload)
+        movie["path"] = new_path
         LOG.info(
             "Updated Radarr movie path: %s | %s -> %s",
             movie.get("title"),

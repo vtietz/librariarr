@@ -6,6 +6,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import requests
+
 from ..clients.radarr import RadarrClient
 from ..config import AppConfig
 from .bootstrap import probe_movie_root_mappings
@@ -109,6 +111,14 @@ class MovieProjectionOrchestrator:
                 if self.radarr.update_movie_path(movie, expected_path):
                     normalized += 1
             except Exception as exc:
+                if self._try_normalize_with_temporary_path(
+                    movie=movie,
+                    current_path=current_path,
+                    expected_path=expected_path,
+                    exc=exc,
+                ):
+                    normalized += 1
+                    continue
                 self.log.warning(
                     "Failed to normalize Radarr path for movie_id=%s from=%s to=%s: %s",
                     movie_id,
@@ -117,6 +127,34 @@ class MovieProjectionOrchestrator:
                     exc,
                 )
         return normalized
+
+    def _try_normalize_with_temporary_path(
+        self,
+        *,
+        movie: dict[str, Any],
+        current_path: str,
+        expected_path: str,
+        exc: Exception,
+    ) -> bool:
+        if not _is_ancestor_path_update_conflict(current_path, expected_path, exc):
+            return False
+
+        temp_path = _temporary_normalization_path(expected_path, int(movie.get("id") or 0))
+        Path(temp_path).mkdir(parents=True, exist_ok=True)
+
+        try:
+            self.radarr.update_movie_path(movie, temp_path)
+            self.radarr.update_movie_path(movie, expected_path)
+            self.log.info(
+                "Normalized Radarr path via temporary hop: movie_id=%s from=%s temp=%s to=%s",
+                movie.get("id"),
+                current_path,
+                temp_path,
+                expected_path,
+            )
+            return True
+        except Exception:
+            return False
 
 
 def _projection_state_db_path() -> Path:
@@ -133,3 +171,44 @@ def _projection_state_db_path() -> Path:
         return cwd / "librariarr-state.db"
 
     return Path("/tmp") / "librariarr-state.db"
+
+
+def _temporary_normalization_path(expected_path: str, movie_id: int) -> str:
+    expected = Path(expected_path)
+    suffix = f".__librariarr_path_tmp_{movie_id or 'movie'}"
+    return str(expected.parent / f"{expected.name}{suffix}")
+
+
+def _is_ancestor_path_update_conflict(
+    current_path: str,
+    expected_path: str,
+    exc: Exception,
+) -> bool:
+    current = Path(current_path)
+    expected = Path(expected_path)
+    try:
+        is_nested = current != expected and current.is_relative_to(expected)
+    except ValueError:
+        is_nested = False
+
+    if not is_nested:
+        return False
+
+    if isinstance(exc, requests.HTTPError) and exc.response is not None:
+        try:
+            payload = exc.response.json()
+        except Exception:
+            payload = None
+        if isinstance(payload, list):
+            for item in payload:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("errorCode") or "") == "MovieAncestorValidator":
+                    return True
+
+        body = str(getattr(exc.response, "text", "") or "").lower()
+        if "movieancestorvalidator" in body or "ancestor of an existing movie" in body:
+            return True
+
+    text = str(exc).lower()
+    return "movieancestorvalidator" in text or "ancestor of an existing movie" in text

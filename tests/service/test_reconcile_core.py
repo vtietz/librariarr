@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+import requests
+
 from librariarr.projection import get_radarr_webhook_queue
 from librariarr.service import LibrariArrService
 from tests.service.helpers import FakeRadarr, make_config
@@ -440,3 +442,50 @@ def test_duplicate_movie_in_two_subfolders_only_radarr_path_projected(tmp_path: 
         library_root, "Duplicate Movie (2023)", "Duplicate.Movie.2023.720p.mkv"
     )
     assert not projected_b.exists()
+
+
+def test_reconcile_normalizes_nested_radarr_path_via_temporary_hop(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed" / "FSK06 Erwachsene"
+    library_root = tmp_path / "library" / "FSK06 Erwachsene"
+
+    managed_movie = managed_root / "Willi wird das Kind schon schaukeln (1972)"
+    managed_movie.mkdir(parents=True)
+    (managed_movie / "movie.mkv").write_text("x", encoding="utf-8")
+
+    nested_library = (
+        library_root
+        / "Willi wird das Kind schon schaukeln (1972)"
+        / "Willi wird das Kind schon schaukeln (1972)"
+    )
+
+    class AncestorConflictFakeRadarr(FakeRadarr):
+        def update_movie_path(self, movie: dict, new_path: str) -> bool:
+            expected = str(library_root / "Willi wird das Kind schon schaukeln (1972)")
+            if movie.get("path") == str(nested_library) and new_path == expected:
+                response = requests.Response()
+                response.status_code = 400
+                response._content = (
+                    b'[{"errorCode":"MovieAncestorValidator",'
+                    b'"errorMessage":"Path is an ancestor of an existing movie"}]'
+                )
+                raise requests.HTTPError(response=response)
+            return super().update_movie_path(movie, new_path)
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = AncestorConflictFakeRadarr(
+        movies=[
+            _movie(
+                2087,
+                "Willi wird das Kind schon schaukeln",
+                1972,
+                nested_library,
+            )
+        ]
+    )
+
+    service.reconcile()
+
+    updated_paths = [path for movie_id, path in service.radarr.updated_paths if movie_id == 2087]
+    assert len(updated_paths) >= 2
+    assert updated_paths[-1] == str(library_root / "Willi wird das Kind schon schaukeln (1972)")
