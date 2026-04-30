@@ -5,6 +5,7 @@ import {
   Card,
   Group,
   Loader,
+  Modal,
   MultiSelect,
   Select,
   Stack,
@@ -36,6 +37,7 @@ import { useScopedArrEnrichment } from "./useScopedArrEnrichment";
 import { MAPPER_STATUS_FILTER_OPTIONS, useMapperRowsView } from "./useMapperRowsView";
 import { useReconcileActions } from "./useReconcileActions";
 import { useRadarrRefreshAction } from "./useRadarrRefreshAction";
+import { useDeleteShadowAction } from "./useDeleteShadowAction";
 import { useDiscoveryWarningSets } from "./useDiscoveryWarningSets";
 
 export default function DirectoryMapper() {
@@ -300,6 +302,13 @@ export default function DirectoryMapper() {
     loadMappedDirectories
   });
 
+  const { deletingPath, pendingDeletePath, requestDelete, cancelDelete, confirmDelete } =
+    useDeleteShadowAction({
+      setLoadError,
+      setMappedDirectories,
+      loadMappedDirectories
+    });
+
   return (
     <Stack>
       <Title order={3}>Path Mapping Status</Title>
@@ -461,10 +470,12 @@ export default function DirectoryMapper() {
                     refreshingMovieId={refreshingMovieId}
                     reconcilingPath={reconcilingPath}
                     recentlyReconciledPath={recentlyReconciledPath}
+                    deletingPath={deletingPath}
                     onCopy={copyToClipboard}
                     onOpen={openBrowsePath}
                     onRefreshRadarr={refreshMovieInRadarr}
                     onReconcilePath={reconcilePath}
+                    onDeleteShadow={requestDelete}
                   />
                 )}
               </Table.Tbody>
@@ -481,6 +492,31 @@ export default function DirectoryMapper() {
             onClose={() => setBrowsePath(null)}
             mode="browse"
           />
+
+          <Modal
+            opened={pendingDeletePath !== null}
+            onClose={cancelDelete}
+            title="Remove shadow folder"
+            centered
+          >
+            <Stack>
+              <Text size="sm">
+                Are you sure you want to remove this shadow folder? This will delete the
+                projected hardlinks but will NOT affect the original managed media files.
+              </Text>
+              <Text size="sm" fw={600} style={{ wordBreak: "break-all" }}>
+                {pendingDeletePath}
+              </Text>
+              <Group justify="flex-end" mt="md">
+                <Button variant="default" onClick={cancelDelete}>
+                  Cancel
+                </Button>
+                <Button color="red" onClick={() => void confirmDelete()}>
+                  Remove
+                </Button>
+              </Group>
+            </Stack>
+          </Modal>
         </Stack>
       </Card>
     </Stack>

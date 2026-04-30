@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import shutil
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -219,4 +220,63 @@ def build_fs_router(  # noqa: C901
             },
         )
 
+    @router.delete("/api/fs/shadow-folder")
+    def delete_shadow_folder(
+        request: Request,
+        path: str = Query(...),
+    ) -> dict[str, Any]:
+        path_value = path.strip()
+        if not path_value:
+            raise HTTPException(status_code=400, detail="path must not be empty")
+        target = Path(path_value)
+        if not target.is_absolute():
+            raise HTTPException(status_code=400, detail="path must be an absolute path")
+
+        config = load_config_or_http_fn(read_config_path_fn(request))
+        all_roots = shadow_roots_fn(config)
+        if not any(target == root or root in target.parents for root in all_roots):
+            raise HTTPException(
+                status_code=403, detail="path is not under a known shadow/library root"
+            )
+
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="shadow folder does not exist")
+        if not target.is_dir():
+            raise HTTPException(status_code=400, detail="path is not a directory")
+
+        # Safety: refuse to delete the shadow root itself
+        if target in all_roots:
+            raise HTTPException(status_code=400, detail="cannot delete a shadow root directory")
+
+        removed_files = 0
+        for item in target.rglob("*"):
+            if item.is_file() or item.is_symlink():
+                removed_files += 1
+        shutil.rmtree(target)
+
+        # Remove provenance entries for this shadow path
+        _purge_provenance_for_shadow_path(target)
+
+        # Trigger cache refresh
+        mapped_cache.request_refresh(config, force=True)
+
+        return {
+            "ok": True,
+            "removed_path": str(target),
+            "removed_files": removed_files,
+        }
+
     return router
+
+
+def _purge_provenance_for_shadow_path(shadow_path: Path) -> None:
+    """Remove projected_files rows whose dest_path is under the deleted shadow folder."""
+    from ...projection.orchestrator import _projection_state_db_path
+    from ...projection.provenance import ProjectionStateStore
+    from ...projection.sonarr_orchestrator import _sonarr_projection_state_db_path
+
+    for db_path_fn in (_projection_state_db_path, _sonarr_projection_state_db_path):
+        db_path = db_path_fn()
+        if db_path.exists():
+            store = ProjectionStateStore(db_path)
+            store.delete_projected_files_under_path(shadow_path)

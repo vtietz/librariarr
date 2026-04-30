@@ -263,6 +263,15 @@ export const testSonarrConnection = async (url: string, apiKey: string) => {
   return data;
 };
 
+export const deleteShadowFolder = async (path: string) => {
+  const { data } = await api.delete<{
+    ok: boolean;
+    removed_path: string;
+    removed_files: number;
+  }>("/fs/shadow-folder", { params: { path } });
+  return data;
+};
+
 export const runMaintenanceReconcile = async (params?: { path?: string }) => {
   const { data } = await api.post<{
     ok: boolean;

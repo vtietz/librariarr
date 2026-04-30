@@ -6,6 +6,7 @@ import {
   IconCopy,
   IconRefresh,
   IconSearch,
+  IconTrash,
   IconX
 } from "@tabler/icons-react";
 import { memo, useState } from "react";
@@ -84,10 +85,12 @@ type MappedRowsProps = {
   refreshingMovieId: number | null;
   reconcilingPath: string | null;
   recentlyReconciledPath: string | null;
+  deletingPath: string | null;
   onCopy: (value: string) => Promise<void>;
   onOpen: (value: string) => void;
   onRefreshRadarr: (movieId: number) => Promise<void>;
   onReconcilePath: (path: string) => Promise<void>;
+  onDeleteShadow: (virtualPath: string) => void;
 };
 
 function arrStateBadge(state: string | undefined): { label: string; color: string } {
@@ -190,10 +193,12 @@ const MappedRows = memo(function MappedRows({
   refreshingMovieId,
   reconcilingPath,
   recentlyReconciledPath,
+  deletingPath,
   onCopy,
   onOpen,
   onRefreshRadarr,
-  onReconcilePath
+  onReconcilePath,
+  onDeleteShadow
 }: MappedRowsProps) {
   const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
 
@@ -225,7 +230,23 @@ const MappedRows = memo(function MappedRows({
           }}
         >
           <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
-            <PathCell value={mapped.virtual_path} onCopy={onCopy} />
+            <Group gap="xs" wrap="nowrap" w="100%">
+              <PathCell value={mapped.virtual_path} onCopy={onCopy} />
+              {mapped.virtual_path.trim().length > 0 && (
+                <Tooltip label="Remove shadow folder">
+                  <ActionIcon
+                    size="sm"
+                    variant="light"
+                    color="red"
+                    aria-label="Remove shadow folder"
+                    onClick={() => onDeleteShadow(mapped.virtual_path)}
+                    loading={deletingPath === mapped.virtual_path}
+                  >
+                    <IconTrash size={14} />
+                  </ActionIcon>
+                </Tooltip>
+              )}
+            </Group>
           </Table.Td>
           <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <PathCell value={mapped.real_path} onCopy={onCopy} onOpen={onOpen} />

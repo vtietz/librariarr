@@ -133,6 +133,17 @@ class ProjectionStateStore:
                     (movie_id, dest_path),
                 )
 
+    def delete_projected_files_under_path(self, shadow_path: Path) -> int:
+        """Delete all projected_files rows whose dest_path is under the given path."""
+        path_prefix = str(shadow_path) + "/"
+        with self._lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "DELETE FROM projected_files WHERE dest_path LIKE ?",
+                    (path_prefix + "%",),
+                )
+                return cursor.rowcount
+
     def get_managed_folders_by_movie_ids(self) -> dict[int, Path]:
         """Return a mapping of movie_id → managed folder from the explicit mapping table."""
         with self._lock:
