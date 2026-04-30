@@ -145,6 +145,11 @@ class DashboardReadModel:
         reasons: list[str] = []
         status = "ok"
 
+        current_task = payload.get("current_task") or {}
+        reconcile_running = bool(
+            isinstance(current_task, dict) and current_task.get("state") == "running"
+        )
+
         if not bool(payload.get("runtime_running")):
             status = "degraded"
             reasons.append("background runtime is not running")
@@ -157,6 +162,7 @@ class DashboardReadModel:
             stale_after_seconds=120,
             now=now,
             mark_not_ready=True,
+            allow_stale_while_running=reconcile_running,
         )
         status = self._apply_cache_health(
             status=status,
@@ -166,6 +172,7 @@ class DashboardReadModel:
             stale_after_seconds=180,
             now=now,
             mark_not_ready=False,
+            allow_stale_while_running=reconcile_running,
         )
 
         if int(jobs_summary_payload.get("failed") or 0) > 0:
@@ -176,7 +183,6 @@ class DashboardReadModel:
             status = "degraded"
             reasons.append(self._last_refresh_error)
 
-        current_task = payload.get("current_task") or {}
         if isinstance(current_task, dict) and current_task.get("state") == "running":
             updated_at = current_task.get("updated_at")
             if isinstance(updated_at, int | float):
@@ -211,6 +217,7 @@ class DashboardReadModel:
         stale_after_seconds: int,
         now: float,
         mark_not_ready: bool,
+        allow_stale_while_running: bool,
     ) -> str:
         if not isinstance(cache_payload, dict):
             return status
@@ -224,8 +231,14 @@ class DashboardReadModel:
         if isinstance(updated_at_ms, int | float):
             age_seconds = max(0.0, now - (float(updated_at_ms) / 1000.0))
             if age_seconds > stale_after_seconds:
-                status = "degraded"
-                reasons.append(f"{cache_name} is stale ({int(age_seconds)}s old)")
+                if allow_stale_while_running:
+                    reasons.append(
+                        f"{cache_name} is stale ({int(age_seconds)}s old); "
+                        "refresh deferred while sync is running"
+                    )
+                else:
+                    status = "degraded"
+                    reasons.append(f"{cache_name} is stale ({int(age_seconds)}s old)")
             return status
 
         if mark_not_ready and not cache_payload.get("building"):
