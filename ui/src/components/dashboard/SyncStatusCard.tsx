@@ -31,11 +31,19 @@ type StepDef = {
 };
 
 const SYNC_STEPS: StepDef[] = [
-  { id: "fetch", label: "Fetch data", phases: ["reconcile", "startup_full_reconcile", "running", "inventory_fetched"] },
+  {
+    id: "fetch",
+    label: "Fetch inventory",
+    phases: ["reconcile", "startup_full_reconcile", "running", "inventory_fetched"],
+  },
   { id: "scope", label: "Resolve scope", phases: ["scope_resolved"] },
   { id: "plan", label: "Plan projections", phases: ["planning_movies", "planning_series"] },
-  { id: "autoadd", label: "Auto-add unmatched", phases: ["auto_add_movies", "auto_add_series"] },
-  { id: "apply", label: "Apply links", phases: ["indexed", "applied"] },
+  {
+    id: "autoadd",
+    label: "Resolve unmatched (Arr API)",
+    phases: ["auto_add_movies", "auto_add_series"],
+  },
+  { id: "apply", label: "Apply hardlinks", phases: ["indexed", "applied"] },
   { id: "cleanup", label: "Cleanup", phases: ["cleaned", "completed"] },
 ];
 
@@ -61,6 +69,69 @@ function resolveStepStates(phase: string | null | undefined): StepState[] {
   });
 }
 
+function activeStepIndex(phase: string | null | undefined): number {
+  if (!phase) return -1;
+  for (let i = 0; i < SYNC_STEPS.length; i++) {
+    if (SYNC_STEPS[i].phases.includes(phase)) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function formatFolderCounter(processed?: number, total?: number): string | null {
+  if (typeof total !== "number" || total <= 0) return null;
+  const done = typeof processed === "number" ? processed : 0;
+  return `${done}/${total} folders`;
+}
+
+function activeStepCounter(
+  stepId: string,
+  task: RuntimeStatusResponse["current_task"],
+): string | null {
+  if (stepId === "plan") {
+    return (
+      formatFolderCounter(task.movie_items_processed, task.movie_items_total) ??
+      formatFolderCounter(task.series_items_processed, task.series_items_total)
+    );
+  }
+  if (stepId === "autoadd") {
+    return (
+      formatFolderCounter(task.movie_items_processed, task.movie_items_total) ??
+      formatFolderCounter(task.series_items_processed, task.series_items_total)
+    );
+  }
+  if (stepId === "apply") {
+    return formatFolderCounter(task.movie_items_processed, task.movie_items_total);
+  }
+  return null;
+}
+
+function phaseExplanation(task: RuntimeStatusResponse["current_task"]): string | null {
+  if (task.state !== "running") return null;
+
+  const phase = task.phase;
+  if (!phase) return "Preparing reconcile";
+
+  const map: Record<string, string> = {
+    reconcile: "Fetching movie/series inventory from Radarr/Sonarr",
+    startup_full_reconcile: "Starting initial full reconcile",
+    running: "Starting reconcile",
+    inventory_fetched: "Inventory fetched; preparing scope",
+    scope_resolved: "Scope resolved (deciding full vs incremental items)",
+    planning_movies: "Planning movie projections",
+    planning_series: "Planning series projections",
+    auto_add_movies: "Resolving unmatched movie folders via Radarr API",
+    auto_add_series: "Resolving unmatched series folders via Sonarr API",
+    indexed: "Applying hardlinks for planned projections",
+    applied: "Projection apply complete",
+    cleaned: "Cleanup in progress",
+    completed: "Reconcile complete",
+  };
+
+  return map[phase] ?? `Running phase: ${phase}`;
+}
+
 function StepIcon({ state }: { state: StepState }) {
   if (state === "done") {
     return (
@@ -83,8 +154,15 @@ function StepIcon({ state }: { state: StepState }) {
   );
 }
 
-function SyncStepPipeline({ phase }: { phase: string | null | undefined }) {
+function SyncStepPipeline({
+  phase,
+  task,
+}: {
+  phase: string | null | undefined;
+  task: RuntimeStatusResponse["current_task"];
+}) {
   const states = resolveStepStates(phase);
+  const activeIdx = activeStepIndex(phase);
   return (
     <Group gap={6} wrap="wrap">
       {SYNC_STEPS.map((step, i) => (
@@ -96,6 +174,9 @@ function SyncStepPipeline({ phase }: { phase: string | null | undefined }) {
             fw={states[i] === "active" ? 600 : 400}
           >
             {step.label}
+            {i === activeIdx && activeStepCounter(step.id, task)
+              ? ` (${activeStepCounter(step.id, task)})`
+              : ""}
           </Text>
           {i < SYNC_STEPS.length - 1 && (
             <Text size="xs" c="dimmed">›</Text>
@@ -206,6 +287,7 @@ export default function SyncStatusCard({
     error: null,
   };
   const progressDetail = buildProgressDetail(currentTask);
+  const phaseDetail = phaseExplanation(currentTask);
   const isRunning = currentTask.state === "running";
 
   return (
@@ -233,7 +315,12 @@ export default function SyncStatusCard({
           {healthReason}
         </Text>
         {isRunning && (
-          <SyncStepPipeline phase={currentTask.phase} />
+          <SyncStepPipeline phase={currentTask.phase} task={currentTask} />
+        )}
+        {phaseDetail && (
+          <Text size="xs" c="dimmed">
+            {phaseDetail}
+          </Text>
         )}
         {progressDetail && (
           <Group gap="xs" align="flex-start" wrap="nowrap">
