@@ -89,6 +89,7 @@ class ProjectionApplyMetrics:
     unchanged_files: int = 0
     skipped_files: int = 0
     per_root: dict[str, RootMetrics] = field(default_factory=dict)
+    projected_movie_ids: set[int] = field(default_factory=set)
 
     def record_plan(self, mapping: MovieProjectionMapping | None) -> None:
         if mapping is None:

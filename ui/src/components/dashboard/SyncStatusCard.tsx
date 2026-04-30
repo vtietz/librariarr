@@ -86,7 +86,7 @@ function StepIcon({ state }: { state: StepState }) {
 function SyncStepPipeline({ phase }: { phase: string | null | undefined }) {
   const states = resolveStepStates(phase);
   return (
-    <Group gap={4} wrap="nowrap">
+    <Group gap={6} wrap="wrap">
       {SYNC_STEPS.map((step, i) => (
         <Group key={step.id} gap={3} wrap="nowrap">
           <StepIcon state={states[i]} />
@@ -236,15 +236,19 @@ export default function SyncStatusCard({
           <SyncStepPipeline phase={currentTask.phase} />
         )}
         {progressDetail && (
-          <Group gap="xs">
+          <Group gap="xs" align="flex-start" wrap="nowrap">
             <Loader size={12} />
-            <Text size="xs" c="blue">
+            <Text
+              size="xs"
+              c="blue"
+              style={{ whiteSpace: "normal", lineHeight: 1.35, wordBreak: "break-word" }}
+            >
               {progressDetail}
             </Text>
           </Group>
         )}
-        <Group justify="space-between" align="center">
-          <Text size="xs" c="dimmed">
+        <Group justify="space-between" align="center" wrap="wrap" gap="xs">
+          <Text size="xs" c="dimmed" style={{ flex: "1 1 16rem" }}>
             {lastSyncText}
           </Text>
           <Button

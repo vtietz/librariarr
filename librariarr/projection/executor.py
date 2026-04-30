@@ -83,6 +83,7 @@ class MovieProjectionExecutor:
 
                 upserts.append(result)
                 metrics.projected_files += 1
+                metrics.projected_movie_ids.add(plan.movie_id)
                 metrics.record_file_projected(plan.mapping)
 
             self.state_store.upsert_projected_files(upserts)

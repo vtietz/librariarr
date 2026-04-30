@@ -278,7 +278,64 @@ class RadarrClient:
 
         self._request("POST", "/command", json={"name": "RefreshMovie", "movieIds": [movie_id]})
         self._last_refresh_by_movie_id[movie_id] = now
+        LOG.debug("Queued Radarr RefreshMovie command: movie_id=%s", movie_id)
         return True
+
+    def refresh_movies(
+        self,
+        movie_ids: Iterable[int],
+        *,
+        force: bool = False,
+        batch_size: int = 100,
+    ) -> int:
+        """Queue debounced RefreshMovie commands in batches.
+
+        Returns the number of movie IDs queued for refresh.
+        """
+        now = time.time()
+        unique_ids = sorted(
+            {
+                int(movie_id)
+                for movie_id in movie_ids
+                if isinstance(movie_id, int) and not isinstance(movie_id, bool)
+            }
+        )
+        if not unique_ids:
+            return 0
+
+        eligible_ids: list[int] = []
+        for movie_id in unique_ids:
+            if not force and self.refresh_debounce_seconds > 0:
+                last_refresh = self._last_refresh_by_movie_id.get(movie_id)
+                if last_refresh is not None:
+                    elapsed = now - last_refresh
+                    if elapsed < self.refresh_debounce_seconds:
+                        LOG.debug(
+                            "Skipped batched RefreshMovie due to debounce: "
+                            "movie_id=%s elapsed=%.2fs window=%ss",
+                            movie_id,
+                            elapsed,
+                            self.refresh_debounce_seconds,
+                        )
+                        continue
+            eligible_ids.append(movie_id)
+
+        if not eligible_ids:
+            return 0
+
+        batch_size = max(1, int(batch_size))
+        for index in range(0, len(eligible_ids), batch_size):
+            batch = eligible_ids[index : index + batch_size]
+            self._request("POST", "/command", json={"name": "RefreshMovie", "movieIds": batch})
+            for movie_id in batch:
+                self._last_refresh_by_movie_id[movie_id] = now
+
+        LOG.info(
+            "Queued Radarr RefreshMovie command batches: movies=%s batches=%s",
+            len(eligible_ids),
+            (len(eligible_ids) + batch_size - 1) // batch_size,
+        )
+        return len(eligible_ids)
 
     def _moviefile_quality_id(self, movie_file: dict[str, Any]) -> int | None:
         quality = movie_file.get("quality")

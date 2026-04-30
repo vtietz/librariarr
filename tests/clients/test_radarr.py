@@ -133,6 +133,50 @@ def test_refresh_movie_force_bypasses_debounce(monkeypatch) -> None:
     assert len(calls) == 2
 
 
+def test_refresh_movies_batches_ids(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+    calls: list[tuple[str, str, dict]] = []
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return None
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    queued = client.refresh_movies([5, 2, 4, 1, 3], batch_size=2)
+
+    assert queued == 5
+    assert len(calls) == 3
+    assert calls[0][2]["json"]["movieIds"] == [1, 2]
+    assert calls[1][2]["json"]["movieIds"] == [3, 4]
+    assert calls[2][2]["json"]["movieIds"] == [5]
+
+
+def test_refresh_movies_honors_debounce(monkeypatch) -> None:
+    client = RadarrClient(
+        base_url="http://radarr:7878",
+        api_key="test",
+        refresh_debounce_seconds=30,
+    )
+    calls: list[tuple[str, str, dict]] = []
+    current_time = {"value": 5000.0}
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return None
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+    monkeypatch.setattr("librariarr.clients.radarr.time.time", lambda: current_time["value"])
+
+    assert client.refresh_movie(10) is True
+    current_time["value"] += 5.0
+    queued = client.refresh_movies([10, 11])
+
+    assert queued == 1
+    assert len(calls) == 2
+    assert calls[1][2]["json"]["movieIds"] == [11]
+
+
 def test_request_retries_timeout_for_get(monkeypatch) -> None:
     client = RadarrClient(
         base_url="http://radarr:7878",

@@ -82,10 +82,37 @@ class MovieProjectionOrchestrator:
             metrics.unchanged_files,
             metrics.skipped_files,
         )
+        refreshed_movie_count = self._refresh_projected_movies(metrics.projected_movie_ids)
         result = metrics.as_dict()
         result["per_root"] = metrics.per_root_list()
         result["normalized_paths"] = normalized
+        result["refreshed_movies"] = refreshed_movie_count
         return result
+
+    def _refresh_projected_movies(self, movie_ids: set[int]) -> int:
+        if not movie_ids:
+            return 0
+
+        # Batch refresh commands to avoid hammering Radarr on large first runs.
+        try:
+            if hasattr(self.radarr, "refresh_movies"):
+                refreshed = int(self.radarr.refresh_movies(movie_ids))
+            else:
+                refreshed = 0
+                for movie_id in sorted(movie_ids):
+                    if self.radarr.refresh_movie(movie_id):
+                        refreshed += 1
+        except requests.RequestException as exc:
+            self.log.warning(
+                "Radarr refresh queue failed after projection for %s movie(s): %s",
+                len(movie_ids),
+                exc,
+            )
+            return 0
+
+        if refreshed > 0:
+            self.log.info("Queued Radarr refresh for %s movie(s) after projection", refreshed)
+        return refreshed
 
     def _normalize_arr_paths(
         self,
