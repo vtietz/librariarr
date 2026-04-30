@@ -213,19 +213,29 @@ function buildProgressDetail(
   const links = task.created_links ?? 0;
   if (links > 0) parts.push(`${links} links created`);
 
+  const phase = task.phase;
   const movieProcessed = task.movie_items_processed ?? 0;
   const movieTotal = task.movie_items_total ?? 0;
   const seriesProcessed = task.series_items_processed ?? 0;
   const seriesTotal = task.series_items_total ?? 0;
-  const progressCounters: string[] = [];
-  if (movieTotal > 0) {
-    progressCounters.push(`${movieProcessed}/${movieTotal} movies`);
+
+  const movieCounter = movieTotal > 0 ? `${movieProcessed}/${movieTotal} movies` : null;
+  const seriesCounter = seriesTotal > 0 ? `${seriesProcessed}/${seriesTotal} series` : null;
+
+  let phaseCounter: string | null = null;
+  if (
+    phase === "ingest_movies" ||
+    phase === "planning_movies" ||
+    phase === "auto_add_movies" ||
+    phase === "indexed"
+  ) {
+    phaseCounter = movieCounter;
+  } else if (phase === "planning_series" || phase === "auto_add_series") {
+    phaseCounter = seriesCounter;
   }
-  if (seriesTotal > 0) {
-    progressCounters.push(`${seriesProcessed}/${seriesTotal} series`);
-  }
-  if (progressCounters.length > 0) {
-    parts.push(progressCounters.join(", "));
+
+  if (phaseCounter) {
+    parts.push(phaseCounter);
   }
 
   if (task.started_at) {
