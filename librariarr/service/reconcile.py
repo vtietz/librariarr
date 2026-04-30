@@ -46,6 +46,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             scope = self._resolve_projection_scope(
                 force_full_scope=force_full_scope,
                 incremental_mode=reconcile_ctx["incremental_mode"],
+                affected_paths=affected_paths,
                 ingested_movie_ids=ingested_movie_ids,
                 auto_added_movie_ids=auto_added_movie_ids,
                 auto_added_series_ids=auto_added_series_ids,
@@ -193,28 +194,17 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
         *,
         force_full_scope: bool,
         incremental_mode: bool,
+        affected_paths: set[Path] | None,
         ingested_movie_ids: set[int],
         auto_added_movie_ids: set[int],
         auto_added_series_ids: set[int],
     ) -> dict:
-        scoped_movie_ids: set[int] | None = None
-        queued_movie_ids: set[int] = set()
-        if self.radarr_enabled:
-            queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
-            if not force_full_scope and queued_movie_ids:
-                scoped_movie_ids = queued_movie_ids
-
-        if not force_full_scope:
-            if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
-                if scoped_movie_ids is None:
-                    scoped_movie_ids = set(ingested_movie_ids)
-                else:
-                    scoped_movie_ids.update(ingested_movie_ids)
-            if auto_added_movie_ids and (incremental_mode or scoped_movie_ids is not None):
-                if scoped_movie_ids is None:
-                    scoped_movie_ids = set(auto_added_movie_ids)
-                else:
-                    scoped_movie_ids.update(auto_added_movie_ids)
+        scoped_movie_ids, queued_movie_ids = self._collect_scoped_movie_ids(
+            force_full_scope=force_full_scope,
+            incremental_mode=incremental_mode,
+            ingested_movie_ids=ingested_movie_ids,
+            auto_added_movie_ids=auto_added_movie_ids,
+        )
 
         scoped_series_ids: set[int] | None = None
         queued_series_ids: set[int] = set()
@@ -231,6 +221,13 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                 scoped_series_ids = set(auto_added_series_ids)
             else:
                 scoped_series_ids.update(auto_added_series_ids)
+
+        # Fallback: resolve affected paths to IDs via provenance DB when no other source
+        # produced scoped IDs. This ensures manual path reconcile runs scoped.
+        if not force_full_scope and incremental_mode and affected_paths:
+            scoped_movie_ids, scoped_series_ids = self._resolve_ids_from_affected_paths(
+                affected_paths, scoped_movie_ids, scoped_series_ids
+            )
 
         movie_scope_kind = "scoped" if scoped_movie_ids is not None else "full"
         series_scope_kind = "scoped" if scoped_series_ids is not None else "full"
@@ -272,6 +269,56 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
         if not incremental_mode:
             return "full_mode_requested"
         return "incremental_no_ids_from_sources"
+
+    def _collect_scoped_movie_ids(
+        self,
+        *,
+        force_full_scope: bool,
+        incremental_mode: bool,
+        ingested_movie_ids: set[int],
+        auto_added_movie_ids: set[int],
+    ) -> tuple[set[int] | None, set[int]]:
+        scoped_movie_ids: set[int] | None = None
+        queued_movie_ids: set[int] = set()
+        if self.radarr_enabled:
+            queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
+            if not force_full_scope and queued_movie_ids:
+                scoped_movie_ids = queued_movie_ids
+        if not force_full_scope:
+            if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
+                if scoped_movie_ids is None:
+                    scoped_movie_ids = set(ingested_movie_ids)
+                else:
+                    scoped_movie_ids.update(ingested_movie_ids)
+            if auto_added_movie_ids and (incremental_mode or scoped_movie_ids is not None):
+                if scoped_movie_ids is None:
+                    scoped_movie_ids = set(auto_added_movie_ids)
+                else:
+                    scoped_movie_ids.update(auto_added_movie_ids)
+        return scoped_movie_ids, queued_movie_ids
+
+    def _resolve_ids_from_affected_paths(
+        self,
+        affected_paths: set[Path],
+        scoped_movie_ids: set[int] | None,
+        scoped_series_ids: set[int] | None,
+    ) -> tuple[set[int] | None, set[int] | None]:
+        """Resolve movie/series IDs from affected paths via provenance DB."""
+        if scoped_movie_ids is None and self.radarr_enabled:
+            movie_proj = getattr(self, "movie_projection", None)
+            if movie_proj is not None:
+                path_movie_ids = movie_proj.state_store.resolve_movie_ids_by_paths(affected_paths)
+                if path_movie_ids:
+                    scoped_movie_ids = path_movie_ids
+        if scoped_series_ids is None and self.sonarr_enabled and self.sonarr_sync_enabled:
+            sonarr_proj = getattr(self, "sonarr_projection", None)
+            if sonarr_proj is not None:
+                path_series_ids = sonarr_proj.state_store.resolve_series_ids_by_paths(
+                    affected_paths
+                )
+                if path_series_ids:
+                    scoped_series_ids = path_series_ids
+        return scoped_movie_ids, scoped_series_ids
 
     def _log_scope_resolution(
         self,

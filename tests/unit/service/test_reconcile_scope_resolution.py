@@ -19,6 +19,7 @@ def test_scope_resolution_full_mode_does_not_seed_from_ingest_only(tmp_path: Pat
     scope = service._resolve_projection_scope(
         force_full_scope=False,
         incremental_mode=False,
+        affected_paths=None,
         ingested_movie_ids={101},
         auto_added_movie_ids=set(),
         auto_added_series_ids=set(),
@@ -34,6 +35,7 @@ def test_scope_resolution_incremental_mode_seeds_from_ingest(tmp_path: Path) -> 
     scope = service._resolve_projection_scope(
         force_full_scope=False,
         incremental_mode=True,
+        affected_paths=None,
         ingested_movie_ids={101},
         auto_added_movie_ids={202},
         auto_added_series_ids={303},
@@ -58,6 +60,7 @@ def test_scope_resolution_force_full_drains_queue_without_scoping(tmp_path: Path
     scope = service._resolve_projection_scope(
         force_full_scope=True,
         incremental_mode=True,
+        affected_paths=None,
         ingested_movie_ids={101},
         auto_added_movie_ids={202},
         auto_added_series_ids={303},

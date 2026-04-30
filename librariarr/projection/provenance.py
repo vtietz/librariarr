@@ -183,6 +183,54 @@ class ProjectionStateStore:
                     (movie_id,),
                 )
 
+    def resolve_movie_ids_by_paths(self, paths: set[Path]) -> set[int]:
+        """Resolve movie IDs whose managed_folder or dest_path matches any of the given paths."""
+        if not paths:
+            return set()
+        with self._lock:
+            with self._connect() as connection:
+                result: set[int] = set()
+                for p in paths:
+                    path_str = str(p)
+                    # Search managed folder table (exact or parent match)
+                    cursor = connection.execute(
+                        "SELECT movie_id FROM movie_managed_folders"
+                        " WHERE managed_folder = ? OR managed_folder LIKE ?",
+                        (path_str, path_str + "/%"),
+                    )
+                    result.update(int(row[0]) for row in cursor.fetchall())
+                    # Search projected files dest_path (prefix match for shadow paths)
+                    if not result:
+                        cursor = connection.execute(
+                            "SELECT DISTINCT movie_id FROM projected_files WHERE dest_path LIKE ?",
+                            (path_str + "/%",),
+                        )
+                        result.update(int(row[0]) for row in cursor.fetchall())
+                return result
+
+    def resolve_series_ids_by_paths(self, paths: set[Path]) -> set[int]:
+        """Resolve series IDs whose managed_folder or dest_path matches any of the given paths."""
+        if not paths:
+            return set()
+        with self._lock:
+            with self._connect() as connection:
+                result: set[int] = set()
+                for p in paths:
+                    path_str = str(p)
+                    cursor = connection.execute(
+                        "SELECT series_id FROM series_managed_folders"
+                        " WHERE managed_folder = ? OR managed_folder LIKE ?",
+                        (path_str, path_str + "/%"),
+                    )
+                    result.update(int(row[0]) for row in cursor.fetchall())
+                    if not result:
+                        cursor = connection.execute(
+                            "SELECT DISTINCT movie_id FROM projected_files WHERE dest_path LIKE ?",
+                            (path_str + "/%",),
+                        )
+                        result.update(int(row[0]) for row in cursor.fetchall())
+                return result
+
     def get_managed_folders_by_series_ids(self) -> dict[int, Path]:
         """Return a mapping of series_id → managed folder from explicit mapping table."""
         with self._lock:
