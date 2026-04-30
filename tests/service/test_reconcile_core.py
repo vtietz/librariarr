@@ -250,6 +250,46 @@ def test_reconcile_projects_auto_added_movies_immediately_in_incremental_mode(
     assert None not in projection_calls
 
 
+def test_reconcile_existing_movie_keeps_existing_radarr_title_for_path(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Zimmer mit Aussicht (1986) FSK12"
+    movie_dir.mkdir(parents=True)
+    (movie_dir / "movie.mkv").write_text("x", encoding="utf-8")
+
+    config = make_config(
+        managed_root,
+        library_root,
+        sync_enabled=True,
+        auto_add_unmatched=True,
+    )
+    service = LibrariArrService(config)
+
+    german_path = library_root / "Zimmer mit Aussicht (1986)"
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(
+                3321,
+                "Zimmer mit Aussicht",
+                1986,
+                german_path,
+            )
+        ],
+        quality_profiles=[{"id": 7, "name": "1080p"}],
+        lookup_results=[{"title": "A Room with a View", "year": 1986, "tmdbId": 3321}],
+    )
+
+    service.reconcile()
+
+    # Existing Radarr movie path is already canonical for that movie entity and
+    # should not be switched to the lookup candidate's localized title.
+    assert all(
+        path != str(library_root / "A Room with a View (1986)")
+        for movie_id, path in service.radarr.updated_paths
+        if movie_id == 3321
+    )
+
+
 def test_reconcile_ingests_movie_from_library_root_before_projection(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"

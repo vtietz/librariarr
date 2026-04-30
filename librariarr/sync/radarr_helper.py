@@ -98,6 +98,31 @@ class RadarrSyncHelper:
             return title
         return canonical_name_from_folder(safe_path_component(fallback_folder.name))
 
+    def _canonical_name_for_existing_movie(
+        self,
+        *,
+        existing_movie: dict,
+        candidate: dict,
+        fallback_folder: Path,
+    ) -> str:
+        """Build canonical path name for existing Radarr entities.
+
+        Prefer existing Radarr title to avoid locale/title drift, but backfill
+        missing year from lookup candidate when available.
+        """
+        existing_title = str(existing_movie.get("title") or "").strip()
+        existing_year = existing_movie.get("year")
+        candidate_year = candidate.get("year")
+
+        if existing_title:
+            if isinstance(existing_year, int):
+                return f"{existing_title} ({existing_year})"
+            if isinstance(candidate_year, int):
+                return f"{existing_title} ({candidate_year})"
+            return existing_title
+
+        return self._canonical_name_from_movie(candidate, fallback_folder)
+
     def _managed_root_priority(self, folder: Path) -> int | None:
         """Return the config-order index of the mapping containing *folder*.
 
@@ -391,6 +416,14 @@ class RadarrSyncHelper:
 
         existing_movie = self._find_existing_movie(candidate, target_folder, movies_cache)
         if existing_movie is not None:
+            # Keep path naming aligned with the existing Radarr entity, not the
+            # lookup candidate metadata (which may use a different locale/title).
+            canonical_name = self._canonical_name_for_existing_movie(
+                existing_movie=existing_movie,
+                candidate=candidate,
+                fallback_folder=folder,
+            )
+            target_folder = library_root / safe_path_component(canonical_name)
             return self._reconcile_existing_movie(
                 existing_movie=existing_movie,
                 target_folder=target_folder,
