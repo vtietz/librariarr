@@ -1,4 +1,5 @@
-import { Badge, Button, Card, Group, Loader, Stack, Text } from "@mantine/core";
+import { Badge, Button, Card, Group, Loader, Stack, Text, ThemeIcon } from "@mantine/core";
+import { IconCheck, IconCircleDot, IconClock } from "@tabler/icons-react";
 import type { RuntimeStatusResponse } from "../../api/client";
 import { formatAge, formatElapsed } from "../dashboardFormatters";
 
@@ -10,64 +11,109 @@ type Props = {
 };
 
 function healthBadgeColor(status: string): string {
-  if (status === "ok") {
-    return "green";
-  }
-  if (status === "degraded") {
-    return "yellow";
-  }
+  if (status === "ok") return "green";
+  if (status === "degraded") return "yellow";
   return "gray";
 }
 
 function stateBadgeColor(state: string): string {
-  if (state === "running") {
-    return "blue";
-  }
-  if (state === "error") {
-    return "red";
-  }
+  if (state === "running") return "blue";
+  if (state === "error") return "red";
   return "gray";
 }
 
-function phaseLabel(phase: string | null | undefined): string {
-  switch (phase) {
-    case "reconcile":
-      return "Starting…";
-    case "startup_full_reconcile":
-      return "Starting…";
-    case "running":
-      return "Running…";
-    case "inventory_fetched":
-      return "Fetched inventory…";
-    case "scope_resolved":
-      return "Resolving scope…";
-    case "planning_movies":
-      return "Planning movie projection…";
-    case "planning_series":
-      return "Planning series projection…";
-    case "auto_add_movies":
-      return "Resolving unmatched movies…";
-    case "auto_add_series":
-      return "Resolving unmatched series…";
-    case "indexed":
-      return "Projecting…";
-    case "applied":
-      return "Applying…";
-    case "cleaned":
-      return "Cleaning up…";
-    case "completed":
-      return "Finishing…";
-    default:
-      return "Working…";
+// ── Step Pipeline ──────────────────────────────────────────────────────
+
+type StepDef = {
+  id: string;
+  label: string;
+  phases: string[];
+};
+
+const SYNC_STEPS: StepDef[] = [
+  { id: "fetch", label: "Fetch data", phases: ["reconcile", "startup_full_reconcile", "running", "inventory_fetched"] },
+  { id: "scope", label: "Resolve scope", phases: ["scope_resolved"] },
+  { id: "plan", label: "Plan projections", phases: ["planning_movies", "planning_series"] },
+  { id: "autoadd", label: "Auto-add unmatched", phases: ["auto_add_movies", "auto_add_series"] },
+  { id: "apply", label: "Apply links", phases: ["indexed", "applied"] },
+  { id: "cleanup", label: "Cleanup", phases: ["cleaned", "completed"] },
+];
+
+type StepState = "pending" | "active" | "done";
+
+function resolveStepStates(phase: string | null | undefined): StepState[] {
+  if (!phase) return SYNC_STEPS.map(() => "pending");
+
+  let activeIdx = -1;
+  for (let i = 0; i < SYNC_STEPS.length; i++) {
+    if (SYNC_STEPS[i].phases.includes(phase)) {
+      activeIdx = i;
+      break;
+    }
   }
+
+  if (activeIdx === -1) return SYNC_STEPS.map(() => "pending");
+
+  return SYNC_STEPS.map((_, i) => {
+    if (i < activeIdx) return "done";
+    if (i === activeIdx) return "active";
+    return "pending";
+  });
 }
 
-function buildProgressText(
+function StepIcon({ state }: { state: StepState }) {
+  if (state === "done") {
+    return (
+      <ThemeIcon size={16} radius="xl" color="teal" variant="filled">
+        <IconCheck size={10} />
+      </ThemeIcon>
+    );
+  }
+  if (state === "active") {
+    return (
+      <ThemeIcon size={16} radius="xl" color="blue" variant="filled">
+        <IconCircleDot size={10} />
+      </ThemeIcon>
+    );
+  }
+  return (
+    <ThemeIcon size={16} radius="xl" color="gray" variant="light">
+      <IconClock size={10} />
+    </ThemeIcon>
+  );
+}
+
+function SyncStepPipeline({ phase }: { phase: string | null | undefined }) {
+  const states = resolveStepStates(phase);
+  return (
+    <Group gap={4} wrap="nowrap">
+      {SYNC_STEPS.map((step, i) => (
+        <Group key={step.id} gap={3} wrap="nowrap">
+          <StepIcon state={states[i]} />
+          <Text
+            size="xs"
+            c={states[i] === "active" ? "blue" : states[i] === "done" ? "teal" : "dimmed"}
+            fw={states[i] === "active" ? 600 : 400}
+          >
+            {step.label}
+          </Text>
+          {i < SYNC_STEPS.length - 1 && (
+            <Text size="xs" c="dimmed">›</Text>
+          )}
+        </Group>
+      ))}
+    </Group>
+  );
+}
+
+// ── Progress detail ────────────────────────────────────────────────────
+
+function buildProgressDetail(
   task: RuntimeStatusResponse["current_task"],
 ): string | null {
   if (task.state !== "running") return null;
 
-  const parts: string[] = [phaseLabel(task.phase)];
+  const parts: string[] = [];
 
   const moviesSeen = task.movie_folders_seen ?? 0;
   const seriesSeen = task.series_folders_seen ?? 0;
@@ -79,14 +125,7 @@ function buildProgressText(
   }
 
   const links = task.created_links ?? 0;
-  if (links > 0) parts.push(`${links} links`);
-
-  if (task.active_movie_root) {
-    parts.push(`root ${task.active_movie_root}`);
-  }
-  if (task.active_series_root) {
-    parts.push(`series root ${task.active_series_root}`);
-  }
+  if (links > 0) parts.push(`${links} links created`);
 
   const movieProcessed = task.movie_items_processed ?? 0;
   const movieTotal = task.movie_items_total ?? 0;
@@ -94,10 +133,10 @@ function buildProgressText(
   const seriesTotal = task.series_items_total ?? 0;
   const progressCounters: string[] = [];
   if (movieTotal > 0) {
-    progressCounters.push(`${movieProcessed}/${movieTotal} movies processed`);
+    progressCounters.push(`${movieProcessed}/${movieTotal} movies`);
   }
   if (seriesTotal > 0) {
-    progressCounters.push(`${seriesProcessed}/${seriesTotal} series processed`);
+    progressCounters.push(`${seriesProcessed}/${seriesTotal} series`);
   }
   if (progressCounters.length > 0) {
     parts.push(progressCounters.join(", "));
@@ -107,7 +146,7 @@ function buildProgressText(
     parts.push(formatElapsed(task.started_at));
   }
 
-  return parts.join(" · ");
+  return parts.length > 0 ? parts.join(" · ") : null;
 }
 
 function buildLastSyncText(
@@ -158,9 +197,16 @@ export default function SyncStatusCard({
   const healthReason = runtimeStatus?.health?.reasons?.[0] ?? "Waiting for status";
   const taskState = runtimeStatus?.current_task.state ?? "idle";
   const lastSyncText = buildLastSyncText(runtimeStatus?.last_reconcile ?? null);
-  const progressText = buildProgressText(
-    runtimeStatus?.current_task ?? { state: "idle", phase: null, trigger_source: null, started_at: null, updated_at: null, error: null },
-  );
+  const currentTask = runtimeStatus?.current_task ?? {
+    state: "idle" as const,
+    phase: null,
+    trigger_source: null,
+    started_at: null,
+    updated_at: null,
+    error: null,
+  };
+  const progressDetail = buildProgressDetail(currentTask);
+  const isRunning = currentTask.state === "running";
 
   return (
     <Card withBorder>
@@ -186,11 +232,14 @@ export default function SyncStatusCard({
         <Text size="sm" c="dimmed">
           {healthReason}
         </Text>
-        {progressText && (
+        {isRunning && (
+          <SyncStepPipeline phase={currentTask.phase} />
+        )}
+        {progressDetail && (
           <Group gap="xs">
             <Loader size={12} />
             <Text size="xs" c="blue">
-              {progressText}
+              {progressDetail}
             </Text>
           </Group>
         )}

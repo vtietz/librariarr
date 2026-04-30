@@ -97,17 +97,40 @@ function CoverageCard({
   );
 }
 
+/**
+ * Derive matched/unmatched totals from per-root stats.
+ * This is always up-to-date (updated during projection) and reflects
+ * the full library, unlike incremental reconcile metrics which are scoped.
+ */
+function statsFromRoots(
+  roots: NonNullable<RuntimeStatusResponse["library_root_stats"]>,
+  arrType: "radarr" | "sonarr",
+): { matched: number; unmatched: number } | null {
+  const filtered = roots.filter((r) => r.arr_type === arrType);
+  if (filtered.length === 0) return null;
+  let matched = 0;
+  let unmatched = 0;
+  for (const r of filtered) {
+    matched += r.matched;
+    unmatched += r.skipped;
+  }
+  return { matched, unmatched };
+}
+
 export default function LibraryStatsCards({ runtimeStatus }: Props) {
-  // Prefer last full reconcile for library-wide coverage stats.
-  // Incremental reconciles only report scoped counts (e.g. 1 movie)
-  // which would be misleading as overall library metrics.
   const fullReconcile = runtimeStatus?.last_full_reconcile ?? null;
   const currentTask =
     runtimeStatus?.current_task.state === "running"
       ? runtimeStatus.current_task
       : null;
   const lastReconcile = runtimeStatus?.last_reconcile ?? null;
+  const roots = runtimeStatus?.library_root_stats ?? [];
 
+  // Primary source: per-root stats (always current, updated live during projection)
+  const movieRootStats = statsFromRoots(roots, "radarr");
+  const seriesRootStats = statsFromRoots(roots, "sonarr");
+
+  // Fallback: reconcile-level metrics (full reconcile preferred)
   const hasFullMetrics =
     fullReconcile != null &&
     (typeof fullReconcile.matched_movies === "number" ||
@@ -116,21 +139,31 @@ export default function LibraryStatsCards({ runtimeStatus }: Props) {
     currentTask != null &&
     (typeof currentTask.matched_movies === "number" ||
       typeof currentTask.matched_series === "number");
-  const metrics = hasFullMetrics
+  const reconcileMetrics = hasFullMetrics
     ? fullReconcile
     : hasCurrentMetrics
       ? currentTask
       : lastReconcile;
 
+  // Use per-root stats when available, otherwise fall back to reconcile metrics
+  const movieMatched = movieRootStats?.matched ?? reconcileMetrics?.matched_movies;
+  const movieUnmatched = movieRootStats?.unmatched ?? reconcileMetrics?.unmatched_movies;
+  const seriesMatched = seriesRootStats?.matched ?? reconcileMetrics?.matched_series;
+  const seriesUnmatched = seriesRootStats?.unmatched ?? reconcileMetrics?.unmatched_series;
+
   const movieInProgress =
-    currentTask != null && !hasFullMetrics && !hasCurrentMetrics
+    currentTask != null &&
+    movieMatched === undefined &&
+    movieUnmatched === undefined
       ? {
           seen: currentTask.movie_folders_seen ?? 0,
           projected: currentTask.movie_items_projected ?? 0,
         }
       : null;
   const seriesInProgress =
-    currentTask != null && !hasFullMetrics && !hasCurrentMetrics
+    currentTask != null &&
+    seriesMatched === undefined &&
+    seriesUnmatched === undefined
       ? {
           seen: currentTask.series_folders_seen ?? 0,
           projected: currentTask.series_items_projected ?? 0,
@@ -141,14 +174,14 @@ export default function LibraryStatsCards({ runtimeStatus }: Props) {
     <SimpleGrid cols={{ base: 1, sm: 2 }}>
       <CoverageCard
         label="Movies"
-        matched={metrics?.matched_movies}
-        unmatched={metrics?.unmatched_movies}
+        matched={movieMatched}
+        unmatched={movieUnmatched}
         inProgress={movieInProgress}
       />
       <CoverageCard
         label="Series"
-        matched={metrics?.matched_series}
-        unmatched={metrics?.unmatched_series}
+        matched={seriesMatched}
+        unmatched={seriesUnmatched}
         inProgress={seriesInProgress}
       />
     </SimpleGrid>
