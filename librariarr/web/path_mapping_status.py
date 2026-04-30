@@ -119,11 +119,81 @@ def apply_path_mapping_outcomes(
     return items
 
 
+def _find_radarr_match(
+    *,
+    config: AppConfig,
+    virtual_paths: set[str],
+    movies_inventory: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        movies = movies_inventory
+        if movies is None:
+            radarr_client = RadarrClient(
+                config.radarr.url,
+                config.radarr.api_key,
+                refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
+            )
+            movies = radarr_client.get_movies()
+        for movie in movies:
+            movie_path = _normalize_media_path(str(movie.get("path") or ""))
+            if movie_path in virtual_paths:
+                return (
+                    {
+                        "status": "success",
+                        "arr": "radarr",
+                        "message": str(movie.get("title") or "Found in Radarr."),
+                        "movie_id": movie.get("id") if isinstance(movie.get("id"), int) else None,
+                        "series_id": None,
+                    },
+                    None,
+                )
+    except Exception as exc:
+        return None, f"Radarr: {exc}"
+    return None, None
+
+
+def _find_sonarr_match(
+    *,
+    config: AppConfig,
+    virtual_paths: set[str],
+    series_inventory: list[dict[str, Any]] | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    try:
+        series_items = series_inventory
+        if series_items is None:
+            sonarr_client = SonarrClient(
+                config.sonarr.url,
+                config.sonarr.api_key,
+                refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
+            )
+            series_items = sonarr_client.get_series()
+        for series in series_items:
+            series_path = _normalize_media_path(str(series.get("path") or ""))
+            if series_path in virtual_paths:
+                return (
+                    {
+                        "status": "success",
+                        "arr": "sonarr",
+                        "message": str(series.get("title") or "Found in Sonarr."),
+                        "movie_id": None,
+                        "series_id": (
+                            series.get("id") if isinstance(series.get("id"), int) else None
+                        ),
+                    },
+                    None,
+                )
+    except Exception as exc:
+        return None, f"Sonarr: {exc}"
+    return None, None
+
+
 def build_path_mapping_outcome(
     *,
     real_path: str,
     config: AppConfig,
     mapped_cache: MappedDirectoriesCache,
+    movies_inventory: list[dict[str, Any]] | None = None,
+    series_inventory: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     normalized_real_path = _normalize_real_path(real_path)
     if not normalized_real_path:
@@ -155,46 +225,26 @@ def build_path_mapping_outcome(
     arr_errors: list[str] = []
 
     if config.radarr.enabled:
-        try:
-            radarr_client = RadarrClient(
-                config.radarr.url,
-                config.radarr.api_key,
-                refresh_debounce_seconds=config.radarr.refresh_debounce_seconds,
-            )
-            for movie in radarr_client.get_movies():
-                movie_path = _normalize_media_path(str(movie.get("path") or ""))
-                if movie_path in virtual_paths:
-                    return {
-                        "status": "success",
-                        "arr": "radarr",
-                        "message": str(movie.get("title") or "Found in Radarr."),
-                        "movie_id": movie.get("id") if isinstance(movie.get("id"), int) else None,
-                        "series_id": None,
-                    }
-        except Exception as exc:
-            arr_errors.append(f"Radarr: {exc}")
+        radarr_match, radarr_error = _find_radarr_match(
+            config=config,
+            virtual_paths=virtual_paths,
+            movies_inventory=movies_inventory,
+        )
+        if radarr_match is not None:
+            return radarr_match
+        if radarr_error:
+            arr_errors.append(radarr_error)
 
     if config.sonarr.enabled:
-        try:
-            sonarr_client = SonarrClient(
-                config.sonarr.url,
-                config.sonarr.api_key,
-                refresh_debounce_seconds=config.sonarr.refresh_debounce_seconds,
-            )
-            for series in sonarr_client.get_series():
-                series_path = _normalize_media_path(str(series.get("path") or ""))
-                if series_path in virtual_paths:
-                    return {
-                        "status": "success",
-                        "arr": "sonarr",
-                        "message": str(series.get("title") or "Found in Sonarr."),
-                        "movie_id": None,
-                        "series_id": (
-                            series.get("id") if isinstance(series.get("id"), int) else None
-                        ),
-                    }
-        except Exception as exc:
-            arr_errors.append(f"Sonarr: {exc}")
+        sonarr_match, sonarr_error = _find_sonarr_match(
+            config=config,
+            virtual_paths=virtual_paths,
+            series_inventory=series_inventory,
+        )
+        if sonarr_match is not None:
+            return sonarr_match
+        if sonarr_error:
+            arr_errors.append(sonarr_error)
 
     if arr_errors:
         return {

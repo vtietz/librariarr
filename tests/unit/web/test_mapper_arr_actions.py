@@ -2,6 +2,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from librariarr.inventory_snapshot import InventorySnapshotStore
 from librariarr.web import create_app
 
 
@@ -254,3 +255,73 @@ def test_scoped_reconcile_status_is_exposed_in_mapped_directories(
     assert item["last_reconcile_arr"] == "radarr"
     assert item["last_reconcile_movie_id"] == 101
     assert isinstance(item["last_reconcile_updated_at_ms"], int)
+
+
+def test_scoped_reconcile_path_outcome_uses_reconcile_inventory_snapshot(
+    tmp_path: Path, monkeypatch
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    movie_dir = nested_root / "Movie One"
+    movie_dir.mkdir()
+    (shadow_root / "Movie One").symlink_to(movie_dir, target_is_directory=True)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    snapshot_store = InventorySnapshotStore()
+    snapshot_store.update(
+        movies=[{"id": 88, "title": "Movie One", "path": str(shadow_root / "Movie One")}],
+        series=[],
+        timestamp=1.0,
+    )
+
+    class StubService:
+        def __init__(self, *_args, **_kwargs):
+            self.inventory_snapshot_store = snapshot_store
+
+        def reconcile(
+            self,
+            affected_paths: set[Path] | None = None,
+            *,
+            refresh_arr_root_availability: bool = True,
+        ):
+            return False
+
+    captured_inventory: list[tuple[list[dict] | None, list[dict] | None]] = []
+
+    def _capture_outcome(**kwargs):
+        captured_inventory.append(
+            (
+                kwargs.get("movies_inventory"),
+                kwargs.get("series_inventory"),
+            )
+        )
+        return {
+            "status": "success",
+            "arr": "radarr",
+            "message": "Movie One",
+            "movie_id": 88,
+            "series_id": None,
+        }
+
+    monkeypatch.setattr("librariarr.web.maintenance_ops.LibrariArrService", StubService)
+    monkeypatch.setattr(
+        "librariarr.web.maintenance_ops.build_path_mapping_outcome",
+        _capture_outcome,
+    )
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.post("/api/maintenance/reconcile", params={"path": str(movie_dir)})
+
+    assert response.status_code == 200
+    job = _wait_for_job(client, response.json()["job_id"])
+    assert job["status"] == "succeeded"
+    assert captured_inventory == [
+        ([{"id": 88, "title": "Movie One", "path": str(shadow_root / "Movie One")}], [])
+    ]

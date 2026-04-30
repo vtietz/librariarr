@@ -7,6 +7,7 @@ from pathlib import Path
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .common import LOG
 from .reconcile_helpers import (
+    AffectedPathMatcher,
     discover_unmatched_folders,
     managed_equivalent_path,
     resolve_managed_root_for_folder,
@@ -19,6 +20,7 @@ class ServiceAutoAddMixin:
     def _auto_add_unmatched_movies(
         self,
         affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None = None,
         movies_inventory: list[dict] | None = None,
     ) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.auto_add_unmatched):
@@ -34,6 +36,7 @@ class ServiceAutoAddMixin:
                 LOG.warning("Skipping Radarr auto-add: inventory fetch failed: %s", exc)
                 return set()
 
+        resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
         existing_paths = {
             managed_path.resolve(strict=False)
             for managed_path in (
@@ -50,6 +53,7 @@ class ServiceAutoAddMixin:
             mappings=self.movie_root_mappings,
             existing_paths=existing_paths,
             affected_paths=affected_paths,
+            matcher=resolved_matcher,
             discover_fn=discover_movie_folders,
             video_exts=self.video_exts,
             scan_exclude_paths=self.scan_exclude_paths,
@@ -115,6 +119,7 @@ class ServiceAutoAddMixin:
     def _auto_add_unmatched_series(
         self,
         affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None = None,
         series_inventory: list[dict] | None = None,
     ) -> set[int]:
         if not (
@@ -132,6 +137,7 @@ class ServiceAutoAddMixin:
                 LOG.warning("Skipping Sonarr auto-add: inventory fetch failed: %s", exc)
                 return set()
 
+        resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
         existing_paths = {
             managed_path.resolve(strict=False)
             for managed_path in (
@@ -148,6 +154,7 @@ class ServiceAutoAddMixin:
             mappings=self.series_root_mappings,
             existing_paths=existing_paths,
             affected_paths=affected_paths,
+            matcher=resolved_matcher,
             discover_fn=discover_series_folders,
             video_exts=self.video_exts,
             scan_exclude_paths=self.scan_exclude_paths,

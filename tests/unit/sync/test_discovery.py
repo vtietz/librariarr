@@ -228,3 +228,43 @@ def test_discover_unmatched_folders_marks_non_canonical_names_unmatched(tmp_path
 
     assert movie_a in unmatched
     assert movie_b in unmatched
+
+
+def test_discover_unmatched_folders_scans_only_roots_matching_affected_paths(
+    tmp_path: Path,
+) -> None:
+    managed_a = tmp_path / "managed-a"
+    library_a = tmp_path / "library-a"
+    managed_b = tmp_path / "managed-b"
+    library_b = tmp_path / "library-b"
+    managed_a.mkdir()
+    library_a.mkdir()
+    managed_b.mkdir()
+    library_b.mkdir()
+
+    discovered_a = managed_a / "Movie A (2020)"
+    discovered_b = managed_b / "Movie B (2021)"
+    discovered_a.mkdir()
+    discovered_b.mkdir()
+
+    scanned_roots: list[Path] = []
+
+    def _discover(root: Path, _video_exts: set[str], _scan_exclude_paths: set[Path]) -> set[Path]:
+        scanned_roots.append(root)
+        if root == managed_a:
+            return {discovered_a}
+        if root == managed_b:
+            return {discovered_b}
+        return set()
+
+    unmatched = discover_unmatched_folders(
+        mappings=[(managed_a, library_a), (managed_b, library_b)],
+        existing_paths=set(),
+        affected_paths={discovered_a},
+        discover_fn=_discover,
+        video_exts={".mkv"},
+        scan_exclude_paths=set(),
+    )
+
+    assert scanned_roots == [managed_a]
+    assert unmatched == [discovered_a]

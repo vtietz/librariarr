@@ -59,10 +59,20 @@ def queue_maintenance_reconcile(
                 discovery_cache.request_refresh(config, force=False)
             path_outcome = None
             if path_value:
+                snapshot_movies = None
+                snapshot_series = None
+                snapshot_store = getattr(service, "inventory_snapshot_store", None)
+                if snapshot_store is not None:
+                    snapshot = snapshot_store.snapshot
+                    if snapshot.timestamp > 0:
+                        snapshot_movies = snapshot.movies
+                        snapshot_series = snapshot.series
                 path_outcome = build_path_mapping_outcome(
                     real_path=path_value,
                     config=config,
                     mapped_cache=mapped_cache,
+                    movies_inventory=snapshot_movies,
+                    series_inventory=snapshot_series,
                 )
                 record_path_mapping_outcome(
                     state_store=state_store,

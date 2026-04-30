@@ -25,6 +25,14 @@ class FakeSonarr:
         self.get_series_calls += 1
         return self.series
 
+    def get_series_by_ids(self, series_ids: set[int]) -> list[dict]:
+        self.get_series_calls += 1
+        return [
+            item
+            for item in self.series
+            if isinstance(item.get("id"), int) and int(item["id"]) in series_ids
+        ]
+
     def get_system_status(self) -> dict:
         return {"appName": "Sonarr", "version": "0.0.0-test"}
 

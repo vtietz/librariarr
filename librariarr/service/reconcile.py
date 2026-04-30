@@ -6,7 +6,11 @@ from pathlib import Path
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from .common import LOG
 from .reconcile_autoadd import ServiceAutoAddMixin
-from .reconcile_helpers import current_reconcile_source, run_stale_shadow_cleanup
+from .reconcile_helpers import (
+    AffectedPathMatcher,
+    current_reconcile_source,
+    run_stale_shadow_cleanup,
+)
 from .reconcile_ingest import ServiceIngestMixin
 from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
 
@@ -166,16 +170,20 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
         movies_inventory: list[dict] | None,
         series_inventory: list[dict] | None,
     ) -> tuple[set[int], set[int], set[int]]:
+        matcher = AffectedPathMatcher(affected_paths)
         ingested_movie_ids = self._ingest_movies_from_library_roots(
             affected_paths,
+            matcher=matcher,
             movies_inventory=movies_inventory,
         )
         auto_added_movie_ids = self._auto_add_unmatched_movies(
             affected_paths,
+            matcher=matcher,
             movies_inventory=movies_inventory,
         )
         auto_added_series_ids = self._auto_add_unmatched_series(
             affected_paths,
+            matcher=matcher,
             series_inventory=series_inventory,
         )
         return ingested_movie_ids, auto_added_movie_ids, auto_added_series_ids

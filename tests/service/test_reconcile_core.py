@@ -145,6 +145,56 @@ def test_reconcile_logs_scope_resolution_for_webhook_movie_scope(tmp_path: Path,
     queue.consume_movie_ids()
 
 
+def test_reconcile_scoped_projection_reuses_prefetched_inventory(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+
+    movie_a_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_b_dir = managed_root / "Fixture Catalog B (2009)"
+    movie_a_dir.mkdir(parents=True)
+    movie_b_dir.mkdir(parents=True)
+    (movie_a_dir / "a.mkv").write_text("a", encoding="utf-8")
+    (movie_b_dir / "b.mkv").write_text("b", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[
+            _movie(1, "Fixture Catalog A", 2008, movie_a_dir),
+            _movie(2, "Fixture Catalog B", 2009, movie_b_dir),
+        ]
+    )
+
+    captured_inventory: list[list[dict] | None] = []
+
+    def _capture_projection(scoped_movie_ids: set[int] | None, **kwargs) -> dict[str, object]:
+        assert scoped_movie_ids == {2}
+        captured_inventory.append(kwargs.get("inventory"))
+        return {
+            "scoped_movie_count": 1,
+            "planned_movies": 0,
+            "skipped_movies": 0,
+            "projected_files": 0,
+            "unchanged_files": 0,
+            "skipped_files": 0,
+            "matched_movie_ids": set(),
+            "per_root": [],
+        }
+
+    service.movie_projection.reconcile = _capture_projection
+
+    queue = get_radarr_webhook_queue()
+    queue.consume_movie_ids()
+    queue.enqueue(movie_id=2, event_type="Test", normalized_path=str(movie_b_dir))
+
+    service.reconcile(affected_paths={movie_b_dir})
+
+    assert captured_inventory == [service.radarr.movies]
+    assert service.radarr.get_movies_calls == 1
+
+    queue.consume_movie_ids()
+
+
 def test_reconcile_skips_movie_projection_when_radarr_disabled(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"

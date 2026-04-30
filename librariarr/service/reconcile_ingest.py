@@ -6,6 +6,7 @@ from pathlib import Path
 
 from .common import LOG
 from .reconcile_helpers import (
+    AffectedPathMatcher,
     folder_matches_affected_paths,
     ingest_files_from_library_folder,
 )
@@ -17,6 +18,7 @@ class ServiceIngestMixin:
     def _ingest_movies_from_library_roots(
         self,
         affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None = None,
         movies_inventory: list[dict] | None = None,
     ) -> set[int]:
         if not (self.radarr_enabled and self.sync_enabled and self.config.ingest.enabled):
@@ -32,13 +34,18 @@ class ServiceIngestMixin:
                 LOG.warning("Skipping ingest: Radarr inventory fetch failed: %s", exc)
                 return set()
 
+        resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
         if affected_paths:
             scoped_movies: list[dict] = []
             for movie in movies:
                 movie_path_raw = str(movie.get("path") or "").strip()
                 if not movie_path_raw:
                     continue
-                if folder_matches_affected_paths(Path(movie_path_raw), affected_paths):
+                if folder_matches_affected_paths(
+                    Path(movie_path_raw),
+                    affected_paths,
+                    matcher=resolved_matcher,
+                ):
                     scoped_movies.append(movie)
             movies = scoped_movies
 
@@ -58,6 +65,7 @@ class ServiceIngestMixin:
             moved_movie_id = self._ingest_movie_if_needed(
                 movie,
                 affected_paths=affected_paths,
+                matcher=resolved_matcher,
             )
             if moved_movie_id is not None:
                 moved_movie_ids.add(moved_movie_id)
@@ -78,6 +86,7 @@ class ServiceIngestMixin:
         movie: dict,
         *,
         affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
     ) -> int | None:
         movie_id = movie.get("id")
         movie_path_raw = str(movie.get("path") or "").strip()
@@ -93,10 +102,12 @@ class ServiceIngestMixin:
                 movie_id,
                 source_folder,
                 affected_paths=affected_paths,
+                matcher=matcher,
             )
         destination_info = self._resolve_ingest_target(
             source_folder,
             affected_paths=affected_paths,
+            matcher=matcher,
         )
         if destination_info is not None:
             managed_root, resolved_destination = destination_info
@@ -115,6 +126,7 @@ class ServiceIngestMixin:
             movie_id,
             source_folder,
             affected_paths=affected_paths,
+            matcher=matcher,
         )
 
     def _ingest_files_for_existing_movie(
@@ -123,6 +135,7 @@ class ServiceIngestMixin:
         source_folder: Path,
         *,
         affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
     ) -> int | None:
         mapping_info = self._resolve_ingest_mapping_for_folder(source_folder)
         if mapping_info is None:
@@ -133,7 +146,7 @@ class ServiceIngestMixin:
             return None
         if not source_folder.exists() or not source_folder.is_dir():
             return None
-        if not folder_matches_affected_paths(source_folder, affected_paths):
+        if not folder_matches_affected_paths(source_folder, affected_paths, matcher=matcher):
             return None
         proj = self.config.radarr.projection
         result = ingest_files_from_library_folder(
@@ -157,6 +170,7 @@ class ServiceIngestMixin:
         source_folder: Path,
         *,
         affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
     ) -> tuple[Path, Path] | None:
         mapping_and_relative = self._resolve_ingest_mapping_for_folder(source_folder)
         if mapping_and_relative is None:
@@ -165,7 +179,7 @@ class ServiceIngestMixin:
 
         if not source_folder.exists() or not source_folder.is_dir():
             return None
-        if not folder_matches_affected_paths(source_folder, affected_paths):
+        if not folder_matches_affected_paths(source_folder, affected_paths, matcher=matcher):
             return None
 
         destination_folder = managed_root / relative_folder

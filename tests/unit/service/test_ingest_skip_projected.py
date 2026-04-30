@@ -38,7 +38,7 @@ def test_ingest_skips_whole_folder_when_projections_exist(tmp_path: Path) -> Non
     service.movie_projection.state_store = mock_state_store
 
     with patch.object(service, "_resolve_ingest_target") as mock_resolve:
-        service._ingest_movie_if_needed(movie, affected_paths=None)
+        service._ingest_movie_if_needed(movie, affected_paths=None, matcher=None)
 
     mock_resolve.assert_not_called()
     mock_state_store.get_managed_paths_for_movie.assert_called_once_with(1)
@@ -62,7 +62,7 @@ def test_ingest_proceeds_with_whole_folder_when_no_projections(tmp_path: Path) -
     service.movie_projection.state_store = mock_state_store
 
     with patch.object(service, "_resolve_ingest_target", return_value=None) as mock_resolve:
-        service._ingest_movie_if_needed(movie, affected_paths=None)
+        service._ingest_movie_if_needed(movie, affected_paths=None, matcher=None)
 
     mock_resolve.assert_called_once()
 
@@ -80,7 +80,7 @@ def test_ingest_proceeds_when_movie_projection_is_none(tmp_path: Path) -> None:
     service.movie_projection = None
 
     with patch.object(service, "_resolve_ingest_target", return_value=None) as mock_resolve:
-        service._ingest_movie_if_needed(movie, affected_paths=None)
+        service._ingest_movie_if_needed(movie, affected_paths=None, matcher=None)
 
     mock_resolve.assert_called_once()
 
@@ -105,7 +105,7 @@ def test_ingest_proceeds_when_projections_in_different_folder(tmp_path: Path) ->
     service.movie_projection.state_store = mock_state_store
 
     with patch.object(service, "_resolve_ingest_target", return_value=None) as mock_resolve:
-        service._ingest_movie_if_needed(movie, affected_paths=None)
+        service._ingest_movie_if_needed(movie, affected_paths=None, matcher=None)
 
     mock_resolve.assert_called_once()
 
@@ -128,7 +128,7 @@ def test_ingest_ignores_stale_projection_entries(tmp_path: Path) -> None:
     service.movie_projection.state_store = mock_state_store
 
     with patch.object(service, "_resolve_ingest_target", return_value=None) as mock_resolve:
-        service._ingest_movie_if_needed(movie, affected_paths=None)
+        service._ingest_movie_if_needed(movie, affected_paths=None, matcher=None)
 
     mock_resolve.assert_called_once()
 
@@ -148,7 +148,13 @@ def test_ingest_scoped_filters_movies_before_iteration(tmp_path: Path) -> None:
 
     called_ids: list[int] = []
 
-    def _fake_ingest(movie: dict, *, affected_paths: set[Path] | None) -> int | None:
+    def _fake_ingest(
+        movie: dict,
+        *,
+        affected_paths: set[Path] | None,
+        matcher=None,
+    ) -> int | None:
+        del matcher
         called_ids.append(int(movie["id"]))
         return None
 

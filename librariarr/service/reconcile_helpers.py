@@ -12,24 +12,65 @@ from ..projection.planner import classify_file
 LOG = logging.getLogger(__name__)
 
 
+class AffectedPathMatcher:
+    def __init__(self, affected_paths: set[Path] | None) -> None:
+        self._affected_resolved = (
+            {path.resolve(strict=False) for path in affected_paths} if affected_paths else set()
+        )
+        self._match_cache: dict[Path, bool] = {}
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self._affected_resolved)
+
+    def matches(self, folder: Path) -> bool:
+        if not self._affected_resolved:
+            return True
+
+        folder_resolved = folder.resolve(strict=False)
+        cached = self._match_cache.get(folder_resolved)
+        if cached is not None:
+            return cached
+
+        for candidate_resolved in self._affected_resolved:
+            if folder_resolved == candidate_resolved:
+                self._match_cache[folder_resolved] = True
+                return True
+            if candidate_resolved in folder_resolved.parents:
+                self._match_cache[folder_resolved] = True
+                return True
+            if folder_resolved in candidate_resolved.parents:
+                self._match_cache[folder_resolved] = True
+                return True
+
+        self._match_cache[folder_resolved] = False
+        return False
+
+
 def discover_unmatched_folders(
     *,
     mappings: list[tuple[Path, Path]],
     existing_paths: set[Path],
     affected_paths: set[Path] | None,
+    matcher: AffectedPathMatcher | None = None,
     discover_fn,
     video_exts: set[str],
     scan_exclude_paths: set[Path],
 ) -> list[Path]:
+    resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
     discovered_folders: set[Path] = set()
-    for managed_root, _library_root in mappings:
+    for managed_root, library_root in mappings:
+        if resolved_matcher.enabled and not (
+            resolved_matcher.matches(managed_root) or resolved_matcher.matches(library_root)
+        ):
+            continue
         discovered_folders.update(discover_fn(managed_root, video_exts, scan_exclude_paths))
 
     return sorted(
         folder
         for folder in discovered_folders
         if not _folder_matches_existing(folder, existing_paths)
-        and folder_matches_affected_paths(folder, affected_paths)
+        and folder_matches_affected_paths(folder, affected_paths, matcher=resolved_matcher)
     )
 
 
@@ -44,20 +85,10 @@ def _folder_matches_existing(
 def folder_matches_affected_paths(
     folder: Path,
     affected_paths: set[Path] | None,
+    matcher: AffectedPathMatcher | None = None,
 ) -> bool:
-    if not affected_paths:
-        return True
-
-    folder_resolved = folder.resolve(strict=False)
-    for candidate in affected_paths:
-        candidate_resolved = candidate.resolve(strict=False)
-        if folder_resolved == candidate_resolved:
-            return True
-        if candidate_resolved in folder_resolved.parents:
-            return True
-        if folder_resolved in candidate_resolved.parents:
-            return True
-    return False
+    resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
+    return resolved_matcher.matches(folder)
 
 
 def resolve_managed_root_for_folder(
