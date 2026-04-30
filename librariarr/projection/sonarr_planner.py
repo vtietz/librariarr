@@ -18,6 +18,7 @@ def build_series_projection_plans(
     mappings: list[MovieProjectionMapping],
     scoped_series_ids: set[int] | None,
     planning_progress_callback: Callable[[int, int], None] | None = None,
+    provenance_folders: dict[int, Path] | None = None,
 ) -> list[MovieProjectionPlan]:
     plans: list[MovieProjectionPlan] = []
     sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
@@ -75,10 +76,35 @@ def build_series_projection_plans(
                 relative_series_folder=relative_series_folder,
                 mapping=mapping,
             )
-            if path_mode == "library":
-                managed_folder = mapping.managed_root / relative_series_folder
-            else:
+            if path_mode == "managed":
                 managed_folder = series_path
+            else:
+                managed_folder = mapping.managed_root / relative_series_folder
+
+            if not managed_folder.exists() or not managed_folder.is_dir():
+                stored_folder = provenance_folders.get(series_id) if provenance_folders else None
+                if (
+                    stored_folder
+                    and stored_folder.exists()
+                    and stored_folder.is_dir()
+                    and any(
+                        stored_folder == m.managed_root or m.managed_root in stored_folder.parents
+                        for m in sorted_mappings
+                    )
+                ):
+                    managed_folder = stored_folder
+                    for candidate_mapping in sorted_mappings:
+                        try:
+                            stored_folder.relative_to(candidate_mapping.managed_root)
+                            mapping = candidate_mapping
+                            break
+                        except ValueError:
+                            continue
+                    library_folder = _resolve_library_folder(
+                        series=series,
+                        relative_series_folder=relative_series_folder,
+                        mapping=mapping,
+                    )
 
             if not managed_folder.exists() or not managed_folder.is_dir():
                 plans.append(
@@ -113,6 +139,54 @@ def build_series_projection_plans(
             _emit_planning_progress(planning_progress_callback, processed_count, total_targets)
 
     return plans
+
+
+def repair_unmatched_series_folders(
+    *,
+    series_items: list[dict[str, Any]],
+    mappings: list[MovieProjectionMapping],
+    known_folders: dict[int, Path],
+) -> list[tuple[int, Path]]:
+    """Store managed folder mappings for series whose path resolves directly."""
+    sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
+    repairs: list[tuple[int, Path]] = []
+    managed_roots = {m.managed_root for m in mappings}
+
+    for series in series_items:
+        series_id = series.get("id")
+        if not isinstance(series_id, int):
+            continue
+
+        existing = known_folders.get(series_id)
+        if (
+            existing
+            and existing.exists()
+            and existing.is_dir()
+            and any(existing == mr or mr in existing.parents for mr in managed_roots)
+        ):
+            continue
+
+        series_path_raw = str(series.get("path") or "").strip()
+        if not series_path_raw:
+            continue
+
+        series_path = Path(series_path_raw)
+        mapping, relative_series_folder, path_mode = _resolve_mapping_for_series_path(
+            series_path,
+            sorted_mappings,
+        )
+        if mapping is None or relative_series_folder is None:
+            continue
+
+        if path_mode == "managed":
+            if series_path.exists() and series_path.is_dir():
+                repairs.append((series_id, series_path))
+        else:
+            direct = mapping.managed_root / relative_series_folder
+            if direct.exists() and direct.is_dir():
+                repairs.append((series_id, direct))
+
+    return repairs
 
 
 def _resolve_mapping_for_series_path(

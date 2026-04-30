@@ -56,6 +56,12 @@ class ProjectionStateStore:
                         managed_folder TEXT NOT NULL,
                         updated_at REAL NOT NULL DEFAULT (strftime('%s', 'now'))
                     );
+
+                    CREATE TABLE IF NOT EXISTS series_managed_folders (
+                        series_id INTEGER NOT NULL PRIMARY KEY,
+                        managed_folder TEXT NOT NULL,
+                        updated_at REAL NOT NULL DEFAULT (strftime('%s', 'now'))
+                    );
                     """
                 )
 
@@ -133,6 +139,47 @@ class ProjectionStateStore:
                 connection.execute(
                     "DELETE FROM movie_managed_folders WHERE movie_id = ?",
                     (movie_id,),
+                )
+
+    def get_managed_folders_by_series_ids(self) -> dict[int, Path]:
+        """Return a mapping of series_id → managed folder from explicit mapping table."""
+        with self._lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT series_id, managed_folder FROM series_managed_folders"
+                )
+                return {int(row[0]): Path(row[1]) for row in cursor.fetchall() if row[1]}
+
+    def set_managed_series_folder(self, series_id: int, managed_folder: Path) -> None:
+        """Store the managed folder for a series."""
+        with self._lock:
+            with self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO series_managed_folders (series_id, managed_folder, updated_at)
+                    VALUES (?, ?, strftime('%s', 'now'))
+                    ON CONFLICT(series_id) DO UPDATE SET
+                        managed_folder = excluded.managed_folder,
+                        updated_at = excluded.updated_at
+                    """,
+                    (series_id, str(managed_folder)),
+                )
+
+    def set_managed_series_folders_bulk(self, mappings: list[tuple[int, Path]]) -> None:
+        """Store managed folders for multiple series."""
+        if not mappings:
+            return
+        with self._lock:
+            with self._connect() as connection:
+                connection.executemany(
+                    """
+                    INSERT INTO series_managed_folders (series_id, managed_folder, updated_at)
+                    VALUES (?, ?, strftime('%s', 'now'))
+                    ON CONFLICT(series_id) DO UPDATE SET
+                        managed_folder = excluded.managed_folder,
+                        updated_at = excluded.updated_at
+                    """,
+                    [(series_id, str(folder)) for series_id, folder in mappings],
                 )
 
     def upsert_projected_files(self, records: list[ProjectedFileState]) -> None:

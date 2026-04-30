@@ -193,6 +193,7 @@ class ServiceAutoAddMixin:
             series_id = added_series.get("id")
             if isinstance(series_id, int):
                 added_series_ids.add(series_id)
+                self._store_series_folder_mapping(series_id, folder)
                 LOG.info(
                     "Queued series_id=%s for immediate series projection after Sonarr path "
                     "reconciliation: discovered_managed_root=%s discovered_folder=%s",
@@ -213,3 +214,9 @@ class ServiceAutoAddMixin:
         state_store = getattr(getattr(self, "movie_projection", None), "state_store", None)
         if state_store is not None:
             state_store.set_managed_folder(movie_id, folder)
+
+    def _store_series_folder_mapping(self, series_id: int, folder: Path) -> None:
+        """Persist series_id → managed folder mapping in provenance DB."""
+        state_store = getattr(getattr(self, "sonarr_projection", None), "state_store", None)
+        if state_store is not None:
+            state_store.set_managed_series_folder(series_id, folder)

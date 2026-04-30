@@ -12,7 +12,7 @@ from .bootstrap import probe_movie_root_mappings
 from .executor import MovieProjectionExecutor
 from .models import MovieProjectionMapping, MovieProjectionPlan
 from .provenance import ProjectionStateStore
-from .sonarr_planner import build_series_projection_plans
+from .sonarr_planner import build_series_projection_plans, repair_unmatched_series_folders
 
 
 class SonarrProjectionOrchestrator:
@@ -49,12 +49,17 @@ class SonarrProjectionOrchestrator:
             series_items = self.sonarr.get_series()
         else:
             series_items = self.sonarr.get_series_by_ids(scoped_series_ids)
+
+        if scoped_series_ids is None:
+            self._repair_managed_folder_mappings(series_items)
+
         plans = build_series_projection_plans(
             config=self.config,
             series_items=series_items,
             mappings=self.mappings,
             scoped_series_ids=scoped_series_ids,
             planning_progress_callback=planning_progress_callback,
+            provenance_folders=self.state_store.get_managed_folders_by_series_ids(),
         )
         normalized = self._normalize_arr_paths(series_items, plans)
         if normalized:
@@ -91,6 +96,21 @@ class SonarrProjectionOrchestrator:
             "per_root": metrics.per_root_list(),
             "normalized_paths": normalized,
         }
+
+    def _repair_managed_folder_mappings(self, series_items: list[dict[str, Any]]) -> None:
+        """Discover managed folders for unmatched series and store mappings."""
+        known_folders = self.state_store.get_managed_folders_by_series_ids()
+        repairs = repair_unmatched_series_folders(
+            series_items=series_items,
+            mappings=self.mappings,
+            known_folders=known_folders,
+        )
+        if repairs:
+            self.state_store.set_managed_series_folders_bulk(repairs)
+            self.log.info(
+                "Repaired %s managed folder mapping(s) for previously-unmatched series",
+                len(repairs),
+            )
 
     def _normalize_arr_paths(
         self,
