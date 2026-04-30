@@ -13,7 +13,7 @@ from ..config import AppConfig
 from .bootstrap import probe_movie_root_mappings
 from .executor import MovieProjectionExecutor
 from .models import MovieProjectionMapping, MovieProjectionPlan
-from .planner import build_movie_projection_plans
+from .planner import build_movie_projection_plans, repair_unmatched_managed_folders
 from .provenance import ProjectionStateStore
 
 
@@ -51,12 +51,18 @@ class MovieProjectionOrchestrator:
             movies = self.radarr.get_movies()
         else:
             movies = self.radarr.get_movies_by_ids(scoped_movie_ids)
+
+        # On full reconcile, repair unmatched managed folder mappings
+        if scoped_movie_ids is None:
+            self._repair_managed_folder_mappings(movies)
+
         plans = build_movie_projection_plans(
             config=self.config,
             movies=movies,
             mappings=self.mappings,
             scoped_movie_ids=scoped_movie_ids,
             planning_progress_callback=planning_progress_callback,
+            provenance_folders=self.state_store.get_managed_folders_by_movie_ids(),
         )
         normalized = self._normalize_arr_paths(movies, plans)
         if normalized:
@@ -113,6 +119,21 @@ class MovieProjectionOrchestrator:
         if refreshed > 0:
             self.log.info("Queued Radarr refresh for %s movie(s) after projection", refreshed)
         return refreshed
+
+    def _repair_managed_folder_mappings(self, movies: list[dict[str, Any]]) -> None:
+        """Discover managed folders for unmatched movies and store mappings."""
+        known_folders = self.state_store.get_managed_folders_by_movie_ids()
+        repairs = repair_unmatched_managed_folders(
+            movies=movies,
+            mappings=self.mappings,
+            known_folders=known_folders,
+        )
+        if repairs:
+            self.state_store.set_managed_folders_bulk(repairs)
+            self.log.info(
+                "Repaired %s managed folder mapping(s) for previously-unmatched movies",
+                len(repairs),
+            )
 
     def _normalize_arr_paths(
         self,

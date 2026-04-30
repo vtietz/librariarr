@@ -194,7 +194,7 @@ def test_discover_movie_folders_honors_exclude_paths_case_insensitive(tmp_path: 
     assert deleted_dir not in found
 
 
-def test_discover_unmatched_folders_matches_non_canonical_names(tmp_path: Path) -> None:
+def test_discover_unmatched_folders_marks_non_canonical_names_unmatched(tmp_path: Path) -> None:
     """Managed folders with non-canonical names (e.g. 'Title (Year) FSK6') should be
     recognized as already matched when Radarr has a canonical path 'Title (Year)'."""
     managed_root = tmp_path / "managed"
@@ -209,7 +209,9 @@ def test_discover_unmatched_folders_matches_non_canonical_names(tmp_path: Path) 
     (movie_b / "movie.mkv").write_text("x", encoding="utf-8")
 
     # existing_paths represents what managed_equivalent_path() returns:
-    # canonical names (without FSK suffix) resolved under managed_root
+    # canonical names (without FSK suffix) resolved under managed_root.
+    # Non-canonical managed folders should still be treated as unmatched so
+    # auto-add can resolve them via Radarr API and store movie_id->managed mapping.
     existing_paths = {
         (managed_root / "A Rainy Day in New York (2019)").resolve(strict=False),
         (managed_root / "Barbie (2023)").resolve(strict=False),
@@ -224,6 +226,5 @@ def test_discover_unmatched_folders_matches_non_canonical_names(tmp_path: Path) 
         scan_exclude_paths=set(),
     )
 
-    # Both folders should be recognized as matched (not unmatched)
-    assert movie_a not in unmatched
-    assert movie_b not in unmatched
+    assert movie_a in unmatched
+    assert movie_b in unmatched

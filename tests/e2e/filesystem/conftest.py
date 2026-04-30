@@ -39,6 +39,12 @@ class FakeRadarr:
         movie["path"] = new_path
         return True
 
+    def refresh_movie(self, movie_id: int) -> bool:
+        return True
+
+    def refresh_movies(self, movie_ids: set[int]) -> int:
+        return len(movie_ids)
+
 
 class FakeSonarr:
     def __init__(self, series: list[dict]) -> None:

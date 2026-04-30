@@ -7,8 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig
-from ..sync.discovery import discover_movie_folders
-from ..sync.naming import canonical_name_from_folder, safe_path_component
+from ..sync.naming import safe_path_component
 from .models import MovieProjectionMapping, MovieProjectionPlan, PlannedProjectionFile
 
 
@@ -19,10 +18,10 @@ def build_movie_projection_plans(
     mappings: list[MovieProjectionMapping],
     scoped_movie_ids: set[int] | None,
     planning_progress_callback: Callable[[int, int], None] | None = None,
+    provenance_folders: dict[int, Path] | None = None,
 ) -> list[MovieProjectionPlan]:
     plans: list[MovieProjectionPlan] = []
     sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
-    managed_lookup = _build_managed_folder_lookup(config=config, mappings=sorted_mappings)
 
     target_movies = [
         movie
@@ -77,37 +76,52 @@ def build_movie_projection_plans(
                 relative_movie_folder=relative_movie_folder,
                 mapping=mapping,
             )
-            if path_mode == "library":
-                managed_folder = mapping.managed_root / relative_movie_folder
-            else:
+
+            # Resolve managed folder: direct path first, then stored mapping
+            if path_mode == "managed":
                 managed_folder = movie_path
+            else:
+                managed_folder = mapping.managed_root / relative_movie_folder
 
             if not managed_folder.exists() or not managed_folder.is_dir():
-                fallback = _resolve_managed_fallback_folder(
-                    movie=movie,
-                    relative_movie_folder=relative_movie_folder,
-                    default_mapping=mapping,
-                    managed_lookup=managed_lookup,
-                )
-                if fallback is not None:
-                    mapping, managed_folder = fallback
+                # Use stored managed folder mapping (set by auto-add or repair)
+                stored_folder = provenance_folders.get(movie_id) if provenance_folders else None
+                if (
+                    stored_folder
+                    and stored_folder.exists()
+                    and stored_folder.is_dir()
+                    and any(
+                        stored_folder == m.managed_root or m.managed_root in stored_folder.parents
+                        for m in sorted_mappings
+                    )
+                ):
+                    managed_folder = stored_folder
+                    # Re-resolve mapping for the stored folder
+                    for candidate_mapping in sorted_mappings:
+                        try:
+                            stored_folder.relative_to(candidate_mapping.managed_root)
+                            mapping = candidate_mapping
+                            break
+                        except ValueError:
+                            continue
                     library_folder = _resolve_library_folder(
                         movie=movie,
                         relative_movie_folder=relative_movie_folder,
                         mapping=mapping,
                     )
-                if not managed_folder.exists() or not managed_folder.is_dir():
-                    plans.append(
-                        MovieProjectionPlan(
-                            movie_id=movie_id,
-                            title=title,
-                            managed_folder=managed_folder,
-                            library_folder=library_folder,
-                            mapping=mapping,
-                            skip_reason="managed_folder_missing",
-                        )
+
+            if not managed_folder.exists() or not managed_folder.is_dir():
+                plans.append(
+                    MovieProjectionPlan(
+                        movie_id=movie_id,
+                        title=title,
+                        managed_folder=managed_folder,
+                        library_folder=library_folder,
+                        mapping=mapping,
+                        skip_reason="managed_folder_missing",
                     )
-                    continue
+                )
+                continue
 
             files = _collect_projection_files(
                 managed_folder=managed_folder,
@@ -168,76 +182,53 @@ def _resolve_library_folder(
     return mapping.library_root / safe_path_component(fallback_name)
 
 
-def _build_managed_folder_lookup(
+def repair_unmatched_managed_folders(
     *,
-    config: AppConfig,
+    movies: list[dict[str, Any]],
     mappings: list[MovieProjectionMapping],
-) -> dict[str, list[tuple[MovieProjectionMapping, Path]]]:
-    lookup: dict[str, list[tuple[MovieProjectionMapping, Path]]] = {}
-    video_exts = set(
-        config.runtime.scan_video_extensions or config.radarr.projection.managed_video_extensions
-    )
-    exclude_patterns = list(config.paths.exclude_paths)
+    known_folders: dict[int, Path],
+) -> list[tuple[int, Path]]:
+    """Store managed folder mappings for movies whose path resolves directly.
 
-    for mapping in mappings:
-        for folder in discover_movie_folders(mapping.managed_root, video_exts, exclude_patterns):
-            key = folder.name.strip().lower()
-            if not key:
-                continue
-            entry = (mapping, folder)
-            lookup.setdefault(key, []).append(entry)
+    Returns (movie_id, managed_folder) pairs to store in provenance.
+    """
+    sorted_mappings = sorted(mappings, key=lambda item: len(item.managed_root.parts), reverse=True)
+    repairs: list[tuple[int, Path]] = []
+    managed_roots = {m.managed_root for m in mappings}
 
-            canonical_key = canonical_name_from_folder(folder.name).strip().lower()
-            if canonical_key and canonical_key != key:
-                lookup.setdefault(canonical_key, []).append(entry)
-
-    return lookup
-
-
-def _resolve_managed_fallback_folder(
-    *,
-    movie: dict[str, Any],
-    relative_movie_folder: Path,
-    default_mapping: MovieProjectionMapping,
-    managed_lookup: dict[str, list[tuple[MovieProjectionMapping, Path]]],
-) -> tuple[MovieProjectionMapping, Path] | None:
-    for key in _managed_lookup_keys(movie=movie, relative_movie_folder=relative_movie_folder):
-        candidates = managed_lookup.get(key, [])
-        if not candidates:
+    for movie in movies:
+        movie_id = movie.get("id")
+        if not isinstance(movie_id, int):
+            continue
+        # Skip movies that already have a valid stored mapping under a known managed root
+        existing = known_folders.get(movie_id)
+        if (
+            existing
+            and existing.exists()
+            and existing.is_dir()
+            and any(existing == mr or mr in existing.parents for mr in managed_roots)
+        ):
             continue
 
-        # Prefer candidates from the same managed root mapping first.
-        same_mapping = [item for item in candidates if item[0] == default_mapping]
-        if len(same_mapping) == 1:
-            return same_mapping[0]
-        if len(candidates) == 1:
-            return candidates[0]
-
-    return None
-
-
-def _managed_lookup_keys(*, movie: dict[str, Any], relative_movie_folder: Path) -> list[str]:
-    keys: list[str] = []
-
-    title = str(movie.get("title") or "").strip()
-    year = movie.get("year")
-    if title and isinstance(year, int):
-        keys.append(safe_path_component(f"{title} ({year})").lower())
-    if title:
-        keys.append(safe_path_component(title).lower())
-
-    leaf = relative_movie_folder.name.strip().lower()
-    if leaf:
-        keys.append(leaf)
-
-    seen: set[str] = set()
-    deduped: list[str] = []
-    for key in keys:
-        if not key or key in seen:
+        movie_path_raw = str(movie.get("path") or "").strip()
+        if not movie_path_raw:
             continue
-        seen.add(key)
-        deduped.append(key)
-    return deduped
+        movie_path = Path(movie_path_raw)
+        mapping, relative_movie_folder, path_mode = _resolve_mapping_for_movie_path(
+            movie_path, sorted_mappings
+        )
+        if mapping is None or relative_movie_folder is None:
+            continue
+
+        if path_mode == "managed":
+            if movie_path.exists() and movie_path.is_dir():
+                repairs.append((movie_id, movie_path))
+        else:
+            direct = mapping.managed_root / relative_movie_folder
+            if direct.exists() and direct.is_dir():
+                repairs.append((movie_id, direct))
+
+    return repairs
 
 
 def _collect_projection_files(

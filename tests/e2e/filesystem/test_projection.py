@@ -171,8 +171,8 @@ def test_projection_flattens_nested_library_path(tmp_path: Path) -> None:
 
 @pytest.mark.fs_e2e
 def test_projection_recovers_when_library_relative_path_is_stale(tmp_path: Path) -> None:
-    """If Radarr points to a stale library-relative folder path, projection should
-    still recover from managed master folders and rebuild canonical shadow links."""
+    """If Radarr points to a stale library-relative folder path, projection uses
+    stored managed-folder mappings to rebuild canonical shadow links."""
     managed_root, library_root = make_roots(tmp_path, "recover_stale_library_relative")
 
     managed_folder = managed_root / "Reclassified" / "Great Movie (2024)"
@@ -187,6 +187,7 @@ def test_projection_recovers_when_library_relative_path_is_stale(tmp_path: Path)
     radarr = FakeRadarr(movies=[make_movie(1, "Great Movie", 2024, stale_library_path)])
     service = LibrariArrService(config)
     service.radarr = radarr
+    service.movie_projection.state_store.set_managed_folder(1, managed_folder)
 
     service.reconcile()
 
@@ -199,8 +200,8 @@ def test_projection_recovers_when_library_relative_path_is_stale(tmp_path: Path)
 @pytest.mark.fs_e2e
 def test_projection_matches_non_canonical_managed_folder_name(tmp_path: Path) -> None:
     """When managed folders have non-canonical names (e.g. extra suffixes like FSK6),
-    the planner should still resolve them via canonical-name fallback lookup and
-    project hardlinks into the canonical library path."""
+    projection uses stored managed-folder mappings to project into canonical
+    library paths."""
     managed_root, library_root = make_roots(tmp_path, "non_canonical_managed_name")
 
     # Managed folder has a non-canonical suffix "FSK6"
@@ -219,6 +220,7 @@ def test_projection_matches_non_canonical_managed_folder_name(tmp_path: Path) ->
     )
     service = LibrariArrService(config)
     service.radarr = radarr
+    service.movie_projection.state_store.set_managed_folder(1, movie_dir)
 
     service.reconcile()
 

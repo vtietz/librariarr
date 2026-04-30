@@ -50,6 +50,12 @@ class ProjectionStateStore:
 
                     CREATE INDEX IF NOT EXISTS idx_projected_files_movie_id
                         ON projected_files (movie_id);
+
+                    CREATE TABLE IF NOT EXISTS movie_managed_folders (
+                        movie_id INTEGER NOT NULL PRIMARY KEY,
+                        managed_folder TEXT NOT NULL,
+                        updated_at REAL NOT NULL DEFAULT (strftime('%s', 'now'))
+                    );
                     """
                 )
 
@@ -78,6 +84,56 @@ class ProjectionStateStore:
                     (movie_id,),
                 )
                 return [(str(row[0]), str(row[1])) for row in cursor.fetchall()]
+
+    def get_managed_folders_by_movie_ids(self) -> dict[int, Path]:
+        """Return a mapping of movie_id → managed folder from the explicit mapping table."""
+        with self._lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT movie_id, managed_folder FROM movie_managed_folders"
+                )
+                return {int(row[0]): Path(row[1]) for row in cursor.fetchall() if row[1]}
+
+    def set_managed_folder(self, movie_id: int, managed_folder: Path) -> None:
+        """Store the managed folder for a movie."""
+        with self._lock:
+            with self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO movie_managed_folders (movie_id, managed_folder, updated_at)
+                    VALUES (?, ?, strftime('%s', 'now'))
+                    ON CONFLICT(movie_id) DO UPDATE SET
+                        managed_folder = excluded.managed_folder,
+                        updated_at = excluded.updated_at
+                    """,
+                    (movie_id, str(managed_folder)),
+                )
+
+    def set_managed_folders_bulk(self, mappings: list[tuple[int, Path]]) -> None:
+        """Store managed folders for multiple movies."""
+        if not mappings:
+            return
+        with self._lock:
+            with self._connect() as connection:
+                connection.executemany(
+                    """
+                    INSERT INTO movie_managed_folders (movie_id, managed_folder, updated_at)
+                    VALUES (?, ?, strftime('%s', 'now'))
+                    ON CONFLICT(movie_id) DO UPDATE SET
+                        managed_folder = excluded.managed_folder,
+                        updated_at = excluded.updated_at
+                    """,
+                    [(movie_id, str(folder)) for movie_id, folder in mappings],
+                )
+
+    def remove_managed_folder(self, movie_id: int) -> None:
+        """Remove the managed folder mapping for a movie."""
+        with self._lock:
+            with self._connect() as connection:
+                connection.execute(
+                    "DELETE FROM movie_managed_folders WHERE movie_id = ?",
+                    (movie_id,),
+                )
 
     def upsert_projected_files(self, records: list[ProjectedFileState]) -> None:
         if not records:

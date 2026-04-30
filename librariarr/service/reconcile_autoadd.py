@@ -97,6 +97,7 @@ class ServiceAutoAddMixin:
             movie_id = added_movie.get("id")
             if isinstance(movie_id, int):
                 added_movie_ids.add(movie_id)
+                self._store_managed_folder_mapping(movie_id, folder)
                 LOG.info(
                     "Resolved movie_id=%s for batched projection: managed_root=%s folder=%s",
                     movie_id,
@@ -206,3 +207,9 @@ class ServiceAutoAddMixin:
             len(unmatched_folders),
         )
         return added_series_ids
+
+    def _store_managed_folder_mapping(self, movie_id: int, folder: Path) -> None:
+        """Persist movie_id → managed folder mapping in provenance DB."""
+        state_store = getattr(getattr(self, "movie_projection", None), "state_store", None)
+        if state_store is not None:
+            state_store.set_managed_folder(movie_id, folder)
