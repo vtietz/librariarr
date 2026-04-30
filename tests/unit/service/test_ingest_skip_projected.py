@@ -131,3 +131,31 @@ def test_ingest_ignores_stale_projection_entries(tmp_path: Path) -> None:
         service._ingest_movie_if_needed(movie, affected_paths=None)
 
     mock_resolve.assert_called_once()
+
+
+def test_ingest_scoped_filters_movies_before_iteration(tmp_path: Path) -> None:
+    service, _managed_root, library_root = _build_service(tmp_path)
+
+    target_source = library_root / "Target Movie (2024)"
+    other_source = library_root / "Other Movie (2023)"
+    target_source.mkdir(parents=True)
+    other_source.mkdir(parents=True)
+
+    movies = [
+        make_movie(1, "Target Movie", 2024, target_source),
+        make_movie(2, "Other Movie", 2023, other_source),
+    ]
+
+    called_ids: list[int] = []
+
+    def _fake_ingest(movie: dict, *, affected_paths: set[Path] | None) -> int | None:
+        called_ids.append(int(movie["id"]))
+        return None
+
+    with patch.object(service, "_ingest_movie_if_needed", side_effect=_fake_ingest):
+        service._ingest_movies_from_library_roots(
+            affected_paths={target_source},
+            movies_inventory=movies,
+        )
+
+    assert called_ids == [1]

@@ -32,6 +32,16 @@ class ServiceIngestMixin:
                 LOG.warning("Skipping ingest: Radarr inventory fetch failed: %s", exc)
                 return set()
 
+        if affected_paths:
+            scoped_movies: list[dict] = []
+            for movie in movies:
+                movie_path_raw = str(movie.get("path") or "").strip()
+                if not movie_path_raw:
+                    continue
+                if folder_matches_affected_paths(Path(movie_path_raw), affected_paths):
+                    scoped_movies.append(movie)
+            movies = scoped_movies
+
         moved_movie_ids: set[int] = set()
         tracker = getattr(self, "runtime_status_tracker", None)
         total_movies = len(movies)
