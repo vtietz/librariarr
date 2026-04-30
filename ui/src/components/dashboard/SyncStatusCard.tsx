@@ -36,6 +36,7 @@ const SYNC_STEPS: StepDef[] = [
     label: "Fetch inventory",
     phases: ["reconcile", "startup_full_reconcile", "running", "inventory_fetched"],
   },
+  { id: "ingest", label: "Ingest library changes", phases: ["ingest_movies"] },
   { id: "scope", label: "Resolve scope", phases: ["scope_resolved"] },
   { id: "plan", label: "Plan projections", phases: ["planning_movies", "planning_series"] },
   {
@@ -89,6 +90,9 @@ function activeStepCounter(
   stepId: string,
   task: RuntimeStatusResponse["current_task"],
 ): string | null {
+  if (stepId === "ingest") {
+    return formatFolderCounter(task.movie_items_processed, task.movie_items_total);
+  }
   if (stepId === "plan") {
     return (
       formatFolderCounter(task.movie_items_processed, task.movie_items_total) ??
@@ -118,6 +122,7 @@ function phaseExplanation(task: RuntimeStatusResponse["current_task"]): string |
     startup_full_reconcile: "Starting initial full reconcile",
     running: "Starting reconcile",
     inventory_fetched: "Inventory fetched; preparing scope",
+    ingest_movies: "Checking library-root items and ingesting to managed roots",
     scope_resolved: "Scope resolved (deciding full vs incremental items)",
     planning_movies: "Planning movie projections",
     planning_series: "Planning series projections",

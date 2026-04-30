@@ -33,13 +33,33 @@ class ServiceIngestMixin:
                 return set()
 
         moved_movie_ids: set[int] = set()
-        for movie in movies:
+        tracker = getattr(self, "runtime_status_tracker", None)
+        total_movies = len(movies)
+        if tracker is not None and total_movies > 0:
+            tracker.update_reconcile_phase("ingest_movies")
+            tracker.update_active_reconcile_metrics(
+                {
+                    "movie_items_processed": 0,
+                    "movie_items_total": total_movies,
+                }
+            )
+
+        for index, movie in enumerate(movies, start=1):
             moved_movie_id = self._ingest_movie_if_needed(
                 movie,
                 affected_paths=affected_paths,
             )
             if moved_movie_id is not None:
                 moved_movie_ids.add(moved_movie_id)
+
+            if tracker is not None and (index == total_movies or index % 25 == 0):
+                tracker.update_reconcile_phase("ingest_movies")
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "movie_items_processed": index,
+                        "movie_items_total": total_movies,
+                    }
+                )
 
         return moved_movie_ids
 
