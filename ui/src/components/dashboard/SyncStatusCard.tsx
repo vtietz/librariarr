@@ -34,7 +34,14 @@ const SYNC_STEPS: StepDef[] = [
   {
     id: "fetch",
     label: "Fetch inventory",
-    phases: ["reconcile", "startup_full_reconcile", "running", "inventory_fetched"],
+    phases: [
+      "reconcile",
+      "full_reconcile",
+      "startup_full_reconcile",
+      "startup_incremental_reconcile",
+      "running",
+      "inventory_fetched",
+    ],
   },
   { id: "ingest", label: "Ingest library changes", phases: ["ingest_movies"] },
   { id: "scope", label: "Resolve scope", phases: ["scope_resolved"] },
@@ -50,8 +57,13 @@ const SYNC_STEPS: StepDef[] = [
 
 type StepState = "pending" | "active" | "done";
 
-function resolveStepStates(phase: string | null | undefined): StepState[] {
-  if (!phase) return SYNC_STEPS.map(() => "pending");
+function resolveStepStates(
+  phase: string | null | undefined,
+  isRunning: boolean,
+): StepState[] {
+  if (!phase) {
+    return SYNC_STEPS.map((_, i) => (isRunning && i === 0 ? "active" : "pending"));
+  }
 
   let activeIdx = -1;
   for (let i = 0; i < SYNC_STEPS.length; i++) {
@@ -61,7 +73,9 @@ function resolveStepStates(phase: string | null | undefined): StepState[] {
     }
   }
 
-  if (activeIdx === -1) return SYNC_STEPS.map(() => "pending");
+  if (activeIdx === -1) {
+    return SYNC_STEPS.map((_, i) => (isRunning && i === 0 ? "active" : "pending"));
+  }
 
   return SYNC_STEPS.map((_, i) => {
     if (i < activeIdx) return "done";
@@ -166,7 +180,7 @@ function SyncStepPipeline({
   phase: string | null | undefined;
   task: RuntimeStatusResponse["current_task"];
 }) {
-  const states = resolveStepStates(phase);
+  const states = resolveStepStates(phase, task.state === "running");
   const activeIdx = activeStepIndex(phase);
   return (
     <Group gap={6} wrap="wrap">

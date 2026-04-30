@@ -167,3 +167,31 @@ def test_sonarr_missing_nested_folder_skips(tmp_path: Path) -> None:
     service.reconcile()
 
     assert not (shadow_root / "Ghost Series (2024)").exists()
+
+
+@pytest.mark.fs_e2e
+def test_sonarr_uses_stored_mapping_when_series_path_is_shadow_root(tmp_path: Path) -> None:
+    """When Sonarr reports a shadow-root series path, projection should use
+    the persisted series_id->managed_folder mapping for source files."""
+    nested_root, shadow_root = make_roots(tmp_path, "sonarr_shadow_path_mapping")
+
+    managed_folder = nested_root / "Series Alias Folder"
+    season_one = managed_folder / "Season 01"
+    season_one.mkdir(parents=True)
+    source_file = season_one / "Fixture.Series.S01E01.1080p.mkv"
+    source_file.write_text("x", encoding="utf-8")
+
+    shadow_series_path = shadow_root / "Fixture Series (2020)"
+    config = make_sonarr_config(nested_root=nested_root, shadow_root=shadow_root)
+    service = LibrariArrService(config)
+    service.sonarr = FakeSonarr(
+        series=[make_series(42, "Fixture Series", 2020, shadow_series_path)]
+    )
+
+    service.sonarr_projection.state_store.set_managed_series_folder(42, managed_folder)
+
+    service.reconcile()
+
+    projected = shadow_root / "Fixture Series (2020)" / "Season 01" / source_file.name
+    assert projected.exists()
+    assert projected.samefile(source_file)

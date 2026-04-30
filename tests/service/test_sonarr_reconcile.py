@@ -337,3 +337,5 @@ def test_reconcile_auto_adds_unmatched_series_folder_when_enabled(tmp_path: Path
     assert fake.added_series
     assert fake.added_series[0]["quality_profile_id"] == 8
     assert fake.added_series[0]["language_profile_id"] == 3
+    mapped = service.sonarr_projection.state_store.get_managed_folders_by_series_ids()
+    assert mapped[903] == season_one.parent
