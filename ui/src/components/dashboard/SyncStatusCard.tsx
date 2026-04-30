@@ -84,47 +84,6 @@ function resolveStepStates(
   });
 }
 
-function activeStepIndex(phase: string | null | undefined): number {
-  if (!phase) return -1;
-  for (let i = 0; i < SYNC_STEPS.length; i++) {
-    if (SYNC_STEPS[i].phases.includes(phase)) {
-      return i;
-    }
-  }
-  return -1;
-}
-
-function formatFolderCounter(processed?: number, total?: number): string | null {
-  if (typeof total !== "number" || total <= 0) return null;
-  const done = typeof processed === "number" ? processed : 0;
-  return `${done}/${total} folders`;
-}
-
-function activeStepCounter(
-  stepId: string,
-  task: RuntimeStatusResponse["current_task"],
-): string | null {
-  if (stepId === "ingest") {
-    return formatFolderCounter(task.movie_items_processed, task.movie_items_total);
-  }
-  if (stepId === "plan") {
-    return (
-      formatFolderCounter(task.movie_items_processed, task.movie_items_total) ??
-      formatFolderCounter(task.series_items_processed, task.series_items_total)
-    );
-  }
-  if (stepId === "autoadd") {
-    return (
-      formatFolderCounter(task.movie_items_processed, task.movie_items_total) ??
-      formatFolderCounter(task.series_items_processed, task.series_items_total)
-    );
-  }
-  if (stepId === "apply") {
-    return formatFolderCounter(task.movie_items_processed, task.movie_items_total);
-  }
-  return null;
-}
-
 function phaseExplanation(task: RuntimeStatusResponse["current_task"]): string | null {
   if (task.state !== "running") return null;
 
@@ -175,13 +134,12 @@ function StepIcon({ state }: { state: StepState }) {
 
 function SyncStepPipeline({
   phase,
-  task,
+  isRunning,
 }: {
   phase: string | null | undefined;
-  task: RuntimeStatusResponse["current_task"];
+  isRunning: boolean;
 }) {
-  const states = resolveStepStates(phase, task.state === "running");
-  const activeIdx = activeStepIndex(phase);
+  const states = resolveStepStates(phase, isRunning);
   return (
     <Group gap={6} wrap="wrap">
       {SYNC_STEPS.map((step, i) => (
@@ -193,9 +151,6 @@ function SyncStepPipeline({
             fw={states[i] === "active" ? 600 : 400}
           >
             {step.label}
-            {i === activeIdx && activeStepCounter(step.id, task)
-              ? ` (${activeStepCounter(step.id, task)})`
-              : ""}
           </Text>
           {i < SYNC_STEPS.length - 1 && (
             <Text size="xs" c="dimmed">›</Text>
@@ -344,7 +299,7 @@ export default function SyncStatusCard({
           {healthReason}
         </Text>
         {isRunning && (
-          <SyncStepPipeline phase={currentTask.phase} task={currentTask} />
+          <SyncStepPipeline phase={currentTask.phase} isRunning={isRunning} />
         )}
         {phaseDetail && (
           <Text size="xs" c="dimmed">
