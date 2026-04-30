@@ -224,6 +224,23 @@ Reconcile scope is determined by combining:
 
 If any scoping source provides IDs, only those movies are reconciled. Otherwise, full reconcile runs.
 
+### 7.5 Stale Shadow Cleanup
+
+After projection, LibrariArr performs a conservative stale-shadow cleanup pass for both Radarr and Sonarr.
+
+Rules:
+- Cleanup is gated by `cleanup.remove_orphaned_links`.
+- Only provenance-managed projected files (`managed=1`) are candidates.
+- Unknown files in library/shadow roots are never deleted.
+- Current implementation deletes only **definitely stale** entries where:
+  - recorded `source_path` no longer exists, and
+  - destination inode still matches recorded provenance inode/dev metadata.
+- If destination already disappeared, only the stale provenance row is pruned.
+
+Scoping:
+- Full reconcile: evaluates matched IDs from that cycle.
+- Incremental reconcile: additionally constrained by affected-path target mapping.
+
 ## 8) Module Map
 
 ```
@@ -280,6 +297,8 @@ CREATE TABLE projected_files (
 Key operations:
 - `upsert_projected_files()`: record projection state after executor applies.
 - `get_managed_paths_for_movie()`: query which dest paths are managed before executor runs.
+- `list_managed_projected_rows()`: enumerate managed projected rows for safe stale cleanup decisions.
+- `delete_projected_file_row()`: remove stale provenance rows after unlink/prune.
 - `remove_movie()`: clean up state when a movie is removed.
 - Periodic maintenance: vacuum and integrity checks (every 24h).
 
@@ -290,6 +309,7 @@ Key operations:
 3. **Atomic file operations.** Executor uses temp file + rename pattern. Ingest uses backup + rename pattern with rollback on failure.
 4. **Idempotent reconcile.** Running reconcile repeatedly with no changes produces no side effects.
 5. **Scoped reconcile.** Webhook events target specific movie IDs, avoiding unnecessary full-library scans.
+6. **Conservative stale cleanup.** Only provenance-managed, inode-verified stale projected files are removed.
 
 ## 11) Sonarr Status
 
@@ -299,6 +319,7 @@ Sonarr projection is **partially implemented** using the same engine:
 - Sonarr config uses legacy naming (`nested_root`/`shadow_root` instead of `managed_root`/`library_root`).
 - Sonarr-specific complexity (season folders, multi-episode files) is handled in the planner.
 - Sonarr webhook queue (`SonarrWebhookQueue`) is implemented.
+- Sonarr now uses the same conservative stale-shadow cleanup pass as Radarr.
 
 Remaining work: migrate Sonarr config model to use `managed_root`/`library_root` naming consistently.
 

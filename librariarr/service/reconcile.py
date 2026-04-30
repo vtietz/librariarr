@@ -6,7 +6,7 @@ from pathlib import Path
 from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from .common import LOG
 from .reconcile_autoadd import ServiceAutoAddMixin
-from .reconcile_helpers import current_reconcile_source
+from .reconcile_helpers import current_reconcile_source, run_stale_shadow_cleanup
 from .reconcile_ingest import ServiceIngestMixin
 from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
 
@@ -76,11 +76,19 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             if tracker is not None:
                 tracker.update_reconcile_phase("cleaned")
 
+            removed_orphans = self._run_stale_shadow_cleanup(
+                reconcile_ctx=reconcile_ctx,
+                scope=scope,
+                movie_projection_metrics=movie_projection_metrics,
+                series_projection_metrics=series_projection_metrics,
+            )
+
             self._finalize_reconcile(
                 reconcile_ctx=reconcile_ctx,
                 force_full_scope=force_full_scope,
                 movie_projection_metrics=movie_projection_metrics,
                 series_projection_metrics=series_projection_metrics,
+                removed_orphans=removed_orphans,
                 ingested_movie_ids=ingested_movie_ids,
                 auto_added_movie_ids=auto_added_movie_ids,
                 auto_added_series_ids=auto_added_series_ids,
@@ -96,12 +104,13 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
         refresh_arr_root_availability: bool,
         force_full_scope: bool,
     ) -> dict:
-        incremental_mode = bool(affected_paths)
+        incremental_mode = bool(affected_paths) and not force_full_scope
         return {
             "started": time.time(),
             "incremental_mode": incremental_mode,
             "reconcile_mode": "incremental" if incremental_mode else "full",
             "affected_paths_count": len(affected_paths) if incremental_mode else "all",
+            "affected_paths": affected_paths,
             "trigger_source": current_reconcile_source(
                 getattr(self, "runtime_status_tracker", None)
             ),
@@ -329,6 +338,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             ],
             0,
         )
+        metrics["matched_movie_ids"] = set()
         if not self.radarr_enabled:
             return metrics, False
 
@@ -430,6 +440,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             ],
             0,
         )
+        metrics["matched_series_ids"] = set()
         if not (self.sonarr_enabled and self.sonarr_sync_enabled):
             return metrics, False
 
@@ -516,6 +527,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
         force_full_scope: bool,
         movie_projection_metrics: dict,
         series_projection_metrics: dict,
+        removed_orphans: int,
         ingested_movie_ids: set[int],
         auto_added_movie_ids: set[int],
         auto_added_series_ids: set[int],
@@ -566,7 +578,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                     "unmatched_movies": unmatched_movies,
                     "matched_series": matched_series,
                     "unmatched_series": unmatched_series,
-                    "removed_orphans": 0,
+                    "removed_orphans": removed_orphans,
                     "duration_seconds": duration_seconds,
                     "affected_paths_count": _apc,
                 }
@@ -605,6 +617,7 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                             "ingested_movies": len(ingested_movie_ids),
                             "drained_movie_queue": len(queued_movie_ids),
                             "drained_series_queue": len(queued_series_ids),
+                            "removed_orphans": removed_orphans,
                         }
                     }
                 )
@@ -626,6 +639,33 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
                 len(queued_movie_ids),
                 len(queued_series_ids),
             )
+
+    def _run_stale_shadow_cleanup(
+        self,
+        *,
+        reconcile_ctx: dict,
+        scope: dict,
+        movie_projection_metrics: dict,
+        series_projection_metrics: dict,
+    ) -> int:
+        _ = scope
+        return run_stale_shadow_cleanup(
+            remove_orphaned_links=self.config.cleanup.remove_orphaned_links,
+            reconcile_mode=str(reconcile_ctx.get("reconcile_mode") or "full"),
+            affected_paths=reconcile_ctx.get("affected_paths"),
+            movie_root_mappings=self.movie_root_mappings,
+            series_root_mappings=self.series_root_mappings,
+            movie_projection_metrics=movie_projection_metrics,
+            series_projection_metrics=series_projection_metrics,
+            radarr_enabled=bool(self.radarr_enabled and self.movie_projection is not None),
+            sonarr_enabled=bool(
+                self.sonarr_enabled
+                and self.sonarr_sync_enabled
+                and self.sonarr_projection is not None
+            ),
+            movie_projection=self.movie_projection,
+            sonarr_projection=self.sonarr_projection,
+        )
 
     def _publish_inventory_snapshot(self, movies: list[dict] | None, series: list[dict] | None):
         store = getattr(self, "inventory_snapshot_store", None)

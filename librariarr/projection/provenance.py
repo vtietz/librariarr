@@ -91,6 +91,48 @@ class ProjectionStateStore:
                 )
                 return [(str(row[0]), str(row[1])) for row in cursor.fetchall()]
 
+    def list_managed_projected_rows(
+        self,
+        *,
+        movie_ids: set[int] | None = None,
+    ) -> list[tuple[int, str, str, int | None, int | None]]:
+        """Return managed provenance rows as (id, dest, source, dev, inode)."""
+        with self._lock:
+            with self._connect() as connection:
+                if movie_ids:
+                    placeholders = ",".join("?" for _ in movie_ids)
+                    cursor = connection.execute(
+                        f"""
+                        SELECT movie_id, dest_path, source_path, source_dev, source_inode
+                        FROM projected_files
+                        WHERE managed = 1 AND movie_id IN ({placeholders})
+                        ORDER BY movie_id, dest_path
+                        """,
+                        tuple(sorted(movie_ids)),
+                    )
+                else:
+                    cursor = connection.execute(
+                        """
+                        SELECT movie_id, dest_path, source_path, source_dev, source_inode
+                        FROM projected_files
+                        WHERE managed = 1
+                        ORDER BY movie_id, dest_path
+                        """
+                    )
+                return [
+                    (int(row[0]), str(row[1]), str(row[2]), row[3], row[4])
+                    for row in cursor.fetchall()
+                ]
+
+    def delete_projected_file_row(self, movie_id: int, dest_path: str) -> None:
+        """Delete a single projected_files provenance row."""
+        with self._lock:
+            with self._connect() as connection:
+                connection.execute(
+                    "DELETE FROM projected_files WHERE movie_id = ? AND dest_path = ?",
+                    (movie_id, dest_path),
+                )
+
     def get_managed_folders_by_movie_ids(self) -> dict[int, Path]:
         """Return a mapping of movie_id → managed folder from the explicit mapping table."""
         with self._lock:

@@ -417,6 +417,30 @@ def test_reconcile_file_ingest_replaces_upgraded_movie(tmp_path: Path) -> None:
     assert projected.samefile(managed_movie / "new.1080p.mkv")
 
 
+def test_reconcile_cleans_stale_managed_shadow_file_when_source_missing(tmp_path: Path) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    movie_dir = managed_root / "Fixture Catalog A (2008)"
+    movie_dir.mkdir(parents=True)
+
+    movie_file = movie_dir / "movie.mkv"
+    movie_file.write_text("x", encoding="utf-8")
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(movies=[_movie(1, "Fixture Catalog A", 2008, movie_dir)])
+
+    service.reconcile()
+
+    projected = _projected_file(library_root, "Fixture Catalog A (2008)", "movie.mkv")
+    assert projected.exists()
+
+    movie_file.unlink()
+    service.reconcile()
+
+    assert not projected.exists()
+
+
 def test_reconcile_file_ingest_noop_when_inodes_match(tmp_path: Path) -> None:
     """No ingest when library root file is a hardlink to managed root file."""
     managed_root = tmp_path / "managed"

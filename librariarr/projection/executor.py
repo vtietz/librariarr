@@ -61,6 +61,7 @@ class MovieProjectionExecutor:
                 continue
 
             metrics.record_match(plan.mapping)
+            metrics.matched_movie_ids.add(plan.movie_id)
             managed_dest_paths = self.state_store.get_managed_paths_for_movie(plan.movie_id)
             upserts: list[ProjectedFileState] = []
 

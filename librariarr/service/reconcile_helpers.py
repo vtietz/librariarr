@@ -4,7 +4,9 @@ import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
+from ..core.cleanup_policy import build_cleanup_tasks
 from ..projection.planner import classify_file
 
 LOG = logging.getLogger(__name__)
@@ -111,6 +113,104 @@ def managed_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) ->
             continue
         return managed_root / relative
     return None
+
+
+def resolve_cleanup_targets(
+    *,
+    affected_paths: set[Path] | None,
+    mappings: list[tuple[Path, Path]],
+) -> set[Path]:
+    """Map affected managed/library paths to library-target cleanup scope."""
+    if not affected_paths:
+        return set()
+
+    targets: set[Path] = set()
+    for affected in affected_paths:
+        resolved = affected.resolve(strict=False)
+        for managed_root, library_root in mappings:
+            try:
+                relative = resolved.relative_to(managed_root)
+            except ValueError:
+                pass
+            else:
+                targets.add((library_root / relative).resolve(strict=False))
+                targets.add(library_root.resolve(strict=False))
+                continue
+
+            try:
+                resolved.relative_to(library_root)
+            except ValueError:
+                continue
+            targets.add(resolved)
+            targets.add(library_root.resolve(strict=False))
+
+    return targets
+
+
+def run_stale_shadow_cleanup(
+    *,
+    remove_orphaned_links: bool,
+    reconcile_mode: str,
+    affected_paths: set[Path] | None,
+    movie_root_mappings: list[tuple[Path, Path]],
+    series_root_mappings: list[tuple[Path, Path]],
+    movie_projection_metrics: dict[str, Any],
+    series_projection_metrics: dict[str, Any],
+    radarr_enabled: bool,
+    sonarr_enabled: bool,
+    movie_projection,
+    sonarr_projection,
+) -> int:
+    if not remove_orphaned_links:
+        return 0
+
+    movie_affected_targets = resolve_cleanup_targets(
+        affected_paths=affected_paths,
+        mappings=movie_root_mappings,
+    )
+    series_affected_targets = resolve_cleanup_targets(
+        affected_paths=affected_paths,
+        mappings=series_root_mappings,
+    )
+
+    matched_movie_ids = set(movie_projection_metrics.get("matched_movie_ids") or set())
+    matched_series_ids = set(series_projection_metrics.get("matched_series_ids") or set())
+
+    tasks = build_cleanup_tasks(
+        remove_orphaned_links=remove_orphaned_links,
+        radarr_enabled=radarr_enabled,
+        sonarr_enabled=sonarr_enabled,
+        movie_incremental_mode=(reconcile_mode == "incremental"),
+        series_incremental_mode=(reconcile_mode == "incremental"),
+        movie_affected_targets=movie_affected_targets,
+        series_affected_targets=series_affected_targets,
+        matched_movie_ids=matched_movie_ids,
+        matched_series_ids=matched_series_ids,
+    )
+
+    removed_orphans = 0
+    for task in tasks:
+        if not task.matched_item_ids:
+            continue
+        if task.kind == "radarr":
+            if movie_projection is None:
+                continue
+            cleanup_result = movie_projection.cleanup_stale_shadow(
+                candidate_ids=set(task.matched_item_ids),
+                affected_targets=(set(task.affected_targets) if task.affected_targets else None),
+            )
+        else:
+            if sonarr_projection is None:
+                continue
+            cleanup_result = sonarr_projection.cleanup_stale_shadow(
+                candidate_ids=set(task.matched_item_ids),
+                affected_targets=(set(task.affected_targets) if task.affected_targets else None),
+            )
+        removed_orphans += int(cleanup_result.get("removed_files") or 0)
+
+    if removed_orphans > 0:
+        LOG.info("Stale shadow cleanup removed %s orphaned managed file(s)", removed_orphans)
+    return removed_orphans
 
 
 @dataclass(frozen=True)

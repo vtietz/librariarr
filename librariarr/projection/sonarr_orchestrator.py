@@ -95,6 +95,76 @@ class SonarrProjectionOrchestrator:
             "skipped_files": metrics.skipped_files,
             "per_root": metrics.per_root_list(),
             "normalized_paths": normalized,
+            "matched_series_ids": set(metrics.matched_movie_ids),
+        }
+
+    def cleanup_stale_shadow(
+        self,
+        *,
+        candidate_ids: set[int],
+        affected_targets: set[Path] | None,
+    ) -> dict[str, int]:
+        """Remove stale managed projection outputs whose source path no longer exists."""
+        if not candidate_ids:
+            return {"removed_files": 0, "pruned_rows": 0, "skipped_candidates": 0}
+
+        removed_files = 0
+        pruned_rows = 0
+        skipped_candidates = 0
+
+        rows = self.state_store.list_managed_projected_rows(movie_ids=candidate_ids)
+        for series_id, dest_path_raw, source_path_raw, source_dev, source_inode in rows:
+            dest_path = Path(dest_path_raw)
+            source_path = Path(source_path_raw)
+
+            if affected_targets and not _is_under_any_target(dest_path, affected_targets):
+                continue
+            if not _is_under_any_library_root(dest_path, self.mappings):
+                continue
+            if source_path.exists():
+                continue
+
+            if not dest_path.exists():
+                self.state_store.delete_projected_file_row(series_id, dest_path_raw)
+                pruned_rows += 1
+                continue
+
+            if source_dev is None or source_inode is None:
+                skipped_candidates += 1
+                continue
+
+            try:
+                stat = dest_path.stat()
+            except OSError:
+                skipped_candidates += 1
+                continue
+
+            if int(stat.st_dev) != int(source_dev) or int(stat.st_ino) != int(source_inode):
+                skipped_candidates += 1
+                continue
+
+            try:
+                dest_path.unlink()
+            except OSError:
+                skipped_candidates += 1
+                continue
+
+            self.state_store.delete_projected_file_row(series_id, dest_path_raw)
+            removed_files += 1
+
+        if removed_files or pruned_rows:
+            self.log.info(
+                "Sonarr stale shadow cleanup: removed_files=%s "
+                "pruned_rows=%s skipped_candidates=%s",
+                removed_files,
+                pruned_rows,
+                skipped_candidates,
+            )
+
+        return {
+            "removed_files": removed_files,
+            "pruned_rows": pruned_rows,
+            "skipped_candidates": skipped_candidates,
         }
 
     def _repair_managed_folder_mappings(self, series_items: list[dict[str, Any]]) -> None:
@@ -225,3 +295,11 @@ def _sonarr_projection_state_db_path() -> Path:
         return cwd / "librariarr-sonarr-state.db"
 
     return Path("/tmp") / "librariarr-sonarr-state.db"
+
+
+def _is_under_any_library_root(path: Path, mappings: list[MovieProjectionMapping]) -> bool:
+    return any(path == m.library_root or m.library_root in path.parents for m in mappings)
+
+
+def _is_under_any_target(path: Path, targets: set[Path]) -> bool:
+    return any(path == target or target in path.parents for target in targets)

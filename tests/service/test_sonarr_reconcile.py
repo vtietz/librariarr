@@ -390,3 +390,37 @@ def test_reconcile_backfills_series_mapping_from_projection_provenance(tmp_path:
     projected = library_root / "ALF (1986)" / "Season 01" / source_file.name
     assert projected.exists()
     assert projected.samefile(source_file)
+
+
+def test_reconcile_cleans_stale_sonarr_shadow_file_when_source_missing(tmp_path: Path) -> None:
+    managed_root = tmp_path / "series"
+    library_root = tmp_path / "sonarr_library"
+    series_dir = managed_root / "Fixture Show (2020)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    source_file = season_one / "Fixture.Show.S01E01.1080p.mkv"
+    source_file.write_text("x", encoding="utf-8")
+
+    config = _make_config(managed_root, library_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+    service.sonarr = FakeSonarr(
+        series=[
+            {
+                "id": 101,
+                "title": "Fixture Show",
+                "year": 2020,
+                "path": str(series_dir),
+                "monitored": True,
+            }
+        ]
+    )
+
+    service.reconcile()
+
+    projected = library_root / "Fixture Show (2020)" / "Season 01" / source_file.name
+    assert projected.exists()
+
+    source_file.unlink()
+    service.reconcile()
+
+    assert not projected.exists()
