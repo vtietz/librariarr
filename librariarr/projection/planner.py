@@ -7,8 +7,13 @@ from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig
-from ..sync.naming import safe_path_component
 from .models import MovieProjectionMapping, MovieProjectionPlan, PlannedProjectionFile
+
+PATH_SEPARATOR_TRANSLATION = str.maketrans({"/": "-", "\\": "-"})
+
+
+def safe_path_component(name: str) -> str:
+    return name.translate(PATH_SEPARATOR_TRANSLATION).strip()
 
 
 def build_movie_projection_plans(

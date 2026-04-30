@@ -141,7 +141,7 @@ class MovieProjectionOrchestrator:
         plans: list[MovieProjectionPlan],
     ) -> int:
         """Update Radarr movie paths nested under a library root to flat canonical form."""
-        plans_by_id = {p.movie_id: p for p in plans if not p.skip_reason}
+        plans_by_id = {p.movie_id: p for p in plans}
         library_roots = {str(m.library_root) for m in self.mappings}
         normalized = 0
         for movie in movies:
@@ -155,6 +155,8 @@ class MovieProjectionOrchestrator:
                 continue
             plan = plans_by_id[movie_id]
             expected_path = str(plan.library_folder)
+            if expected_path in {"", "."}:
+                continue
             if current_path == expected_path:
                 continue
             try:

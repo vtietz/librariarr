@@ -196,7 +196,7 @@ def test_discover_movie_folders_honors_exclude_paths_case_insensitive(tmp_path: 
 
 def test_discover_unmatched_folders_marks_non_canonical_names_unmatched(tmp_path: Path) -> None:
     """Managed folders with non-canonical names (e.g. 'Title (Year) FSK6') should be
-    recognized as already matched when Radarr has a canonical path 'Title (Year)'."""
+    treated as unmatched so auto-add can resolve/store explicit mappings."""
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"
 

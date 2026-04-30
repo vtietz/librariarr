@@ -202,16 +202,17 @@ Core hardlink projection pipeline:
 
 Scan managed roots for movie folders not yet in Radarr. Auto-add unmatched folders when `auto_add_unmatched` is enabled. Newly added movies trigger immediate projection.
 
-**Non-canonical managed folder names:** Managed folders do NOT need to follow `Title (Year)` naming exactly. Users commonly organize files with extra metadata in folder names (e.g. `A Rainy Day in New York (2019) FSK0` or `Barbie (2023) FSK6`). The naming module extracts the canonical `Title (Year)` portion using the regex `^Title (Year)(?:\s+...)?$`, stripping any suffix after the year parenthetical.
+**Non-canonical managed folder names:** Managed folders do NOT need to follow `Title (Year)` exactly. For example, `A Rainy Day in New York (2019) FSK0` is valid.
 
-Discovery uses the extracted canonical name to:
-1. Search Radarr's lookup API with `title year` to find the matching movie.
-2. Determine the canonical library path as `library_root / "Title (Year)"`.
-3. Match discovered managed folders against existing Radarr entries by canonical name (not exact path), so `Barbie (2023) FSK6` correctly maps to the Radarr entry at `library_root/Barbie (2023)`.
+Behavior is mapping-first and API-first:
+1. Discovery walks managed roots and treats non-exact managed paths as unmatched.
+2. Auto-add resolves unmatched folders via Radarr lookup API (`title year`), then add/reconcile.
+3. On successful resolution, store `movie_id -> managed_folder` in projection provenance state.
+4. Projection uses stored mapping to hardlink from the real managed folder to canonical `library_root / "Title (Year)"`.
 
-The projection planner's fallback lookup also indexes managed folders by their canonical name, so a Radarr movie path referencing the canonical name will resolve to the actual on-disk managed folder regardless of suffix.
+There is no local canonical-name fallback matcher in discovery or planner resolution.
 
-Implementation: `librariarr/sync/naming.py` — `canonical_name_from_folder()`, `librariarr/service/reconcile_helpers.py` — `discover_unmatched_folders()`, `librariarr/projection/planner.py` — `_build_managed_folder_lookup()`.
+Implementation: `librariarr/service/reconcile_helpers.py` — `discover_unmatched_folders()`, `librariarr/service/reconcile_autoadd.py` — mapping persistence, `librariarr/projection/provenance.py` — `movie_managed_folders`, `librariarr/projection/planner.py` — `provenance_folders` consumption.
 
 ### 7.4 Scope Resolution
 
