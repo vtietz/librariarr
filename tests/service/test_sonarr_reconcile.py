@@ -12,6 +12,7 @@ from librariarr.config import (
     SonarrConfig,
 )
 from librariarr.projection import get_sonarr_webhook_queue
+from librariarr.projection.models import ProjectedFileState
 from librariarr.service import LibrariArrService
 
 
@@ -339,3 +340,53 @@ def test_reconcile_auto_adds_unmatched_series_folder_when_enabled(tmp_path: Path
     assert fake.added_series[0]["language_profile_id"] == 3
     mapped = service.sonarr_projection.state_store.get_managed_folders_by_series_ids()
     assert mapped[903] == season_one.parent
+
+
+def test_reconcile_backfills_series_mapping_from_projection_provenance(tmp_path: Path) -> None:
+    managed_root = tmp_path / "series"
+    library_root = tmp_path / "sonarr_library"
+    managed_alias_folder = managed_root / "ALF"
+    season_one = managed_alias_folder / "Season 01"
+    season_one.mkdir(parents=True)
+    source_file = season_one / "ALF.S01E01.avi"
+    source_file.write_text("x", encoding="utf-8")
+
+    config = _make_config(managed_root, library_root, sonarr_sync_enabled=True)
+    service = LibrariArrService(config)
+    service.sonarr = FakeSonarr(
+        series=[
+            {
+                "id": 86,
+                "title": "ALF",
+                "year": 1986,
+                "path": str(library_root / "ALF (1986)"),
+                "monitored": True,
+            }
+        ]
+    )
+
+    service.sonarr_projection.state_store.upsert_projected_files(
+        [
+            ProjectedFileState(
+                movie_id=86,
+                dest_path=str(library_root / "ALF (1986)" / "Season 01" / source_file.name),
+                source_path=str(source_file),
+                kind="video",
+                managed=True,
+                source_dev=None,
+                source_inode=None,
+                size=source_file.stat().st_size,
+                mtime=source_file.stat().st_mtime,
+                file_hash=None,
+            )
+        ]
+    )
+
+    service.reconcile()
+
+    mapped = service.sonarr_projection.state_store.get_managed_folders_by_series_ids()
+    assert mapped[86] == managed_alias_folder
+
+    projected = library_root / "ALF (1986)" / "Season 01" / source_file.name
+    assert projected.exists()
+    assert projected.samefile(source_file)

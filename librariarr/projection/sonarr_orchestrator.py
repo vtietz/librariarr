@@ -106,11 +106,74 @@ class SonarrProjectionOrchestrator:
             known_folders=known_folders,
         )
         if repairs:
+            for series_id, managed_folder in repairs:
+                known_folders[series_id] = managed_folder
+
+        provenance_repairs = self._repair_from_projection_provenance(
+            series_items=series_items,
+            known_folders=known_folders,
+        )
+        if provenance_repairs:
+            repairs.extend(provenance_repairs)
+
+        if repairs:
             self.state_store.set_managed_series_folders_bulk(repairs)
             self.log.info(
                 "Repaired %s managed folder mapping(s) for previously-unmatched series",
                 len(repairs),
             )
+
+    def _repair_from_projection_provenance(
+        self,
+        *,
+        series_items: list[dict[str, Any]],
+        known_folders: dict[int, Path],
+    ) -> list[tuple[int, Path]]:
+        """Backfill series mappings from recorded projection source paths.
+
+        This is a strict provenance-based repair path and does not rely on name matching.
+        """
+        managed_roots = [mapping.managed_root for mapping in self.mappings]
+        repairs: list[tuple[int, Path]] = []
+
+        for series in series_items:
+            series_id = series.get("id")
+            if not isinstance(series_id, int):
+                continue
+
+            existing = known_folders.get(series_id)
+            if (
+                existing
+                and existing.exists()
+                and existing.is_dir()
+                and any(existing == root or root in existing.parents for root in managed_roots)
+            ):
+                continue
+
+            entries = self.state_store.get_managed_entries_for_movie(series_id)
+            if not entries:
+                continue
+
+            for _dest_path, source_path_raw in entries:
+                if not source_path_raw:
+                    continue
+                source_path = Path(source_path_raw)
+                for managed_root in managed_roots:
+                    try:
+                        relative = source_path.relative_to(managed_root)
+                    except ValueError:
+                        continue
+                    if len(relative.parts) < 2:
+                        continue
+                    inferred_series_folder = managed_root / relative.parts[0]
+                    if inferred_series_folder.exists() and inferred_series_folder.is_dir():
+                        repairs.append((series_id, inferred_series_folder))
+                        known_folders[series_id] = inferred_series_folder
+                        break
+                if series_id in known_folders:
+                    break
+
+        return repairs
 
     def _normalize_arr_paths(
         self,
