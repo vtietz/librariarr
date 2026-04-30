@@ -57,6 +57,10 @@ const SYNC_STEPS: StepDef[] = [
 
 type StepState = "pending" | "active" | "done";
 
+function stripFolderCounterSuffix(label: string): string {
+  return label.replace(/\s*\(\d+\/\d+\s+folders\)$/i, "");
+}
+
 function resolveStepStates(
   phase: string | null | undefined,
   isRunning: boolean,
@@ -150,7 +154,7 @@ function SyncStepPipeline({
             c={states[i] === "active" ? "blue" : states[i] === "done" ? "teal" : "dimmed"}
             fw={states[i] === "active" ? 600 : 400}
           >
-            {step.label}
+            {stripFolderCounterSuffix(step.label)}
           </Text>
           {i < SYNC_STEPS.length - 1 && (
             <Text size="xs" c="dimmed">›</Text>
