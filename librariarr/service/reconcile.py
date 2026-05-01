@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
-from ..projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from .common import LOG
 from .reconcile_autoadd import ServiceAutoAddMixin
 from .reconcile_helpers import (
@@ -12,10 +11,11 @@ from .reconcile_helpers import (
     run_stale_shadow_cleanup,
 )
 from .reconcile_ingest import ServiceIngestMixin
-from .reconcile_observability import first_path, log_projection_dispatch, log_scope_resolved
+from .reconcile_observability import first_path, log_projection_dispatch
+from .reconcile_scope import ServiceReconcileScopeMixin
 
 
-class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
+class ServiceReconcileMixin(ServiceReconcileScopeMixin, ServiceIngestMixin, ServiceAutoAddMixin):
     def reconcile(
         self,
         affected_paths: set[Path] | None = None,
@@ -188,191 +188,6 @@ class ServiceReconcileMixin(ServiceIngestMixin, ServiceAutoAddMixin):
             series_inventory=series_inventory,
         )
         return ingested_movie_ids, auto_added_movie_ids, auto_added_series_ids
-
-    def _resolve_projection_scope(
-        self,
-        *,
-        force_full_scope: bool,
-        incremental_mode: bool,
-        affected_paths: set[Path] | None,
-        ingested_movie_ids: set[int],
-        auto_added_movie_ids: set[int],
-        auto_added_series_ids: set[int],
-    ) -> dict:
-        scoped_movie_ids, queued_movie_ids = self._collect_scoped_movie_ids(
-            force_full_scope=force_full_scope,
-            incremental_mode=incremental_mode,
-            ingested_movie_ids=ingested_movie_ids,
-            auto_added_movie_ids=auto_added_movie_ids,
-        )
-
-        scoped_series_ids: set[int] | None = None
-        queued_series_ids: set[int] = set()
-        if self.sonarr_enabled and self.sonarr_sync_enabled:
-            queued_series_ids = get_sonarr_webhook_queue().consume_series_ids()
-            if not force_full_scope and queued_series_ids:
-                scoped_series_ids = queued_series_ids
-        if (
-            not force_full_scope
-            and auto_added_series_ids
-            and (incremental_mode or scoped_series_ids is not None)
-        ):
-            if scoped_series_ids is None:
-                scoped_series_ids = set(auto_added_series_ids)
-            else:
-                scoped_series_ids.update(auto_added_series_ids)
-
-        # Fallback: resolve affected paths to IDs via provenance DB when no other source
-        # produced scoped IDs. This ensures manual path reconcile runs scoped.
-        if not force_full_scope and incremental_mode and affected_paths:
-            scoped_movie_ids, scoped_series_ids = self._resolve_ids_from_affected_paths(
-                affected_paths, scoped_movie_ids, scoped_series_ids
-            )
-
-        movie_scope_kind = "scoped" if scoped_movie_ids is not None else "full"
-        series_scope_kind = "scoped" if scoped_series_ids is not None else "full"
-        return {
-            "scoped_movie_ids": scoped_movie_ids,
-            "queued_movie_ids": queued_movie_ids,
-            "movie_scope_kind": movie_scope_kind,
-            "movie_full_scope_reason": self._full_scope_reason(
-                scope_kind=movie_scope_kind,
-                force_full_scope=force_full_scope,
-                arr_enabled=self.radarr_enabled,
-                incremental_mode=incremental_mode,
-            ),
-            "scoped_series_ids": scoped_series_ids,
-            "queued_series_ids": queued_series_ids,
-            "series_scope_kind": series_scope_kind,
-            "series_full_scope_reason": self._full_scope_reason(
-                scope_kind=series_scope_kind,
-                force_full_scope=force_full_scope,
-                arr_enabled=(self.sonarr_enabled and self.sonarr_sync_enabled),
-                incremental_mode=incremental_mode,
-            ),
-        }
-
-    def _full_scope_reason(
-        self,
-        *,
-        scope_kind: str,
-        force_full_scope: bool,
-        arr_enabled: bool,
-        incremental_mode: bool,
-    ) -> str:
-        if scope_kind == "scoped":
-            return "-"
-        if force_full_scope:
-            return "force_full_scope"
-        if not arr_enabled:
-            return "arr_disabled_or_sync_disabled"
-        if not incremental_mode:
-            return "full_mode_requested"
-        return "incremental_no_ids_from_sources"
-
-    def _collect_scoped_movie_ids(
-        self,
-        *,
-        force_full_scope: bool,
-        incremental_mode: bool,
-        ingested_movie_ids: set[int],
-        auto_added_movie_ids: set[int],
-    ) -> tuple[set[int] | None, set[int]]:
-        scoped_movie_ids: set[int] | None = None
-        queued_movie_ids: set[int] = set()
-        if self.radarr_enabled:
-            queued_movie_ids = get_radarr_webhook_queue().consume_movie_ids()
-            if not force_full_scope and queued_movie_ids:
-                scoped_movie_ids = queued_movie_ids
-        if not force_full_scope:
-            if ingested_movie_ids and (incremental_mode or scoped_movie_ids is not None):
-                if scoped_movie_ids is None:
-                    scoped_movie_ids = set(ingested_movie_ids)
-                else:
-                    scoped_movie_ids.update(ingested_movie_ids)
-            if auto_added_movie_ids and (incremental_mode or scoped_movie_ids is not None):
-                if scoped_movie_ids is None:
-                    scoped_movie_ids = set(auto_added_movie_ids)
-                else:
-                    scoped_movie_ids.update(auto_added_movie_ids)
-        return scoped_movie_ids, queued_movie_ids
-
-    def _resolve_ids_from_affected_paths(
-        self,
-        affected_paths: set[Path],
-        scoped_movie_ids: set[int] | None,
-        scoped_series_ids: set[int] | None,
-    ) -> tuple[set[int] | None, set[int] | None]:
-        """Resolve movie/series IDs from affected paths via provenance DB."""
-        if scoped_movie_ids is None and self.radarr_enabled:
-            movie_proj = getattr(self, "movie_projection", None)
-            if movie_proj is not None:
-                path_movie_ids = movie_proj.state_store.resolve_movie_ids_by_paths(affected_paths)
-                if path_movie_ids:
-                    scoped_movie_ids = path_movie_ids
-        if scoped_series_ids is None and self.sonarr_enabled and self.sonarr_sync_enabled:
-            sonarr_proj = getattr(self, "sonarr_projection", None)
-            if sonarr_proj is not None:
-                path_series_ids = sonarr_proj.state_store.resolve_series_ids_by_paths(
-                    affected_paths
-                )
-                if path_series_ids:
-                    scoped_series_ids = path_series_ids
-        return scoped_movie_ids, scoped_series_ids
-
-    def _log_scope_resolution(
-        self,
-        *,
-        reconcile_ctx: dict,
-        scope: dict,
-        ingested_movie_ids: set[int],
-        auto_added_movie_ids: set[int],
-        auto_added_series_ids: set[int],
-    ) -> None:
-        log_scope_resolved(
-            trigger_source=reconcile_ctx["trigger_source"],
-            reconcile_mode=reconcile_ctx["reconcile_mode"],
-            affected_paths_count=reconcile_ctx["affected_paths_count"],
-            trigger_path=reconcile_ctx["trigger_path"],
-            movie_scope_kind=scope["movie_scope_kind"],
-            movie_full_scope_reason=scope["movie_full_scope_reason"],
-            scoped_movie_ids=scope["scoped_movie_ids"],
-            queued_movie_ids=scope["queued_movie_ids"],
-            ingested_movie_ids=ingested_movie_ids,
-            auto_added_movie_ids=auto_added_movie_ids,
-            series_scope_kind=scope["series_scope_kind"],
-            series_full_scope_reason=scope["series_full_scope_reason"],
-            scoped_series_ids=scope["scoped_series_ids"],
-            queued_series_ids=scope["queued_series_ids"],
-            auto_added_series_ids=auto_added_series_ids,
-        )
-
-    def _update_scope_tracking(self, scope: dict) -> None:
-        tracker = getattr(self, "runtime_status_tracker", None)
-        if tracker is None:
-            return
-        tracker.update_reconcile_phase("scope_resolved")
-        tracker.update_active_reconcile_metrics(
-            {
-                "movie_items_targeted": (
-                    len(scope["scoped_movie_ids"])
-                    if scope["scoped_movie_ids"] is not None
-                    else None
-                ),
-                "series_items_targeted": (
-                    len(scope["scoped_series_ids"])
-                    if scope["scoped_series_ids"] is not None
-                    else None
-                ),
-                "movie_items_projected": 0,
-                "series_items_projected": 0,
-                "movie_items_processed": 0,
-                "series_items_processed": 0,
-                "movie_items_total": 0,
-                "series_items_total": 0,
-                "created_links": 0,
-            }
-        )
 
     def _run_movie_projection(
         self,
