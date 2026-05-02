@@ -5,7 +5,6 @@ import {
   Card,
   Group,
   Loader,
-  Modal,
   MultiSelect,
   Select,
   Stack,
@@ -26,6 +25,7 @@ import {
   getMappedDirectoriesStreamUrl,
   refreshMappedDirectories
 } from "../api/client";
+import DeleteShadowConfirmModal from "./DeleteShadowConfirmModal";
 import DirectoryPickerModal from "./DirectoryPickerModal";
 import MappedRows, { type MappedDirectory } from "./DirectoryMapperRows";
 import {
@@ -60,9 +60,8 @@ export default function DirectoryMapper() {
   const [isArrEnrichmentLoading, setIsArrEnrichmentLoading] = useState(false);
   const [fsRoots, setFsRoots] = useState<string[]>([]);
   const [browsePath, setBrowsePath] = useState<string | null>(null);
-  const [discoveryWarnings, setDiscoveryWarnings] = useState<DiscoveryWarningsResponse | null>(
-    null
-  );
+  const [discoveryWarnings, setDiscoveryWarnings] =
+    useState<DiscoveryWarningsResponse | null>(null);
   const mappedLoadVersionRef = useRef(0);
 
   const applyMappedSnapshot = useCallback(
@@ -232,11 +231,9 @@ export default function DirectoryMapper() {
     loadMoreRef,
     setStatusFilters
   } = useMapperRowsView(searchVisibleDirectories);
-
-  const arrEnrichmentCandidates = useMemo(
-    () => (visibleDirectories.length > 0 ? visibleDirectories : searchVisibleDirectories.slice(0, 200)),
-    [searchVisibleDirectories, visibleDirectories]
-  );
+  const arrEnrichmentCandidates = useMemo(() => {
+    return visibleDirectories.length > 0 ? visibleDirectories : searchVisibleDirectories.slice(0, 200);
+  }, [searchVisibleDirectories, visibleDirectories]);
 
   useScopedArrEnrichment({
     candidates: arrEnrichmentCandidates,
@@ -260,7 +257,6 @@ export default function DirectoryMapper() {
     cacheReady,
     cacheUpdatedAtMs
   });
-
   const copyToClipboard = useCallback(async (value: string) => {
     try {
       await navigator.clipboard.writeText(value);
@@ -302,12 +298,11 @@ export default function DirectoryMapper() {
     loadMappedDirectories
   });
 
-  const { deletingPath, pendingDeletePath, requestDelete, cancelDelete, confirmDelete } =
-    useDeleteShadowAction({
-      setLoadError,
-      setMappedDirectories,
-      loadMappedDirectories
-    });
+  const { deletingPath, pendingDeletePath, requestDelete, cancelDelete, confirmDelete } = useDeleteShadowAction({
+    setLoadError,
+    setMappedDirectories,
+    loadMappedDirectories
+  });
 
   return (
     <Stack>
@@ -327,13 +322,13 @@ export default function DirectoryMapper() {
               {isSearchLoading && (
                 <Group gap={6}>
                   <Loader size="xs" />
-                  <Text size="xs" c="dimmed">Loading path mappings…</Text>
+                  <Text size="xs" c="dimmed">Loading path mappings...</Text>
                 </Group>
               )}
               {!isSearchLoading && isArrEnrichmentLoading && (
                 <Group gap={6}>
                   <Loader size="xs" />
-                  <Text size="xs" c="dimmed">Loading Arr state…</Text>
+                  <Text size="xs" c="dimmed">Loading Arr state...</Text>
                 </Group>
               )}
               <Tooltip label="Force full rescan of shadow roots">
@@ -493,30 +488,12 @@ export default function DirectoryMapper() {
             mode="browse"
           />
 
-          <Modal
+          <DeleteShadowConfirmModal
             opened={pendingDeletePath !== null}
-            onClose={cancelDelete}
-            title="Remove shadow folder"
-            centered
-          >
-            <Stack>
-              <Text size="sm">
-                Are you sure you want to remove this shadow folder? This will delete the
-                projected hardlinks but will NOT affect the original managed media files.
-              </Text>
-              <Text size="sm" fw={600} style={{ wordBreak: "break-all" }}>
-                {pendingDeletePath}
-              </Text>
-              <Group justify="flex-end" mt="md">
-                <Button variant="default" onClick={cancelDelete}>
-                  Cancel
-                </Button>
-                <Button color="red" onClick={() => void confirmDelete()}>
-                  Remove
-                </Button>
-              </Group>
-            </Stack>
-          </Modal>
+            path={pendingDeletePath}
+            onCancel={cancelDelete}
+            onConfirm={confirmDelete}
+          />
         </Stack>
       </Card>
     </Stack>
