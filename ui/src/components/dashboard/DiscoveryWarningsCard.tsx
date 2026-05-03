@@ -12,6 +12,9 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
   const orphanedManagedCandidates =
     discoveryWarnings?.summary.orphaned_managed_movie_candidates ?? 0;
+  const excludedItems = discoveryWarnings?.excluded_movie_candidates.slice(0, 6) ?? [];
+  const duplicateItems = discoveryWarnings?.duplicate_movie_candidates.slice(0, 6) ?? [];
+  const orphanedItems = discoveryWarnings?.orphaned_managed_movie_candidates.slice(0, 6) ?? [];
   const hasDiscoveryWarnings =
     excludedCandidates > 0 || duplicateCandidates > 0 || orphanedManagedCandidates > 0;
 
@@ -24,26 +27,42 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
         </Badge>
       </Group>
       <Text size="sm" c="dimmed" mt="xs">
-        {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates · {orphanedManagedCandidates} orphaned managed folders
+        {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates ·{" "}
+        {orphanedManagedCandidates} orphaned managed folders
       </Text>
       {hasDiscoveryWarnings && (
-        <ScrollArea mt="xs" type="auto" scrollbars="y" h={160}>
-          <Stack gap={4}>
-            {discoveryWarnings?.excluded_movie_candidates.slice(0, 6).map((item) => (
-              <Text key={`excluded-${item.path}`} size="xs" c="dimmed">
-                ⚠ excluded: {item.path}
-              </Text>
-            ))}
-            {discoveryWarnings?.duplicate_movie_candidates.slice(0, 6).map((item) => (
-              <Text key={`duplicate-${item.primary_path}`} size="xs" c="dimmed">
-                ⚠ duplicate key {item.movie_ref}: {item.primary_path}
-              </Text>
-            ))}
-            {discoveryWarnings?.orphaned_managed_movie_candidates.slice(0, 6).map((item) => (
-              <Text key={`orphaned-${item.path}`} size="xs" c="dimmed">
-                ⚠ orphaned managed folder: {item.path}
-              </Text>
-            ))}
+        <ScrollArea mt="xs" type="auto" scrollbars="y" h={220}>
+          <Stack gap="sm">
+            {excludedCandidates > 0 && (
+              <Stack gap={2}>
+                <Text size="xs" fw={600}>Excluded Candidates ({excludedCandidates})</Text>
+                {excludedItems.map((item) => (
+                  <Text key={`excluded-${item.path}`} size="xs" c="dimmed">
+                    ⚠ {item.path}
+                  </Text>
+                ))}
+              </Stack>
+            )}
+            {duplicateCandidates > 0 && (
+              <Stack gap={2}>
+                <Text size="xs" fw={600}>Potential Duplicates ({duplicateCandidates})</Text>
+                {duplicateItems.map((item) => (
+                  <Text key={`duplicate-${item.primary_path}`} size="xs" c="dimmed">
+                    ⚠ {item.movie_ref}: {item.primary_path}
+                  </Text>
+                ))}
+              </Stack>
+            )}
+            {orphanedManagedCandidates > 0 && (
+              <Stack gap={2}>
+                <Text size="xs" fw={600}>Orphaned Managed Folders ({orphanedManagedCandidates})</Text>
+                {orphanedItems.map((item) => (
+                  <Text key={`orphaned-${item.path}`} size="xs" c="dimmed">
+                    ⚠ {item.path}
+                  </Text>
+                ))}
+              </Stack>
+            )}
           </Stack>
         </ScrollArea>
       )}
