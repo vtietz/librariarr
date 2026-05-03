@@ -10,7 +10,10 @@ type Props = {
 export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
   const excludedCandidates = discoveryWarnings?.summary.excluded_movie_candidates ?? 0;
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
-  const hasDiscoveryWarnings = excludedCandidates > 0 || duplicateCandidates > 0;
+  const orphanedManagedCandidates =
+    discoveryWarnings?.summary.orphaned_managed_movie_candidates ?? 0;
+  const hasDiscoveryWarnings =
+    excludedCandidates > 0 || duplicateCandidates > 0 || orphanedManagedCandidates > 0;
 
   return (
     <Card withBorder>
@@ -21,7 +24,7 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
         </Badge>
       </Group>
       <Text size="sm" c="dimmed" mt="xs">
-        {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates
+        {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates · {orphanedManagedCandidates} orphaned managed folders
       </Text>
       {hasDiscoveryWarnings && (
         <ScrollArea mt="xs" type="auto" scrollbars="y" h={160}>
@@ -34,6 +37,11 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
             {discoveryWarnings?.duplicate_movie_candidates.slice(0, 6).map((item) => (
               <Text key={`duplicate-${item.primary_path}`} size="xs" c="dimmed">
                 ⚠ duplicate key {item.movie_ref}: {item.primary_path}
+              </Text>
+            ))}
+            {discoveryWarnings?.orphaned_managed_movie_candidates.slice(0, 6).map((item) => (
+              <Text key={`orphaned-${item.path}`} size="xs" c="dimmed">
+                ⚠ orphaned managed folder: {item.path}
               </Text>
             ))}
           </Stack>

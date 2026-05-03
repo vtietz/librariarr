@@ -78,6 +78,7 @@ class MovieProjectionOrchestrator:
             scoped_movie_count=scoped_count,
             progress_callback=progress_callback,
         )
+        self._prune_unplanned_managed_projection_files(plans)
         self.log.info(
             "Movie projection reconcile: scoped_movies=%s planned_movies=%s skipped_movies=%s "
             "projected_files=%s unchanged_files=%s skipped_files=%s",
@@ -95,6 +96,61 @@ class MovieProjectionOrchestrator:
         result["refreshed_movies"] = refreshed_movie_count
         result["matched_movie_ids"] = set(metrics.matched_movie_ids)
         return result
+
+    def _prune_unplanned_managed_projection_files(
+        self,
+        plans: list[MovieProjectionPlan],
+    ) -> None:
+        """Delete previously managed shadow files not present in the current plan."""
+        expected_dest_paths_by_movie: dict[int, set[str]] = {}
+        for plan in plans:
+            if plan.skip_reason is not None or plan.mapping is None:
+                continue
+            expected_dest_paths_by_movie[plan.movie_id] = {
+                str(item.dest_path) for item in plan.files
+            }
+
+        if not expected_dest_paths_by_movie:
+            return
+
+        rows = self.state_store.list_managed_projected_rows(
+            movie_ids=set(expected_dest_paths_by_movie.keys())
+        )
+        removed_files = 0
+        pruned_rows = 0
+        skipped_candidates = 0
+
+        for movie_id, dest_path_raw, _source_path_raw, _source_dev, _source_inode in rows:
+            expected_dest_paths = expected_dest_paths_by_movie.get(movie_id)
+            if not expected_dest_paths or dest_path_raw in expected_dest_paths:
+                continue
+
+            dest_path = Path(dest_path_raw)
+            if not _is_under_any_library_root(dest_path, self.mappings):
+                skipped_candidates += 1
+                continue
+            if _is_under_any_managed_root(dest_path, self.mappings):
+                skipped_candidates += 1
+                continue
+
+            if dest_path.exists() or dest_path.is_symlink():
+                try:
+                    dest_path.unlink()
+                except OSError:
+                    skipped_candidates += 1
+                    continue
+                removed_files += 1
+
+            self.state_store.delete_projected_file_row(movie_id, dest_path_raw)
+            pruned_rows += 1
+
+        if removed_files or pruned_rows:
+            self.log.info(
+                "Radarr projection prune: removed_files=%s pruned_rows=%s skipped_candidates=%s",
+                removed_files,
+                pruned_rows,
+                skipped_candidates,
+            )
 
     def cleanup_stale_shadow(
         self,
@@ -115,9 +171,11 @@ class MovieProjectionOrchestrator:
             dest_path = Path(dest_path_raw)
             source_path = Path(source_path_raw)
 
-            if affected_targets and not _is_under_any_target(dest_path, affected_targets):
-                continue
-            if not _is_under_any_library_root(dest_path, self.mappings):
+            if not self._cleanup_candidate_allowed(
+                dest_path=dest_path,
+                affected_targets=affected_targets,
+            ):
+                skipped_candidates += 1
                 continue
             if source_path.exists():
                 continue
@@ -164,6 +222,20 @@ class MovieProjectionOrchestrator:
             "pruned_rows": pruned_rows,
             "skipped_candidates": skipped_candidates,
         }
+
+    def _cleanup_candidate_allowed(
+        self,
+        *,
+        dest_path: Path,
+        affected_targets: set[Path] | None,
+    ) -> bool:
+        if affected_targets and not _is_under_any_target(dest_path, affected_targets):
+            return False
+        if not _is_under_any_library_root(dest_path, self.mappings):
+            return False
+        if _is_under_any_managed_root(dest_path, self.mappings):
+            return False
+        return True
 
     def _refresh_projected_movies(self, movie_ids: set[int]) -> int:
         if not movie_ids:
@@ -338,6 +410,10 @@ def _is_ancestor_path_update_conflict(
 
 def _is_under_any_library_root(path: Path, mappings: list[MovieProjectionMapping]) -> bool:
     return any(path == m.library_root or m.library_root in path.parents for m in mappings)
+
+
+def _is_under_any_managed_root(path: Path, mappings: list[MovieProjectionMapping]) -> bool:
+    return any(path == m.managed_root or m.managed_root in path.parents for m in mappings)
 
 
 def _is_under_any_target(path: Path, targets: set[Path]) -> bool:

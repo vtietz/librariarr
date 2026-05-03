@@ -117,9 +117,11 @@ class SonarrProjectionOrchestrator:
             dest_path = Path(dest_path_raw)
             source_path = Path(source_path_raw)
 
-            if affected_targets and not _is_under_any_target(dest_path, affected_targets):
-                continue
-            if not _is_under_any_library_root(dest_path, self.mappings):
+            if not self._cleanup_candidate_allowed(
+                dest_path=dest_path,
+                affected_targets=affected_targets,
+            ):
+                skipped_candidates += 1
                 continue
             if source_path.exists():
                 continue
@@ -166,6 +168,20 @@ class SonarrProjectionOrchestrator:
             "pruned_rows": pruned_rows,
             "skipped_candidates": skipped_candidates,
         }
+
+    def _cleanup_candidate_allowed(
+        self,
+        *,
+        dest_path: Path,
+        affected_targets: set[Path] | None,
+    ) -> bool:
+        if affected_targets and not _is_under_any_target(dest_path, affected_targets):
+            return False
+        if not _is_under_any_library_root(dest_path, self.mappings):
+            return False
+        if _is_under_any_managed_root(dest_path, self.mappings):
+            return False
+        return True
 
     def _repair_managed_folder_mappings(self, series_items: list[dict[str, Any]]) -> None:
         """Discover managed folders for unmatched series and store mappings."""
@@ -299,6 +315,10 @@ def _sonarr_projection_state_db_path() -> Path:
 
 def _is_under_any_library_root(path: Path, mappings: list[MovieProjectionMapping]) -> bool:
     return any(path == m.library_root or m.library_root in path.parents for m in mappings)
+
+
+def _is_under_any_managed_root(path: Path, mappings: list[MovieProjectionMapping]) -> bool:
+    return any(path == m.managed_root or m.managed_root in path.parents for m in mappings)
 
 
 def _is_under_any_target(path: Path, targets: set[Path]) -> bool:

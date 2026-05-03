@@ -485,6 +485,8 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
     )
     included_movie.mkdir(parents=True)
     excluded_movie.mkdir(parents=True)
+    orphaned_movie = nested_root / "FSK16" / "Orphaned Folder (1999)"
+    orphaned_movie.mkdir(parents=True)
     (included_movie / "movie.mkv").write_text("x", encoding="utf-8")
     (excluded_movie / "movie.mkv").write_text("x", encoding="utf-8")
 
@@ -500,10 +502,14 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
     payload = response.json()
     assert payload["summary"]["excluded_movie_candidates"] >= 1
     assert payload["summary"]["duplicate_movie_candidates"] >= 1
+    assert payload["summary"]["orphaned_managed_movie_candidates"] >= 1
     assert any(item["path"] == str(excluded_movie) for item in payload["excluded_movie_candidates"])
     assert any(
         item["movie_ref"] == "der regenschirmmörder (1980)" and item["contains_excluded"] is True
         for item in payload["duplicate_movie_candidates"]
+    )
+    assert any(
+        item["path"] == str(orphaned_movie) for item in payload["orphaned_managed_movie_candidates"]
     )
     assert payload["cache"]["ready"] is True
 

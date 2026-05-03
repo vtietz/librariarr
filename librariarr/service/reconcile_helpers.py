@@ -223,19 +223,24 @@ def run_stale_shadow_cleanup(
     for task in tasks:
         if not task.matched_item_ids:
             continue
+        cleanup_targets = (
+            None
+            if task.incremental_mode
+            else (set(task.affected_targets) if task.affected_targets else None)
+        )
         if task.kind == "radarr":
             if movie_projection is None:
                 continue
             cleanup_result = movie_projection.cleanup_stale_shadow(
                 candidate_ids=set(task.matched_item_ids),
-                affected_targets=(set(task.affected_targets) if task.affected_targets else None),
+                affected_targets=cleanup_targets,
             )
         else:
             if sonarr_projection is None:
                 continue
             cleanup_result = sonarr_projection.cleanup_stale_shadow(
                 candidate_ids=set(task.matched_item_ids),
-                affected_targets=(set(task.affected_targets) if task.affected_targets else None),
+                affected_targets=cleanup_targets,
             )
         removed_orphans += int(cleanup_result.get("removed_files") or 0)
 

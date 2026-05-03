@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import threading
 import time
 from pathlib import Path
@@ -79,11 +80,17 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
         )
     )
 
+    orphaned_managed_movie_paths = _discover_orphaned_managed_movie_folders(
+        mappings=config.paths.movie_root_mappings,
+        video_exts=video_exts,
+    )
+
     return {
         "summary": {
             "exclude_patterns_count": len(exclude_paths),
             "excluded_movie_candidates": len(excluded_movie_paths),
             "duplicate_movie_candidates": len(duplicate_movie_candidates),
+            "orphaned_managed_movie_candidates": len(orphaned_managed_movie_paths),
         },
         "exclude_paths": exclude_paths,
         "excluded_movie_candidates": [
@@ -94,7 +101,47 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
             for path in excluded_movie_paths[:limit]
         ],
         "duplicate_movie_candidates": duplicate_movie_candidates[:limit],
+        "orphaned_managed_movie_candidates": [
+            {
+                "path": str(path),
+                "reason": "managed folder has no video files",
+            }
+            for path in orphaned_managed_movie_paths[:limit]
+        ],
     }
+
+
+def _discover_orphaned_managed_movie_folders(
+    *,
+    mappings: list[Any],
+    video_exts: set[str],
+) -> list[Path]:
+    candidates: set[Path] = set()
+    for mapping in mappings:
+        managed_root = Path(mapping.managed_root)
+        if not managed_root.exists():
+            continue
+
+        for current, dirs, _files in os.walk(managed_root):
+            current_path = Path(current)
+            dirs[:] = sorted(dirs)
+            if current_path == managed_root:
+                continue
+            ref = parse_movie_ref(current_path.name)
+            if ref.year is None or not ref.title:
+                continue
+            if _contains_video_recursively(current_path, video_exts):
+                continue
+            candidates.add(current_path)
+
+    return sorted(candidates, key=lambda path: str(path))
+
+
+def _contains_video_recursively(folder: Path, video_exts: set[str]) -> bool:
+    for _current, _dirs, files in os.walk(folder):
+        if any(Path(name).suffix.lower() in video_exts for name in files):
+            return True
+    return False
 
 
 class DiscoveryWarningsCache:
@@ -105,10 +152,12 @@ class DiscoveryWarningsCache:
                 "exclude_patterns_count": 0,
                 "excluded_movie_candidates": 0,
                 "duplicate_movie_candidates": 0,
+                "orphaned_managed_movie_candidates": 0,
             },
             "exclude_paths": [],
             "excluded_movie_candidates": [],
             "duplicate_movie_candidates": [],
+            "orphaned_managed_movie_candidates": [],
         }
         self._updated_at_ms: int | None = None
         self._last_error: str | None = None
@@ -130,10 +179,12 @@ class DiscoveryWarningsCache:
                     "exclude_patterns_count": 0,
                     "excluded_movie_candidates": 0,
                     "duplicate_movie_candidates": 0,
+                    "orphaned_managed_movie_candidates": 0,
                 },
                 "exclude_paths": [],
                 "excluded_movie_candidates": [],
                 "duplicate_movie_candidates": [],
+                "orphaned_managed_movie_candidates": [],
             }
             self._updated_at_ms = None
             self._last_error = None
@@ -207,6 +258,9 @@ class DiscoveryWarningsCache:
                         "duplicate_movie_candidates": payload["summary"][
                             "duplicate_movie_candidates"
                         ],
+                        "orphaned_managed_movie_candidates": payload["summary"][
+                            "orphaned_managed_movie_candidates"
+                        ],
                         "duration_ms": duration_ms,
                     },
                 )
@@ -233,6 +287,10 @@ class DiscoveryWarningsCache:
 
     def request_refresh(self, config: AppConfig, *, force: bool = False) -> bool:
         signature = (
+            tuple(
+                (str(item.managed_root), str(item.library_root))
+                for item in config.paths.movie_root_mappings
+            ),
             tuple(
                 (str(item.nested_root), str(item.shadow_root))
                 for item in config.paths.series_root_mappings
@@ -269,6 +327,9 @@ class DiscoveryWarningsCache:
                 ),
                 "duplicate_movie_candidates": list(
                     (self._payload.get("duplicate_movie_candidates") or [])[:limit]
+                ),
+                "orphaned_managed_movie_candidates": list(
+                    (self._payload.get("orphaned_managed_movie_candidates") or [])[:limit]
                 ),
                 "cache": {
                     "ready": self._updated_at_ms is not None,

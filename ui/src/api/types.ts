@@ -22,6 +22,7 @@ export type DiscoveryWarningsResponse = {
     exclude_patterns_count: number;
     excluded_movie_candidates: number;
     duplicate_movie_candidates: number;
+    orphaned_managed_movie_candidates: number;
   };
   exclude_paths: string[];
   excluded_movie_candidates: Array<{
@@ -33,6 +34,10 @@ export type DiscoveryWarningsResponse = {
     primary_path: string;
     duplicate_paths: string[];
     contains_excluded: boolean;
+  }>;
+  orphaned_managed_movie_candidates: Array<{
+    path: string;
+    reason: string;
   }>;
 };
 
