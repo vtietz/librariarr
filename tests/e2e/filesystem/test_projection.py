@@ -18,6 +18,7 @@ from librariarr.config import (
     RuntimeConfig,
 )
 from librariarr.projection import get_radarr_webhook_queue
+from librariarr.projection.models import ProjectedFileState
 from librariarr.service import LibrariArrService
 
 from .conftest import FakeRadarr, make_movie, make_radarr_config, make_roots
@@ -227,6 +228,53 @@ def test_projection_matches_non_canonical_managed_folder_name(tmp_path: Path) ->
     projected = library_root / "A Rainy Day in New York (2019)" / source_file.name
     assert projected.exists(), f"Expected projection at {projected}"
     assert projected.samefile(source_file)
+
+
+@pytest.mark.fs_e2e
+def test_projection_backfills_mapping_from_provenance_when_missing(tmp_path: Path) -> None:
+    """If explicit movie->managed mapping is missing, full reconcile can recover it
+    from existing provenance rows and still project from the real managed folder."""
+    managed_root, library_root = make_roots(tmp_path, "provenance_backfill_missing_mapping")
+
+    managed_folder = managed_root / "Was geschah wirklich mit Baby Jane (1962) FSK16"
+    managed_folder.mkdir(parents=True)
+    source_file = managed_folder / "Was.geschah.wirklich.mit.Baby.Jane.1962.1080p.mkv"
+    source_file.write_text("stub", encoding="utf-8")
+
+    stale_library_path = library_root / "Was geschah wirklich mit Baby Jane? (1962)"
+    config = make_radarr_config(managed_root=managed_root, library_root=library_root)
+
+    radarr = FakeRadarr(
+        movies=[make_movie(3766, "Was geschah wirklich mit Baby Jane?", 1962, stale_library_path)]
+    )
+    service = LibrariArrService(config)
+    service.radarr = radarr
+
+    service.movie_projection.state_store.upsert_projected_files(
+        [
+            ProjectedFileState(
+                movie_id=3766,
+                dest_path=str(stale_library_path / source_file.name),
+                source_path=str(source_file),
+                kind="video",
+                managed=True,
+                source_dev=None,
+                source_inode=None,
+                size=len("stub"),
+                mtime=1.0,
+                file_hash=None,
+            )
+        ]
+    )
+
+    service.reconcile_full()
+
+    projected = library_root / "Was geschah wirklich mit Baby Jane? (1962)" / source_file.name
+    assert projected.exists(), f"Expected projection at {projected}"
+    assert projected.samefile(source_file)
+
+    managed_map = service.movie_projection.state_store.get_managed_folders_by_movie_ids()
+    assert managed_map[3766] == managed_folder
 
 
 @pytest.mark.fs_e2e

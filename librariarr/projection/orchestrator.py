@@ -54,6 +54,12 @@ class MovieProjectionOrchestrator:
 
         # On full reconcile, repair unmatched managed folder mappings
         if scoped_movie_ids is None:
+            backfilled = self._backfill_managed_folder_mappings_from_provenance(movies)
+            if backfilled:
+                self.log.info(
+                    "Backfilled %s movie managed-folder mapping(s) from provenance",
+                    backfilled,
+                )
             self._repair_managed_folder_mappings(movies)
 
         plans = build_movie_projection_plans(
@@ -96,6 +102,49 @@ class MovieProjectionOrchestrator:
         result["refreshed_movies"] = refreshed_movie_count
         result["matched_movie_ids"] = set(metrics.matched_movie_ids)
         return result
+
+    def _backfill_managed_folder_mappings_from_provenance(self, movies: list[dict[str, Any]]) -> int:
+        """Recover missing movie->managed mappings from existing provenance rows.
+
+        This keeps reconciliation Arr-driven while still healing legacy drift when
+        prior projection state already records the authoritative source file paths.
+        """
+        movie_ids = {
+            int(movie_id)
+            for movie in movies
+            for movie_id in [movie.get("id")]
+            if isinstance(movie_id, int)
+        }
+        if not movie_ids:
+            return 0
+
+        existing = self.state_store.get_managed_folders_by_movie_ids()
+        rows = self.state_store.list_managed_projected_rows(movie_ids=movie_ids)
+        managed_roots = [mapping.managed_root for mapping in self.mappings]
+
+        discovered_by_movie: dict[int, set[Path]] = {}
+        for movie_id, _dest_path_raw, source_path_raw, _source_dev, _source_inode in rows:
+            source_path = Path(source_path_raw)
+            source_parent = source_path.parent
+            if not source_path.exists() or not source_parent.exists() or not source_parent.is_dir():
+                continue
+            if not _is_under_any_root(source_parent, managed_roots):
+                continue
+            discovered_by_movie.setdefault(movie_id, set()).add(source_parent)
+
+        repairs: list[tuple[int, Path]] = []
+        for movie_id, candidates in discovered_by_movie.items():
+            known = existing.get(movie_id)
+            if known and known.exists() and known.is_dir() and _is_under_any_root(known, managed_roots):
+                continue
+            if len(candidates) != 1:
+                continue
+            repairs.append((movie_id, next(iter(candidates))))
+
+        if repairs:
+            self.state_store.set_managed_folders_bulk(repairs)
+
+        return len(repairs)
 
     def _prune_unplanned_managed_projection_files(
         self,
@@ -418,3 +467,7 @@ def _is_under_any_managed_root(path: Path, mappings: list[MovieProjectionMapping
 
 def _is_under_any_target(path: Path, targets: set[Path]) -> bool:
     return any(path == target or target in path.parents for target in targets)
+
+
+def _is_under_any_root(path: Path, roots: list[Path]) -> bool:
+    return any(path == root or root in path.parents for root in roots)
