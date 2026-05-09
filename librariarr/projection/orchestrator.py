@@ -103,7 +103,10 @@ class MovieProjectionOrchestrator:
         result["matched_movie_ids"] = set(metrics.matched_movie_ids)
         return result
 
-    def _backfill_managed_folder_mappings_from_provenance(self, movies: list[dict[str, Any]]) -> int:
+    def _backfill_managed_folder_mappings_from_provenance(
+        self,
+        movies: list[dict[str, Any]],
+    ) -> int:
         """Recover missing movie->managed mappings from existing provenance rows.
 
         This keeps reconciliation Arr-driven while still healing legacy drift when
@@ -135,7 +138,12 @@ class MovieProjectionOrchestrator:
         repairs: list[tuple[int, Path]] = []
         for movie_id, candidates in discovered_by_movie.items():
             known = existing.get(movie_id)
-            if known and known.exists() and known.is_dir() and _is_under_any_root(known, managed_roots):
+            if (
+                known
+                and known.exists()
+                and known.is_dir()
+                and _is_under_any_root(known, managed_roots)
+            ):
                 continue
             if len(candidates) != 1:
                 continue

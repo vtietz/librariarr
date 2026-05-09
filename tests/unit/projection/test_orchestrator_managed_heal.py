@@ -77,8 +77,7 @@ def _make_orchestrator(
 def test_backfill_recovers_unique_managed_folder_from_provenance(tmp_path: Path) -> None:
     orchestrator, radarr, config = _make_orchestrator(tmp_path)
     managed_folder = (
-        Path(config.paths.movie_root_mappings[0].managed_root)
-        / "The Cabin in the Woods (2012)"
+        Path(config.paths.movie_root_mappings[0].managed_root) / "The Cabin in the Woods (2012)"
     )
     managed_folder.mkdir(parents=True)
     (managed_folder / "movie.mkv").write_text("x")
