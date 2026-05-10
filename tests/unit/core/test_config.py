@@ -259,6 +259,70 @@ def test_load_config_reads_arr_root_poll_interval(tmp_path: Path) -> None:
     assert config.runtime.arr_root_poll_interval_minutes == 3
 
 
+def test_load_config_respects_projection_preserve_unknown_files_false(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/series/one\n"
+            "      shadow_root: /data/sonarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  projection:\n"
+            "    preserve_unknown_files: false\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
+            "  projection:\n"
+            "    preserve_unknown_files: false\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.radarr.projection.preserve_unknown_files is False
+    assert config.sonarr.projection.preserve_unknown_files is False
+
+
+def test_load_config_defaults_projection_preserve_unknown_files_to_false(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/series/one\n"
+            "      shadow_root: /data/sonarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: sonarr-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.radarr.projection.preserve_unknown_files is False
+    assert config.sonarr.projection.preserve_unknown_files is False
+
+
 def test_load_config_normalizes_dotless_scan_video_extensions(tmp_path: Path) -> None:
     config_path = tmp_path / "config.yaml"
     config_path.write_text(

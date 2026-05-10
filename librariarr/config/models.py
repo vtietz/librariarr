@@ -125,7 +125,7 @@ class RadarrProjectionConfig:
     managed_extras_allowlist: list[str] = field(
         default_factory=lambda: ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
     )
-    preserve_unknown_files: bool = True
+    preserve_unknown_files: bool = False
 
 
 @dataclass
@@ -144,7 +144,7 @@ class SonarrProjectionConfig:
             "fanart.jpg",
         ]
     )
-    preserve_unknown_files: bool = True
+    preserve_unknown_files: bool = False
 
 
 @dataclass

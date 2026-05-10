@@ -303,9 +303,7 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     else:
         raise ValueError("radarr.projection.managed_extras_allowlist must be a list")
 
-    preserve_unknown_files = bool(projection_raw.get("preserve_unknown_files", True))
-    if not preserve_unknown_files:
-        preserve_unknown_files = True
+    preserve_unknown_files = bool(projection_raw.get("preserve_unknown_files", False))
 
     sonarr_managed_video_extensions = _normalize_extensions(
         sonarr_projection_raw.get("managed_video_extensions"),
@@ -330,9 +328,7 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     else:
         raise ValueError("sonarr.projection.managed_extras_allowlist must be a list")
 
-    sonarr_preserve_unknown_files = bool(sonarr_projection_raw.get("preserve_unknown_files", True))
-    if not sonarr_preserve_unknown_files:
-        sonarr_preserve_unknown_files = True
+    sonarr_preserve_unknown_files = bool(sonarr_projection_raw.get("preserve_unknown_files", False))
 
     periodic_reconcile_minutes = runtime_raw.get(
         "periodic_reconcile_minutes",

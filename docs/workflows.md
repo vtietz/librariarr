@@ -72,7 +72,7 @@ movie ids for projection.
 - Managed files include:
   - video extensions from `radarr.projection.managed_video_extensions`,
   - extras from `radarr.projection.managed_extras_allowlist`.
-- Unknown library files are preserved (`preserve_unknown_files=true`).
+- Unknown library files are replaced by projection by default (`preserve_unknown_files=false`).
 - Reconcile is idempotent and re-links replaced managed files.
 
 ## Series Projection Behavior
@@ -81,7 +81,7 @@ movie ids for projection.
 - Managed files include:
   - video extensions from `sonarr.projection.managed_video_extensions`,
   - extras from `sonarr.projection.managed_extras_allowlist`.
-- Unknown library files are preserved (`preserve_unknown_files=true`).
+- Unknown library files are replaced by projection by default (`preserve_unknown_files=false`).
 - Reconcile is idempotent and re-links replaced managed files.
 
 ## Main Scenarios Covered by E2E

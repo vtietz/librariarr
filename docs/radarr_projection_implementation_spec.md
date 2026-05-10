@@ -82,7 +82,7 @@ radarr:
       - "movie.nfo"
       - "poster.jpg"
       - "fanart.jpg"
-    preserve_unknown_files: true   # forced true in v1
+    preserve_unknown_files: false
 
 ingest:
   enabled: true
@@ -98,7 +98,7 @@ runtime:
 - `managed_root` and `library_root` must not overlap.
 - A `managed_root` maps to exactly one `library_root`.
 - If managed and library roots are on different filesystems, that mapping is skipped with a warning.
-- `preserve_unknown_files` is forced `true` for v1 safety.
+- `preserve_unknown_files` is configurable; default is `false`.
 
 ### 5.2 Capability Probes
 
@@ -304,7 +304,7 @@ Key operations:
 
 ## 10) Safety Guarantees
 
-1. **Unknown files are never deleted.** `preserve_unknown_files` is forced `true`. Only files tracked in provenance as `managed=1` are candidates for re-projection.
+1. **Unknown file handling is configurable.** When `preserve_unknown_files=false` (default), unknown destination files may be replaced by managed projection outputs when paths collide. Set `preserve_unknown_files=true` to preserve unknown destination files.
 2. **Hardlink-only.** No file copying. If managed and library roots are on different filesystems, the mapping is skipped entirely.
 3. **Atomic file operations.** Executor uses temp file + rename pattern. Ingest uses backup + rename pattern with rollback on failure.
 4. **Idempotent reconcile.** Running reconcile repeatedly with no changes produces no side effects.

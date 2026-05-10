@@ -22,7 +22,7 @@ from .conftest import FakeRadarr, make_movie, make_radarr_config, make_roots
 
 @pytest.mark.fs_e2e
 def test_preserve_unknown_files_keeps_unrecognized_dest(tmp_path: Path) -> None:
-    """When preserve_unknown_files=True (default), existing files in library_root
+    """When preserve_unknown_files=True, existing files in library_root
     that are NOT tracked in the provenance DB must be left alone."""
     managed_root, library_root = make_roots(tmp_path, "preserve_unknown_true")
 
@@ -36,7 +36,11 @@ def test_preserve_unknown_files_keeps_unrecognized_dest(tmp_path: Path) -> None:
     unknown_file = lib_folder / "Test.Movie.2024.1080p.mkv"
     unknown_file.write_text("user-placed-file", encoding="utf-8")
 
-    config = make_radarr_config(managed_root=managed_root, library_root=library_root)
+    config = make_radarr_config(
+        managed_root=managed_root,
+        library_root=library_root,
+        projection=RadarrProjectionConfig(preserve_unknown_files=True),
+    )
 
     service = LibrariArrService(config)
     service.radarr = FakeRadarr(movies=[make_movie(1, "Test Movie", 2024, managed_folder)])
