@@ -427,7 +427,9 @@ class RuntimeSyncLoop:
         if not self.exclude_paths:
             return False
 
-        for root in [*self.nested_roots, *self.shadow_roots]:
+        # Exclude patterns are configured relative to nested managed roots only.
+        # Shadow roots must remain observable so Sonarr/Radarr library writes can trigger sync.
+        for root in self.nested_roots:
             try:
                 relative = path.relative_to(root).as_posix()
             except ValueError:
@@ -435,7 +437,7 @@ class RuntimeSyncLoop:
             if self._matches_exclude_pattern(relative, path.name, is_dir=is_dir):
                 return True
 
-        return self._matches_exclude_pattern(path.as_posix(), path.name, is_dir=is_dir)
+        return False
 
     def _matches_exclude_pattern(self, relative: str, basename: str, *, is_dir: bool) -> bool:
         if relative == ".":

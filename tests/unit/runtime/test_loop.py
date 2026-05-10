@@ -210,6 +210,32 @@ def test_runtime_sync_loop_mark_dirty_ignores_excluded_deletedbytmm_file_event(t
     assert schedule.last_event == 0.0
 
 
+def test_runtime_sync_loop_mark_dirty_does_not_exclude_shadow_events(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    nested_root = tmp_path / "series" / "FSK12"
+    shadow_root = tmp_path / "series" / ".librariarr" / "FSK12"
+    (shadow_root / "Knight Rider (1982)").mkdir(parents=True)
+    loop = RuntimeSyncLoop(
+        nested_roots=[nested_root],
+        shadow_roots=[shadow_root],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        exclude_paths=[".librariarr/**"],
+    )
+
+    event_path = shadow_root / "Knight Rider (1982)" / "Staffel 01" / "episode.mkv"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=False,
+            src_path=str(event_path),
+        )
+    )
+    assert schedule.last_event > 0.0
+
+
 def test_runtime_sync_loop_mark_dirty_accepts_shadow_nested_event_for_real_dir(tmp_path) -> None:
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
     shadow_root = tmp_path / "shadow"
