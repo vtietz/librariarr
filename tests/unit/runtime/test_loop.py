@@ -164,6 +164,52 @@ def test_runtime_sync_loop_mark_dirty_accepts_directory_event_with_video_filter(
     assert schedule.last_event > 0.0
 
 
+def test_runtime_sync_loop_mark_dirty_ignores_excluded_deletedbytmm_dir_event(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[tmp_path / "nested"],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        exclude_paths=[".deletedByTMM/"],
+    )
+
+    marker_dir = tmp_path / "nested" / "FSK06 Erwachsene" / ".deletedByTMM"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=True,
+            src_path=str(marker_dir),
+        )
+    )
+    assert schedule.last_event == 0.0
+
+
+def test_runtime_sync_loop_mark_dirty_ignores_excluded_deletedbytmm_file_event(tmp_path) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[tmp_path / "nested"],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        exclude_paths=[".deletedByTMM"],
+    )
+
+    marker_file = tmp_path / "nested" / "FSK12" / ".deletedByTMM"
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=False,
+            src_path=str(marker_file),
+        )
+    )
+    assert schedule.last_event == 0.0
+
+
 def test_runtime_sync_loop_mark_dirty_accepts_shadow_nested_event_for_real_dir(tmp_path) -> None:
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
     shadow_root = tmp_path / "shadow"

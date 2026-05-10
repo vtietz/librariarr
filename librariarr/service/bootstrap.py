@@ -195,6 +195,7 @@ class ServiceBootstrapMixin:
             status_tracker=self.runtime_status_tracker,
             on_reconcile_complete=_on_reconcile_complete,
             tracked_video_extensions=self.video_exts,
+            exclude_paths=self.scan_exclude_paths,
             polling_fallback_interval_seconds=self._polling_fallback_interval_seconds,
             startup_reconcile_mode=self._startup_reconcile_mode,
         )

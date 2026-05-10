@@ -7,6 +7,7 @@ import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
+from fnmatch import fnmatch
 from pathlib import Path
 
 import requests
@@ -82,6 +83,7 @@ class RuntimeSyncLoop:
         status_tracker: RuntimeStatusTracker | None = None,
         on_reconcile_complete: Callable[[], None] | None = None,
         tracked_video_extensions: set[str] | None = None,
+        exclude_paths: list[str] | None = None,
         polling_fallback_interval_seconds: int = 60,
         startup_reconcile_mode: str = "smart",
     ) -> None:
@@ -104,6 +106,7 @@ class RuntimeSyncLoop:
         self._last_reconcile_succeeded: bool | None = None
         self._dirty_paths: set[Path] = set()
         self._dirty_paths_lock = threading.Lock()
+        self.exclude_paths = self._normalize_exclude_patterns(exclude_paths)
         if self.status_tracker is not None:
             self.status_tracker.set_debounce_seconds(self.schedule.debounce_seconds)
 
@@ -314,7 +317,14 @@ class RuntimeSyncLoop:
 
         event_paths: list[Path] = []
         if event is not None:
-            event_paths = self._extract_event_paths(event)
+            raw_event_paths = self._extract_event_paths(event)
+            event_paths = [
+                path
+                for path in raw_event_paths
+                if not self._is_excluded_path(path, is_dir=event.is_directory)
+            ]
+            if raw_event_paths and not event_paths:
+                return
             if event_paths:
                 with self._dirty_paths_lock:
                     self._dirty_paths.update(event_paths)
@@ -363,6 +373,11 @@ class RuntimeSyncLoop:
 
         event_paths = self._extract_event_paths(event)
         if event_paths and not any(
+            not self._is_excluded_path(path, is_dir=event.is_directory) for path in event_paths
+        ):
+            return False
+
+        if event_paths and not any(
             self._path_matches_event_filter(path, is_directory=event.is_directory)
             for path in event_paths
         ):
@@ -394,6 +409,66 @@ class RuntimeSyncLoop:
         if not normalized:
             return ""
         return f".{normalized}"
+
+    def _normalize_exclude_patterns(self, exclude_patterns: list[str] | None) -> list[str]:
+        if not exclude_patterns:
+            return []
+        normalized: list[str] = []
+        for raw_pattern in exclude_patterns:
+            pattern = str(raw_pattern).strip().replace("\\", "/")
+            if not pattern or pattern.startswith("#"):
+                continue
+            if pattern.startswith("./"):
+                pattern = pattern[2:]
+            normalized.append(pattern)
+        return normalized
+
+    def _is_excluded_path(self, path: Path, *, is_dir: bool) -> bool:
+        if not self.exclude_paths:
+            return False
+
+        for root in [*self.nested_roots, *self.shadow_roots]:
+            try:
+                relative = path.relative_to(root).as_posix()
+            except ValueError:
+                continue
+            if self._matches_exclude_pattern(relative, path.name, is_dir=is_dir):
+                return True
+
+        return self._matches_exclude_pattern(path.as_posix(), path.name, is_dir=is_dir)
+
+    def _matches_exclude_pattern(self, relative: str, basename: str, *, is_dir: bool) -> bool:
+        if relative == ".":
+            return False
+
+        parts = [part for part in Path(relative).parts if part not in {".", ""}]
+        suffix_candidates = ["/".join(parts[index:]).lower() for index in range(len(parts))]
+        relative_ci = relative.lower()
+        basename_ci = basename.lower()
+
+        for pattern in self.exclude_paths:
+            anchored = pattern.startswith("/")
+            dir_only = pattern.endswith("/")
+            core = pattern.strip("/")
+            core_ci = core.lower()
+            if not core:
+                continue
+            if dir_only and not is_dir:
+                continue
+
+            if anchored:
+                if fnmatch(relative_ci, core_ci):
+                    return True
+                continue
+
+            if fnmatch(basename_ci, core_ci):
+                return True
+            if fnmatch(relative_ci, core_ci):
+                return True
+            if any(fnmatch(candidate, core_ci) for candidate in suffix_candidates):
+                return True
+
+        return False
 
     def _normalize_startup_reconcile_mode(self, mode: str) -> str:
         normalized = str(mode or "smart").strip().lower()
@@ -430,14 +505,27 @@ class RuntimeSyncLoop:
                     pass
 
                 for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
+                    current_dir = Path(dirpath)
+                    if self._is_excluded_path(current_dir, is_dir=True):
+                        dirnames[:] = []
+                        continue
+
+                    dirnames[:] = [
+                        dirname
+                        for dirname in dirnames
+                        if not self._is_excluded_path(current_dir / dirname, is_dir=True)
+                    ]
+
                     dir_count += len(dirnames)
                     try:
-                        max_mtime_ns = max(max_mtime_ns, Path(dirpath).stat().st_mtime_ns)
+                        max_mtime_ns = max(max_mtime_ns, current_dir.stat().st_mtime_ns)
                     except OSError:
                         pass
 
                     for filename in filenames:
-                        path = Path(dirpath) / filename
+                        path = current_dir / filename
+                        if self._is_excluded_path(path, is_dir=False):
+                            continue
                         if (
                             self.tracked_video_extensions
                             and path.suffix.lower() not in self.tracked_video_extensions
