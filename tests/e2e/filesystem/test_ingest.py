@@ -169,7 +169,7 @@ def test_ingest_replace_different_inode_soft_delete_default(tmp_path: Path) -> N
     assert incoming.samefile(managed_new_file)
 
     soft_deleted = list(
-        (managed_root / ".librariarr-deleted" / "Replace Movie (2024)").glob(
+        (managed_root / ".deletedByLibrariarr" / "Replace Movie (2024)").glob(
             "Replace.Movie.2024.720p.mkv.*"
         )
     )
@@ -210,7 +210,7 @@ def test_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) -> None
     assert managed_new_file.read_text(encoding="utf-8") == "new-content"
     assert incoming.exists()
     assert incoming.samefile(managed_new_file)
-    assert not (managed_root / ".librariarr-deleted").exists()
+    assert not (managed_root / ".deletedByLibrariarr").exists()
     assert not any(managed_folder.glob("**/*.librariarr-ingest-tmp"))
 
 
@@ -317,7 +317,7 @@ def test_ingest_skips_when_destination_already_exists(tmp_path: Path) -> None:
         "File-level ingest should keep the incoming canonical filename"
     )
     soft_deleted = list(
-        (managed_root / ".librariarr-deleted" / "Existing Movie (2023)").glob(
+        (managed_root / ".deletedByLibrariarr" / "Existing Movie (2023)").glob(
             "Existing.Movie.2023.720p.mkv.*"
         )
     )

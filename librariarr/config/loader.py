@@ -161,8 +161,8 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     if not isinstance(exclude_paths_raw, list):
         raise ValueError("paths.exclude_paths must be a list of glob-style path patterns")
     exclude_paths = [str(item).strip() for item in exclude_paths_raw if str(item).strip()]
-    if ".librariarr-deleted/" not in {item.lower() for item in exclude_paths}:
-        exclude_paths.append(".librariarr-deleted/")
+    if ".deletedByLibrariarr/" not in {item.lower() for item in exclude_paths}:
+        exclude_paths.append(".deletedByLibrariarr/")
 
     radarr_default_url = str(_require(radarr, "url")).rstrip("/") if has_radarr else ""
     radarr_default_api_key = str(_require(radarr, "api_key")) if has_radarr else ""

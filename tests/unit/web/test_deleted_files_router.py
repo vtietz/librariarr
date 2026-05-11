@@ -38,7 +38,7 @@ def test_deleted_files_list_restore_and_delete(tmp_path: Path) -> None:
     nested_root.mkdir()
     shadow_root.mkdir()
 
-    trash_dir = nested_root / ".librariarr-deleted" / "Movie One (2024)"
+    trash_dir = nested_root / ".deletedByLibrariarr" / "Movie One (2024)"
     trash_dir.mkdir(parents=True)
     deleted_file = trash_dir / "Movie.One.2024.1080p.mkv.20260511T120000123456Z"
     deleted_file.write_text("deleted", encoding="utf-8")
@@ -97,7 +97,7 @@ def test_deleted_files_restore_conflict_returns_409(tmp_path: Path) -> None:
 
     deleted_file = (
         nested_root
-        / ".librariarr-deleted"
+        / ".deletedByLibrariarr"
         / "Show (2020)"
         / "Season 01"
         / "Show.S01E01.1080p.mkv.20260511T140000123456Z"
@@ -121,7 +121,7 @@ def test_deleted_files_clear_all(tmp_path: Path) -> None:
     nested_root.mkdir()
     shadow_root.mkdir()
 
-    trash_dir = nested_root / ".librariarr-deleted" / "Movie Two (2024)"
+    trash_dir = nested_root / ".deletedByLibrariarr" / "Movie Two (2024)"
     trash_dir.mkdir(parents=True)
     (trash_dir / "Movie.Two.2024.720p.mkv.20260511T150000123456Z").write_text(
         "one",
@@ -142,4 +142,4 @@ def test_deleted_files_clear_all(tmp_path: Path) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["removed_files"] == 2
-    assert not (nested_root / ".librariarr-deleted").exists()
+    assert not (nested_root / ".deletedByLibrariarr").exists()

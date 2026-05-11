@@ -362,7 +362,7 @@ def build_fs_router(  # noqa: C901
                 scenario="2",
                 category="deleted_files",
                 title=f"Restored file: {restore_path.name}",
-                message="A file was restored from .librariarr-deleted back to managed storage.",
+                message="A file was restored from .deletedByLibrariarr back to managed storage.",
             )
 
         return {
@@ -395,7 +395,7 @@ def build_fs_router(  # noqa: C901
                 scenario="2",
                 category="deleted_files",
                 title=f"Permanently deleted: {target.name}",
-                message="A file was permanently removed from .librariarr-deleted.",
+                message="A file was permanently removed from .deletedByLibrariarr.",
             )
 
         return {
@@ -431,7 +431,7 @@ def build_fs_router(  # noqa: C901
                 scenario="2",
                 category="deleted_files",
                 title=f"Cleared deleted files ({removed_files})",
-                message="Removed files from one or more managed .librariarr-deleted folders.",
+                message="Removed files from one or more managed .deletedByLibrariarr folders.",
             )
 
         return {
@@ -466,7 +466,7 @@ def _selected_managed_roots(managed_roots: list[Path], selected_root: str | None
 
 
 def _trash_root_for_managed_root(managed_root: Path) -> Path:
-    return managed_root / ".librariarr-deleted"
+    return managed_root / ".deletedByLibrariarr"
 
 
 def _restore_relative_path(relative_path: Path) -> Path | None:

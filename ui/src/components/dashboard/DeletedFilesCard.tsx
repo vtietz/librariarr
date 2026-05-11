@@ -176,7 +176,7 @@ export default function DeletedFilesCard() {
         )}
 
         {!loading && !error && rows.length === 0 && (
-          <Text size="sm" c="dimmed">No deleted files waiting in .librariarr-deleted.</Text>
+          <Text size="sm" c="dimmed">No deleted files waiting in .deletedByLibrariarr.</Text>
         )}
 
         {!loading && !error && rows.length > 0 && (

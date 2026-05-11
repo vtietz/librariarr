@@ -236,7 +236,7 @@ def test_sonarr_ingest_replace_different_inode_soft_delete_default(tmp_path: Pat
     assert not managed_old_episode.exists()
     assert managed_new_episode.read_text(encoding="utf-8") == "new"
     soft_deleted = list(
-        (nested_root / ".librariarr-deleted" / "Series Replace Soft (2021)" / "Season 01").glob(
+        (nested_root / ".deletedByLibrariarr" / "Series Replace Soft (2021)" / "Season 01").glob(
             f"{managed_old_episode.name}.*"
         )
     )
@@ -285,7 +285,7 @@ def test_sonarr_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) 
     managed_new_episode = season / projected_new_episode.name
     assert not managed_old_episode.exists()
     assert managed_new_episode.read_text(encoding="utf-8") == "new"
-    assert not (nested_root / ".librariarr-deleted").exists()
+    assert not (nested_root / ".deletedByLibrariarr").exists()
     assert not any(season.glob("**/*.librariarr-ingest-tmp"))
     assert projected_new_episode.exists()
     assert projected_new_episode.samefile(managed_new_episode)

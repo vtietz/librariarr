@@ -302,7 +302,7 @@ def ingest_files_from_library_folder(
 
 def _soft_delete_backup_path(managed_file: Path, managed_root: Path) -> Path:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    base = managed_root / ".librariarr-deleted"
+    base = managed_root / ".deletedByLibrariarr"
     try:
         relative = managed_file.relative_to(managed_root)
     except ValueError:

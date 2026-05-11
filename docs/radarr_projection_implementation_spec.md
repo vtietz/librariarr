@@ -167,7 +167,7 @@ Moves files that Radarr placed in library_root back into managed_root. Two tiers
   - For each allowlisted file: compare inodes between library and managed copies.
   - If destination path is missing and conflicting managed video filenames exist in the same folder, incoming Arr filename wins and those managed files are treated as superseded.
   - If inodes differ (upgrade): atomically move the library file to managed_root using rename-to-backup pattern.
-    - `replacement_delete_mode=soft` (default): renamed managed backup is kept under `managed_root/.librariarr-deleted/...`.
+    - `replacement_delete_mode=soft` (default): renamed managed backup is kept under `managed_root/.deletedByLibrariarr/...`.
     - `replacement_delete_mode=hard`: renamed managed backup is deleted after successful replacement.
   - If inodes match (already hardlinked): skip — no action needed.
   - Safety: backup is created before move and restored on failure; on success it is either retained (`soft`) or deleted (`hard`).

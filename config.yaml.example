@@ -23,7 +23,7 @@ paths:
     - ".deletedByTMM/"
     - ".actors/"
     - ".trash/"
-    - ".librariarr-deleted/"
+    - ".deletedByLibrariarr/"
     - ".librariarr/**"
     - "specials/"
     - "trailer/"
@@ -190,7 +190,7 @@ ingest:
   # File-level ingest also handles quality upgrades via inode comparison.
   enabled: true
   # Behavior when replacing a same-path managed file with a new inode:
-  # - soft: move replaced managed file to .librariarr-deleted (default)
+  # - soft: move replaced managed file to .deletedByLibrariarr (default)
   # - hard: delete replaced managed file after successful move
   replacement_delete_mode: "soft"
 

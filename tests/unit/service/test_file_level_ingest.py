@@ -60,7 +60,7 @@ def test_ingest_files_replaces_different_inode(tmp_path: Path) -> None:
     assert not (lib / "Movie.mkv").exists()
 
     soft_deleted = list(
-        (tmp_path / "managed" / ".librariarr-deleted" / "Movie (2024)").glob("Movie.mkv.*")
+        (tmp_path / "managed" / ".deletedByLibrariarr" / "Movie (2024)").glob("Movie.mkv.*")
     )
     assert len(soft_deleted) == 1
     assert soft_deleted[0].read_text(encoding="utf-8") == "old-quality"
@@ -86,7 +86,7 @@ def test_ingest_files_replaces_different_inode_hard_delete_mode(tmp_path: Path) 
     assert result.failed_count == 0
     assert (managed / "Movie.mkv").read_text(encoding="utf-8") == "new-quality"
     assert not (lib / "Movie.mkv").exists()
-    assert not (tmp_path / "managed" / ".librariarr-deleted").exists()
+    assert not (tmp_path / "managed" / ".deletedByLibrariarr").exists()
     assert not any(managed.glob("**/*.librariarr-ingest-tmp"))
 
 
@@ -231,7 +231,7 @@ def test_ingest_movie_conflict_resolution_prefers_incoming_filename(tmp_path: Pa
     assert not (managed / "Movie.2024.720p.mkv").exists()
     assert (managed / "Movie.2024.1080p.mkv").read_text(encoding="utf-8") == "new"
     soft_deleted = list(
-        (tmp_path / "managed" / ".librariarr-deleted" / "Movie (2024)").glob(
+        (tmp_path / "managed" / ".deletedByLibrariarr" / "Movie (2024)").glob(
             "Movie.2024.720p.mkv.*"
         )
     )
@@ -261,7 +261,7 @@ def test_ingest_series_conflict_resolution_replaces_same_episode_only(tmp_path: 
     assert (managed / "Series.S01E02.720p.mkv").read_text(encoding="utf-8") == "keep-e02"
     assert (managed / "Series.S01E01.1080p.WEB-DL.mkv").read_text(encoding="utf-8") == "new-e01"
     soft_deleted = list(
-        (tmp_path / "managed" / ".librariarr-deleted" / "Series (2024)" / "Season 01").glob(
+        (tmp_path / "managed" / ".deletedByLibrariarr" / "Series (2024)" / "Season 01").glob(
             "Series.S01E01.720p.mkv.*"
         )
     )
