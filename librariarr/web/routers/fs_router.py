@@ -2,16 +2,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import shutil
 import time
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Annotated, Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from ...quality import VIDEO_EXTENSIONS
+from ...service.reconcile_helpers import resolve_managed_root_for_folder
+from ...sync.naming import parse_movie_ref
 from ..history_events import append_history_event
 
 
@@ -269,6 +274,76 @@ def build_fs_router(  # noqa: C901
             "removed_files": removed_files,
         }
 
+    @router.post("/api/fs/orphaned-managed-folders/recycle")
+    def recycle_orphaned_managed_folder(
+        request: Request,
+        path: str = Query(...),
+    ) -> dict[str, Any]:
+        target = _validated_absolute_path(path)
+        config = load_config_or_http_fn(read_config_path_fn(request))
+        managed_root_mappings = [
+            (
+                Path(item.managed_root).resolve(strict=False),
+                Path(item.library_root).resolve(strict=False),
+            )
+            for item in config.paths.movie_root_mappings
+        ]
+        managed_root = resolve_managed_root_for_folder(target, managed_root_mappings)
+
+        if managed_root is None:
+            raise HTTPException(
+                status_code=403,
+                detail="path is not under a configured managed movie root",
+            )
+        if not target.exists():
+            raise HTTPException(status_code=404, detail="folder does not exist")
+        if not target.is_dir():
+            raise HTTPException(status_code=400, detail="path is not a directory")
+        if target == managed_root:
+            raise HTTPException(status_code=400, detail="cannot recycle a managed root directory")
+
+        trash_root = _trash_root_for_managed_root(managed_root)
+        if target == trash_root or trash_root in target.parents:
+            raise HTTPException(
+                status_code=400,
+                detail="path is already inside .deletedByLibrariarr",
+            )
+
+        video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
+        if not _is_orphaned_managed_movie_folder(target, video_exts):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "folder is not orphaned: requires parseable movie folder name "
+                    "and no video files"
+                ),
+            )
+
+        recycled_path = _recycle_folder_target(target=target, managed_root=managed_root)
+        recycled_path.parent.mkdir(parents=True, exist_ok=True)
+        target.rename(recycled_path)
+
+        state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
+        if state_store is not None:
+            append_history_event(
+                state_store,
+                scenario="2",
+                category="deleted_files",
+                title=f"Recycled orphaned folder: {target.name}",
+                message=(
+                    "Moved orphaned managed folder to .deletedByLibrariarr: "
+                    f"{target} -> {recycled_path}"
+                ),
+            )
+
+        discovery_cache.request_refresh(config, force=True)
+
+        return {
+            "ok": True,
+            "source_path": str(target),
+            "recycled_path": str(recycled_path),
+        }
+
     @router.get("/api/fs/deleted-files")
     def list_deleted_files(
         request: Request,
@@ -444,6 +519,7 @@ def build_fs_router(  # noqa: C901
 
 
 _SOFT_DELETE_SUFFIX_RE = re.compile(r"\.\d{8}T\d{12}Z(?:\.\d+)?$")
+_ORPHAN_RECYCLE_SUFFIX_RE = re.compile(r"\.orphan\.\d{8}T\d{12}Z(?:\.\d+)?$")
 
 
 def _managed_roots_for_deleted_files(config: Any) -> list[Path]:
@@ -470,11 +546,51 @@ def _trash_root_for_managed_root(managed_root: Path) -> Path:
 
 
 def _restore_relative_path(relative_path: Path) -> Path | None:
-    filename = relative_path.name
-    restored_name = _SOFT_DELETE_SUFFIX_RE.sub("", filename)
-    if restored_name == filename:
+    restored_parts: list[str] = []
+    changed = False
+
+    for index, part in enumerate(relative_path.parts):
+        updated = _ORPHAN_RECYCLE_SUFFIX_RE.sub("", part)
+        if index == len(relative_path.parts) - 1:
+            updated = _SOFT_DELETE_SUFFIX_RE.sub("", updated)
+        if updated != part:
+            changed = True
+        restored_parts.append(updated)
+
+    if not changed:
         return None
-    return relative_path.with_name(restored_name)
+    return Path(*restored_parts)
+
+
+def _is_orphaned_managed_movie_folder(folder: Path, video_exts: set[str]) -> bool:
+    ref = parse_movie_ref(folder.name)
+    if ref.year is None or not ref.title:
+        return False
+    return not _contains_video_recursively(folder, video_exts)
+
+
+def _contains_video_recursively(folder: Path, video_exts: set[str]) -> bool:
+    for _current, _dirs, files in os.walk(folder):
+        if any(Path(filename).suffix.lower() in video_exts for filename in files):
+            return True
+    return False
+
+
+def _recycle_folder_target(*, target: Path, managed_root: Path) -> Path:
+    trash_root = _trash_root_for_managed_root(managed_root)
+    try:
+        relative = target.relative_to(managed_root)
+    except ValueError:
+        relative = Path(target.name)
+
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    folder_name = f"{relative.name}.orphan.{timestamp}"
+    candidate = trash_root / relative.parent / folder_name
+    suffix = 1
+    while candidate.exists():
+        candidate = trash_root / relative.parent / f"{folder_name}.{suffix}"
+        suffix += 1
+    return candidate
 
 
 def _validated_absolute_path(raw_path: str) -> Path:

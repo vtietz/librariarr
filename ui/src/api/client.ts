@@ -168,6 +168,19 @@ export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
   return data;
 };
 
+export const recycleOrphanedManagedFolder = async (path: string) => {
+  const { data } = await api.post<{
+    ok: boolean;
+    source_path: string;
+    recycled_path: string;
+  }>(
+    "/fs/orphaned-managed-folders/recycle",
+    undefined,
+    { params: { path } }
+  );
+  return data;
+};
+
 export const getDeletedFiles = async (params?: { managedRoot?: string; limit?: number }) => {
   const { data } = await api.get<DeletedFilesResponse>("/fs/deleted-files", {
     params: {

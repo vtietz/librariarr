@@ -1,5 +1,5 @@
 import { Stack, Title } from "@mantine/core";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { getDiscoveryWarnings, runFullReconcile } from "../api/client";
 import type { RuntimeStatusResponse } from "../api/client";
 import DiscoveryWarningsCard from "./dashboard/DiscoveryWarningsCard";
@@ -24,6 +24,11 @@ export default function Dashboard({
 
   const taskIsRunning = runtimeStatus?.current_task?.state === "running";
   const runningReconcile = queuingReconcile || taskIsRunning;
+
+  const refreshDiscoveryWarnings = useCallback(async () => {
+    const payload = await getDiscoveryWarnings({ limit: 10 });
+    setDiscoveryWarnings(payload);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -55,7 +60,7 @@ export default function Dashboard({
       active = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [refreshDiscoveryWarnings]);
 
   const handleRunReconcile = async () => {
     setQueuingReconcile(true);
@@ -85,7 +90,10 @@ export default function Dashboard({
 
       <DeletedFilesCard />
 
-      <DiscoveryWarningsCard discoveryWarnings={discoveryWarnings} />
+      <DiscoveryWarningsCard
+        discoveryWarnings={discoveryWarnings}
+        onRefreshWarnings={refreshDiscoveryWarnings}
+      />
     </Stack>
   );
 }
