@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .common import LOG
 from .reconcile_autoadd import ServiceAutoAddMixin
 from .reconcile_helpers import AffectedPathMatcher
 from .reconcile_ingest import ServiceIngestMixin
@@ -17,6 +18,65 @@ class ServiceReconcileMixin(
     ServiceIngestMixin,
     ServiceAutoAddMixin,
 ):
+    def _should_skip_projection_for_unresolved_filesystem_delta(
+        self,
+        *,
+        reconcile_ctx: dict,
+        scope: dict,
+        ingested_movie_ids: set[int],
+        ingested_series_ids: set[int],
+        auto_added_movie_ids: set[int],
+        auto_added_series_ids: set[int],
+    ) -> bool:
+        if reconcile_ctx.get("reconcile_mode") != "incremental":
+            return False
+        affected_paths = reconcile_ctx.get("affected_paths")
+        if not affected_paths:
+            return False
+
+        managed_roots = [
+            *[managed for managed, _ in self.movie_root_mappings],
+            *self.series_managed_roots,
+        ]
+        library_roots = [
+            *[library for _, library in self.movie_root_mappings],
+            *self.series_library_roots,
+        ]
+
+        has_managed_path = False
+        for affected in affected_paths:
+            resolved = affected.resolve(strict=False)
+
+            if resolved.exists():
+                return False
+
+            under_library = any(
+                resolved == library_root or library_root in resolved.parents
+                for library_root in library_roots
+            )
+            if under_library:
+                return False
+
+            if any(
+                resolved == managed_root or managed_root in resolved.parents
+                for managed_root in managed_roots
+            ):
+                has_managed_path = True
+
+        if not has_managed_path:
+            return False
+
+        return (
+            scope.get("scoped_movie_ids") is None
+            and scope.get("scoped_series_ids") is None
+            and not scope.get("queued_movie_ids")
+            and not scope.get("queued_series_ids")
+            and not ingested_movie_ids
+            and not ingested_series_ids
+            and not auto_added_movie_ids
+            and not auto_added_series_ids
+        )
+
     def reconcile(
         self,
         affected_paths: set[Path] | None = None,
@@ -65,6 +125,60 @@ class ServiceReconcileMixin(
                 auto_added_series_ids=auto_added_series_ids,
             )
             self._update_scope_tracking(scope)
+
+            if self._should_skip_projection_for_unresolved_filesystem_delta(
+                reconcile_ctx=reconcile_ctx,
+                scope=scope,
+                ingested_movie_ids=ingested_movie_ids,
+                ingested_series_ids=ingested_series_ids,
+                auto_added_movie_ids=auto_added_movie_ids,
+                auto_added_series_ids=auto_added_series_ids,
+            ):
+                LOG.info(
+                    "Skipping projection dispatch for filesystem delta with no resolved IDs: "
+                    "trigger_path=%s",
+                    reconcile_ctx["trigger_path"],
+                )
+                movie_projection_metrics = {
+                    "scoped_movie_count": 0,
+                    "planned_movies": 0,
+                    "skipped_movies": 0,
+                    "projected_files": 0,
+                    "unchanged_files": 0,
+                    "skipped_files": 0,
+                    "matched_movie_ids": set(),
+                    "per_root": [],
+                }
+                series_projection_metrics = {
+                    "scoped_series_count": 0,
+                    "planned_series": 0,
+                    "skipped_series": 0,
+                    "projected_files": 0,
+                    "unchanged_files": 0,
+                    "skipped_files": 0,
+                    "matched_series_ids": set(),
+                    "per_root": [],
+                }
+                removed_orphans = self._run_stale_shadow_cleanup(
+                    reconcile_ctx=reconcile_ctx,
+                    scope=scope,
+                    movie_projection_metrics=movie_projection_metrics,
+                    series_projection_metrics=series_projection_metrics,
+                )
+                self._finalize_reconcile(
+                    reconcile_ctx=reconcile_ctx,
+                    force_full_scope=force_full_scope,
+                    movie_projection_metrics=movie_projection_metrics,
+                    series_projection_metrics=series_projection_metrics,
+                    removed_orphans=removed_orphans,
+                    ingested_movie_ids=ingested_movie_ids,
+                    ingested_series_ids=ingested_series_ids,
+                    auto_added_movie_ids=auto_added_movie_ids,
+                    auto_added_series_ids=auto_added_series_ids,
+                    queued_movie_ids=scope["queued_movie_ids"],
+                    queued_series_ids=scope["queued_series_ids"],
+                )
+                return False
 
             had_projection_error = False
             movie_projection_metrics, movie_projection_error = self._run_movie_projection(

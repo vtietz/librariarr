@@ -215,6 +215,41 @@ def test_reconcile_skips_movie_projection_when_radarr_disabled(tmp_path: Path) -
     assert not _projected_file(library_root, "Fixture Catalog A (2008)", "movie.mkv").exists()
 
 
+def test_reconcile_skips_projection_dispatch_for_unresolved_filesystem_delta(
+    tmp_path: Path,
+    caplog,
+) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    managed_root.mkdir(parents=True)
+    library_root.mkdir(parents=True)
+
+    # Inventory has one known movie, but affected path is an unrelated/deleted duplicate folder.
+    known_movie_dir = managed_root / "Fixture Catalog A (2008)"
+    known_movie_dir.mkdir(parents=True)
+    (known_movie_dir / "movie.mkv").write_text("x", encoding="utf-8")
+    deleted_duplicate_dir = managed_root / "Fixture Catalog A (2008) Duplicate"
+
+    config = make_config(managed_root, library_root, sync_enabled=False)
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(
+        movies=[_movie(1, "Fixture Catalog A", 2008, known_movie_dir)],
+    )
+
+    def _projection_should_not_run(*_args, **_kwargs):
+        raise AssertionError(
+            "projection dispatch should be skipped for unresolved filesystem delta"
+        )
+
+    service.movie_projection.reconcile = _projection_should_not_run
+
+    caplog.set_level("INFO", logger="librariarr.service")
+    service.reconcile(affected_paths={deleted_duplicate_dir})
+
+    assert "Skipping projection dispatch for filesystem delta with no resolved IDs" in caplog.text
+    assert "Projection dispatch: arr=radarr" not in caplog.text
+
+
 def test_reconcile_auto_adds_unmatched_movie_folder_when_enabled(tmp_path: Path) -> None:
     managed_root = tmp_path / "managed"
     library_root = tmp_path / "library"
