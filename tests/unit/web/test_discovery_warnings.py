@@ -1,3 +1,4 @@
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -119,10 +120,16 @@ def test_discovery_warnings_reports_unmanaged_shadow_video_files(
     app = create_app(config_path=config_path)
     client = TestClient(app)
 
-    response = client.get("/api/fs/discovery-warnings")
+    payload = None
+    for _ in range(5):
+        response = client.get("/api/fs/discovery-warnings")
+        assert response.status_code == 200
+        payload = response.json()
+        if payload["summary"]["unmanaged_shadow_video_files"] == 1:
+            break
+        time.sleep(0.05)
 
-    assert response.status_code == 200
-    payload = response.json()
+    assert payload is not None
     assert payload["summary"]["unmanaged_shadow_video_files"] == 1
     assert payload["unmanaged_shadow_video_files"][0]["path"] == str(unmanaged_shadow_file)
 
