@@ -11,7 +11,11 @@ from ..projection.orchestrator import _projection_state_db_path
 from ..projection.provenance import ProjectionStateStore
 from ..projection.sonarr_orchestrator import _sonarr_projection_state_db_path
 from ..quality import VIDEO_EXTENSIONS
-from ..sync.discovery import discover_movie_folders
+from ..sync.discovery import (
+    _is_excluded_path,
+    _normalize_exclude_patterns,
+    discover_movie_folders,
+)
 from ..sync.naming import parse_movie_ref
 from .jobs import JobManager
 from .state_store import PersistentStateStore
@@ -86,6 +90,7 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
     orphaned_managed_movie_paths = _discover_orphaned_managed_movie_folders(
         mappings=config.paths.movie_root_mappings,
         video_exts=video_exts,
+        exclude_patterns=exclude_paths,
     )
     unmanaged_shadow_video_files = _discover_unmanaged_shadow_video_files(
         config=config,
@@ -178,7 +183,9 @@ def _discover_orphaned_managed_movie_folders(
     *,
     mappings: list[Any],
     video_exts: set[str],
+    exclude_patterns: list[str] | None = None,
 ) -> list[Path]:
+    excludes = _normalize_exclude_patterns(exclude_patterns)
     candidates: set[Path] = set()
     for mapping in mappings:
         managed_root = Path(mapping.managed_root)
@@ -187,7 +194,20 @@ def _discover_orphaned_managed_movie_folders(
 
         for current, dirs, _files in os.walk(managed_root):
             current_path = Path(current)
-            dirs[:] = sorted(dirs)
+            if _is_excluded_path(current_path, managed_root, excludes, is_dir=True):
+                dirs[:] = []
+                continue
+
+            dirs[:] = sorted(
+                dirname
+                for dirname in dirs
+                if not _is_excluded_path(
+                    current_path / dirname,
+                    managed_root,
+                    excludes,
+                    is_dir=True,
+                )
+            )
             if current_path == managed_root:
                 continue
             ref = parse_movie_ref(current_path.name)
