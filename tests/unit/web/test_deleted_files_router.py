@@ -173,6 +173,12 @@ def test_recycle_orphaned_managed_folder_success(tmp_path: Path) -> None:
     assert not orphan_folder.exists()
     assert Path(payload["recycled_path"]).exists()
 
+    history_payload = client.get("/api/history").json()
+    assert any(
+        item.get("title") == f"Recycled orphaned folder: {orphan_folder.name}"
+        for item in history_payload.get("items", [])
+    )
+
 
 def test_recycle_orphaned_managed_folder_rejects_video_folder(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
@@ -195,6 +201,12 @@ def test_recycle_orphaned_managed_folder_rejects_video_folder(tmp_path: Path) ->
         params={"path": str(non_orphan_folder)},
     )
     assert response.status_code == 409
+
+    history_payload = client.get("/api/history").json()
+    assert any(
+        item.get("title") == f"Recycle orphaned folder skipped: {non_orphan_folder.name}"
+        for item in history_payload.get("items", [])
+    )
 
 
 def test_recycle_orphaned_managed_folder_rejects_missing_path(tmp_path: Path) -> None:
@@ -240,7 +252,7 @@ def test_recycle_orphaned_managed_folder_rejects_file_target(tmp_path: Path) -> 
     assert response.status_code == 400
 
 
-def test_recycle_orphaned_managed_folder_rejects_non_parseable_name(tmp_path: Path) -> None:
+def test_recycle_orphaned_managed_folder_allows_non_parseable_name(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
     nested_root.mkdir()
@@ -259,7 +271,7 @@ def test_recycle_orphaned_managed_folder_rejects_non_parseable_name(tmp_path: Pa
         "/api/fs/orphaned-managed-folders/recycle",
         params={"path": str(non_parseable)},
     )
-    assert response.status_code == 409
+    assert response.status_code == 200
 
 
 def test_recycle_orphaned_managed_folder_rejects_outside_managed_root(tmp_path: Path) -> None:

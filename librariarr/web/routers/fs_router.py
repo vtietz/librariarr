@@ -16,7 +16,6 @@ from fastapi.responses import StreamingResponse
 
 from ...quality import VIDEO_EXTENSIONS
 from ...service.reconcile_helpers import resolve_managed_root_for_folder
-from ...sync.naming import parse_movie_ref
 from ..history_events import append_history_event
 
 
@@ -309,21 +308,28 @@ def build_fs_router(  # noqa: C901
                 detail="path is already inside .deletedByLibrariarr",
             )
 
+        state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
         video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
         if not _is_orphaned_managed_movie_folder(target, video_exts):
+            if state_store is not None:
+                append_history_event(
+                    state_store,
+                    scenario="2",
+                    category="deleted_files",
+                    title=f"Recycle orphaned folder skipped: {target.name}",
+                    message=(
+                        f"Recycle request skipped because folder contains video files: {target}"
+                    ),
+                )
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    "folder is not orphaned: requires parseable movie folder name "
-                    "and no video files"
-                ),
+                detail="folder is not orphaned: contains video files",
             )
 
         recycled_path = _recycle_folder_target(target=target, managed_root=managed_root)
         recycled_path.parent.mkdir(parents=True, exist_ok=True)
         target.rename(recycled_path)
 
-        state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
         if state_store is not None:
             append_history_event(
                 state_store,
@@ -563,9 +569,6 @@ def _restore_relative_path(relative_path: Path) -> Path | None:
 
 
 def _is_orphaned_managed_movie_folder(folder: Path, video_exts: set[str]) -> bool:
-    ref = parse_movie_ref(folder.name)
-    if ref.year is None or not ref.title:
-        return False
     return not _contains_video_recursively(folder, video_exts)
 
 
