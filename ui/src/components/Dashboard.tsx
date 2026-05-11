@@ -1,8 +1,7 @@
 import { Stack, Title } from "@mantine/core";
-import { useCallback, useEffect, useState } from "react";
-import { getDiscoveryWarnings, runFullReconcile } from "../api/client";
+import { useState } from "react";
+import { runFullReconcile } from "../api/client";
 import type { RuntimeStatusResponse } from "../api/client";
-import DiscoveryWarningsCard from "./dashboard/DiscoveryWarningsCard";
 import DeletedFilesCard from "./dashboard/DeletedFilesCard";
 import LibraryStatsCards from "./dashboard/LibraryStatsCards";
 import PerRootInsightsCard from "./dashboard/PerRootInsightsCard";
@@ -17,50 +16,10 @@ export default function Dashboard({
   hasUnsavedChanges,
   runtimeStatus,
 }: Props) {
-  const [discoveryWarnings, setDiscoveryWarnings] = useState<Awaited<
-    ReturnType<typeof getDiscoveryWarnings>
-  > | null>(null);
   const [queuingReconcile, setQueuingReconcile] = useState(false);
 
   const taskIsRunning = runtimeStatus?.current_task?.state === "running";
   const runningReconcile = queuingReconcile || taskIsRunning;
-
-  const refreshDiscoveryWarnings = useCallback(async () => {
-    const payload = await getDiscoveryWarnings({ limit: 10 });
-    setDiscoveryWarnings(payload);
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    let inFlight = false;
-
-    const loadWarnings = async () => {
-      if (inFlight) {
-        return;
-      }
-      inFlight = true;
-      try {
-        const payload = await getDiscoveryWarnings({ limit: 10 });
-        if (active) {
-          setDiscoveryWarnings(payload);
-        }
-      } catch {
-        // Keep last known snapshot to avoid flashing empty state on transient failures.
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    void loadWarnings();
-    const interval = window.setInterval(() => {
-      void loadWarnings();
-    }, 7000);
-
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [refreshDiscoveryWarnings]);
 
   const handleRunReconcile = async () => {
     setQueuingReconcile(true);
@@ -89,11 +48,6 @@ export default function Dashboard({
       <PerRootInsightsCard runtimeStatus={runtimeStatus} />
 
       <DeletedFilesCard />
-
-      <DiscoveryWarningsCard
-        discoveryWarnings={discoveryWarnings}
-        onRefreshWarnings={refreshDiscoveryWarnings}
-      />
     </Stack>
   );
 }

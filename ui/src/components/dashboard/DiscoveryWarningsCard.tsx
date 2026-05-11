@@ -34,11 +34,11 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
     discoveryWarnings?.summary.unmatched_managed_movie_candidates ?? 0;
   const unmanagedShadowVideoFiles =
     discoveryWarnings?.summary.unmanaged_shadow_video_files ?? 0;
-  const excludedItems = discoveryWarnings?.excluded_movie_candidates.slice(0, 6) ?? [];
-  const duplicateItems = discoveryWarnings?.duplicate_movie_candidates.slice(0, 6) ?? [];
-  const orphanedItems = discoveryWarnings?.orphaned_managed_movie_candidates.slice(0, 6) ?? [];
-  const unmatchedItems = discoveryWarnings?.unmatched_managed_movie_candidates.slice(0, 6) ?? [];
-  const unmanagedShadowItems = discoveryWarnings?.unmanaged_shadow_video_files.slice(0, 6) ?? [];
+  const excludedItems = discoveryWarnings?.excluded_movie_candidates ?? [];
+  const duplicateItems = discoveryWarnings?.duplicate_movie_candidates ?? [];
+  const orphanedItems = discoveryWarnings?.orphaned_managed_movie_candidates ?? [];
+  const unmatchedItems = discoveryWarnings?.unmatched_managed_movie_candidates ?? [];
+  const unmanagedShadowItems = discoveryWarnings?.unmanaged_shadow_video_files ?? [];
   const hasDiscoveryWarnings =
     excludedCandidates > 0 ||
     duplicateCandidates > 0 ||

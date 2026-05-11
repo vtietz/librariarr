@@ -11,6 +11,7 @@ import {
 import type { RuntimeStatusResponse } from "./api/client";
 import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
+import DiscoveryWarningsPanel from "./components/DiscoveryWarningsPanel";
 import DirectoryMapper from "./components/DirectoryMapper";
 import HistoryPanel from "./components/HistoryPanel";
 import LogsPanel from "./components/LogsPanel";
@@ -20,6 +21,7 @@ const cloneConfig = (value: ConfigModel): ConfigModel => JSON.parse(JSON.stringi
 
 const TAB_PATHS = {
   dashboard: "/dashboard",
+  warnings: "/warnings",
   config: "/config",
   mapper: "/mapper",
   history: "/history",
@@ -31,6 +33,7 @@ type TabKey = keyof typeof TAB_PATHS;
 const PATH_TO_TAB: Record<string, TabKey> = {
   "/": "dashboard",
   "/dashboard": "dashboard",
+  "/warnings": "warnings",
   "/config": "config",
   "/mapper": "mapper",
   "/history": "history",
@@ -257,6 +260,7 @@ export default function App() {
         <Tabs value={activeTab} onChange={handleTabChange}>
           <Tabs.List>
             <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
+            <Tabs.Tab value="warnings">Warnings</Tabs.Tab>
             <Tabs.Tab value="config">Config Editor</Tabs.Tab>
             <Tabs.Tab value="mapper">Path Mapping Status</Tabs.Tab>
             <Tabs.Tab value="history">History</Tabs.Tab>
@@ -268,6 +272,10 @@ export default function App() {
               hasUnsavedChanges={hasUnsavedChanges}
               runtimeStatus={runtimeStatus}
             />
+          </Tabs.Panel>
+
+          <Tabs.Panel value="warnings" pt="md">
+            {activeTab === "warnings" && <DiscoveryWarningsPanel />}
           </Tabs.Panel>
 
           <Tabs.Panel value="config" pt="md">
