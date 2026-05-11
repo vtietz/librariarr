@@ -156,3 +156,58 @@ def test_orphaned_managed_candidates_respect_exclude_paths(tmp_path: Path, monke
     orphan_paths = {item["path"] for item in payload["orphaned_managed_movie_candidates"]}
     assert str(excluded_orphan) not in orphan_paths
     assert all("/@eaDir/" not in path for path in orphan_paths)
+
+
+def test_orphaned_managed_candidates_are_naming_agnostic(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    non_canonical_empty = nested_root / "Kids" / "Movie Without Year"
+    non_canonical_empty.mkdir(parents=True)
+    (non_canonical_empty / "poster.jpg").write_text("x", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(tmp_path / "movie-state.db"))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series-state.db"))
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    orphan_paths = {item["path"] for item in payload["orphaned_managed_movie_candidates"]}
+    assert str(non_canonical_empty) in orphan_paths
+
+
+def test_unmatched_managed_candidates_include_video_folders_without_mapping(
+    tmp_path: Path, monkeypatch
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    unmatched_movie = nested_root / "Movie Unmatched"
+    unmatched_movie.mkdir(parents=True)
+    (unmatched_movie / "Movie.Unmatched.2020.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(tmp_path / "movie-state.db"))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series-state.db"))
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["unmatched_managed_movie_candidates"] >= 1
+    unmatched_paths = {item["path"] for item in payload["unmatched_managed_movie_candidates"]}
+    assert str(unmatched_movie) in unmatched_paths

@@ -92,6 +92,15 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
         video_exts=video_exts,
         exclude_patterns=exclude_paths,
     )
+    tracked_managed_folders = _tracked_managed_folder_paths()
+    unmatched_managed_movie_paths = sorted(
+        [
+            path
+            for path in included_movie_paths
+            if path.resolve(strict=False) not in tracked_managed_folders
+        ],
+        key=lambda path: str(path),
+    )
     unmanaged_shadow_video_files = _discover_unmanaged_shadow_video_files(
         config=config,
         video_exts=video_exts,
@@ -103,6 +112,7 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
             "excluded_movie_candidates": len(excluded_movie_paths),
             "duplicate_movie_candidates": len(duplicate_movie_candidates),
             "orphaned_managed_movie_candidates": len(orphaned_managed_movie_paths),
+            "unmatched_managed_movie_candidates": len(unmatched_managed_movie_paths),
             "unmanaged_shadow_video_files": len(unmanaged_shadow_video_files),
         },
         "exclude_paths": exclude_paths,
@@ -120,6 +130,13 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
                 "reason": "managed folder has no video files",
             }
             for path in orphaned_managed_movie_paths[:limit]
+        ],
+        "unmatched_managed_movie_candidates": [
+            {
+                "path": str(path),
+                "reason": "managed folder has video files but is not mapped in Arr/provenance",
+            }
+            for path in unmatched_managed_movie_paths[:limit]
         ],
         "unmanaged_shadow_video_files": [
             {
@@ -142,6 +159,24 @@ def _tracked_projection_destination_paths() -> set[Path]:
         store = ProjectionStateStore(db_path)
         for _item_id, dest_path_raw, _source, _dev, _inode in store.list_managed_projected_rows():
             tracked.add(Path(dest_path_raw).resolve(strict=False))
+    return tracked
+
+
+def _tracked_managed_folder_paths() -> set[Path]:
+    tracked: set[Path] = set()
+    for db_path_fn in (_projection_state_db_path, _sonarr_projection_state_db_path):
+        db_path = db_path_fn()
+        if not db_path.exists():
+            continue
+        store = ProjectionStateStore(db_path)
+        tracked.update(
+            folder.resolve(strict=False)
+            for folder in store.get_managed_folders_by_movie_ids().values()
+        )
+        tracked.update(
+            folder.resolve(strict=False)
+            for folder in store.get_managed_folders_by_series_ids().values()
+        )
     return tracked
 
 
@@ -210,19 +245,46 @@ def _discover_orphaned_managed_movie_folders(
             )
             if current_path == managed_root:
                 continue
-            ref = parse_movie_ref(current_path.name)
-            if ref.year is None or not ref.title:
+            if dirs:
                 continue
-            if _contains_video_recursively(current_path, video_exts):
+            if _contains_video_recursively(
+                current_path,
+                video_exts,
+                root=managed_root,
+                exclude_patterns=excludes,
+            ):
                 continue
             candidates.add(current_path)
 
     return sorted(candidates, key=lambda path: str(path))
 
 
-def _contains_video_recursively(folder: Path, video_exts: set[str]) -> bool:
-    for _current, _dirs, files in os.walk(folder):
-        if any(Path(name).suffix.lower() in video_exts for name in files):
+def _contains_video_recursively(
+    folder: Path,
+    video_exts: set[str],
+    *,
+    root: Path | None = None,
+    exclude_patterns: list[str] | None = None,
+) -> bool:
+    base_root = root or folder
+    excludes = exclude_patterns or []
+    for current, dirs, files in os.walk(folder):
+        current_path = Path(current)
+        if _is_excluded_path(current_path, base_root, excludes, is_dir=True):
+            dirs[:] = []
+            continue
+
+        dirs[:] = [
+            dirname
+            for dirname in dirs
+            if not _is_excluded_path(current_path / dirname, base_root, excludes, is_dir=True)
+        ]
+
+        if any(
+            Path(name).suffix.lower() in video_exts
+            and not _is_excluded_path(current_path / name, base_root, excludes, is_dir=False)
+            for name in files
+        ):
             return True
     return False
 
@@ -236,12 +298,14 @@ class DiscoveryWarningsCache:
                 "excluded_movie_candidates": 0,
                 "duplicate_movie_candidates": 0,
                 "orphaned_managed_movie_candidates": 0,
+                "unmatched_managed_movie_candidates": 0,
                 "unmanaged_shadow_video_files": 0,
             },
             "exclude_paths": [],
             "excluded_movie_candidates": [],
             "duplicate_movie_candidates": [],
             "orphaned_managed_movie_candidates": [],
+            "unmatched_managed_movie_candidates": [],
             "unmanaged_shadow_video_files": [],
         }
         self._updated_at_ms: int | None = None
@@ -265,12 +329,14 @@ class DiscoveryWarningsCache:
                     "excluded_movie_candidates": 0,
                     "duplicate_movie_candidates": 0,
                     "orphaned_managed_movie_candidates": 0,
+                    "unmatched_managed_movie_candidates": 0,
                     "unmanaged_shadow_video_files": 0,
                 },
                 "exclude_paths": [],
                 "excluded_movie_candidates": [],
                 "duplicate_movie_candidates": [],
                 "orphaned_managed_movie_candidates": [],
+                "unmatched_managed_movie_candidates": [],
                 "unmanaged_shadow_video_files": [],
             }
             self._updated_at_ms = None
@@ -348,6 +414,9 @@ class DiscoveryWarningsCache:
                         "orphaned_managed_movie_candidates": payload["summary"][
                             "orphaned_managed_movie_candidates"
                         ],
+                        "unmatched_managed_movie_candidates": payload["summary"][
+                            "unmatched_managed_movie_candidates"
+                        ],
                         "unmanaged_shadow_video_files": payload["summary"][
                             "unmanaged_shadow_video_files"
                         ],
@@ -420,6 +489,9 @@ class DiscoveryWarningsCache:
                 ),
                 "orphaned_managed_movie_candidates": list(
                     (self._payload.get("orphaned_managed_movie_candidates") or [])[:limit]
+                ),
+                "unmatched_managed_movie_candidates": list(
+                    (self._payload.get("unmatched_managed_movie_candidates") or [])[:limit]
                 ),
                 "unmanaged_shadow_video_files": list(
                     (self._payload.get("unmanaged_shadow_video_files") or [])[:limit]

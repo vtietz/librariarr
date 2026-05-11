@@ -30,16 +30,20 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
   const orphanedManagedCandidates =
     discoveryWarnings?.summary.orphaned_managed_movie_candidates ?? 0;
+  const unmatchedManagedCandidates =
+    discoveryWarnings?.summary.unmatched_managed_movie_candidates ?? 0;
   const unmanagedShadowVideoFiles =
     discoveryWarnings?.summary.unmanaged_shadow_video_files ?? 0;
   const excludedItems = discoveryWarnings?.excluded_movie_candidates.slice(0, 6) ?? [];
   const duplicateItems = discoveryWarnings?.duplicate_movie_candidates.slice(0, 6) ?? [];
   const orphanedItems = discoveryWarnings?.orphaned_managed_movie_candidates.slice(0, 6) ?? [];
+  const unmatchedItems = discoveryWarnings?.unmatched_managed_movie_candidates.slice(0, 6) ?? [];
   const unmanagedShadowItems = discoveryWarnings?.unmanaged_shadow_video_files.slice(0, 6) ?? [];
   const hasDiscoveryWarnings =
     excludedCandidates > 0 ||
     duplicateCandidates > 0 ||
     orphanedManagedCandidates > 0 ||
+    unmatchedManagedCandidates > 0 ||
     unmanagedShadowVideoFiles > 0;
   const [browsePath, setBrowsePath] = useState<string | null>(null);
   const [fsRoots, setFsRoots] = useState<string[]>([]);
@@ -120,6 +124,7 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
       <Text size="sm" c="dimmed" mt="xs">
         {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates ·{" "}
         {orphanedManagedCandidates} orphaned managed folders (no video files) ·{" "}
+        {unmatchedManagedCandidates} unmatched managed folders ·{" "}
         {unmanagedShadowVideoFiles} unmanaged shadow video files
       </Text>
       {hasDiscoveryWarnings && (
@@ -201,6 +206,18 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
                 </Text>
                 {unmanagedShadowItems.map((item) => (
                   <Text key={`shadow-unmanaged-${item.path}`} size="xs" c="dimmed">
+                    ⚠ {item.path}
+                  </Text>
+                ))}
+              </Stack>
+            )}
+            {unmatchedManagedCandidates > 0 && (
+              <Stack gap={2}>
+                <Text size="xs" fw={600}>
+                  Unmatched Managed Folders ({unmatchedManagedCandidates})
+                </Text>
+                {unmatchedItems.map((item) => (
+                  <Text key={`unmatched-${item.path}`} size="xs" c="dimmed">
                     ⚠ {item.path}
                   </Text>
                 ))}
