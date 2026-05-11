@@ -87,40 +87,12 @@ On reconcile, LibrariArr:
 
 ## Common Sync Scenarios
 
-### When Radarr downloads a new movie
+Canonical scenario behavior, expected results, and e2e coverage are maintained in:
 
-1. Radarr places the movie in a library root (its configured root folder).
-2. Webhook or filesystem event triggers reconcile.
-3. **Folder-level ingest** moves the entire folder from library root into your managed root.
-4. **Projection** hardlinks the files back into the library root.
-5. Result: movie lives in your curated tree; Radarr still sees it in the library root.
+- `docs/reconciliation_scenarios.md`
 
-### When Radarr upgrades quality
-
-1. Radarr replaces the video file in the library root with a better version (new file, different inode).
-2. **File-level ingest** detects the inode mismatch and:
-   - backs up the old file in managed root (temp suffix),
-   - **moves** the upgraded file from library root into managed root (same filename Radarr gave it),
-   - deletes the old backup on success.
-3. **Projection** re-hardlinks the upgraded file back into the library root.
-4. Result: your curated folder has the upgraded file; no duplicates remain.
-
-> **Extras handling**: allowlisted extras (subtitles, `movie.nfo`, posters — see `managed_extras_allowlist`) are projected and ingested alongside video files. Non-allowlisted extras are left in the library root.
->
-> **Tip**: enable Radarr's "Movie Metadata" setting (*Settings → Metadata → Kodi (XBMC) / NFO*) so Radarr writes a fresh `movie.nfo` after each import or upgrade. This ensures metadata always matches the current video file.
-
-### When you add a movie folder manually
-
-1. Drop a folder into your managed root following the `Title (Year)` naming convention.
-2. LibrariArr parses the folder name, searches Radarr for a match, and auto-adds it (if `auto_add_unmatched` is enabled).
-3. **If no Radarr match is found** (unknown title, ambiguous name), the folder is **skipped** and a warning is logged. It will be retried automatically when the folder is modified.
-4. Projection hardlinks the files into the library root so Radarr can see them.
-
-### When you rename or move a movie folder
-
-1. Filesystem events trigger incremental reconcile.
-2. Projection updates hardlinks to match the current managed folder state.
-3. Radarr's path is updated via API if needed.
+Keep this README focused on onboarding and configuration, and use the scenarios document as
+the single source of truth for reconcile-case behavior.
 
 ## Quick Start (Users: Docker Compose)
 
@@ -282,6 +254,7 @@ sonarr:
 
 - Full option reference: [docs/configuration.md](docs/configuration.md)
 - Workflow/reference behavior guide: [docs/workflows.md](docs/workflows.md)
+- Reconciliation scenarios + FS e2e coverage matrix: [docs/reconciliation_scenarios.md](docs/reconciliation_scenarios.md)
 - Example baseline: [config.yaml.example](config.yaml.example)
 - Main compose file: [docker-compose.yml](docker-compose.yml)
 - Dev compose file: [docker-compose.dev.yml](docker-compose.dev.yml)

@@ -16,7 +16,7 @@ This document describes the **current** runtime behavior.
   - Trigger model: Sonarr webhook queue + periodic/full reconcile
 
 Important: legacy Sonarr link matching/path-update/cleanup flows are removed from the
-runtime reconcile path. Movie ingest is available as an optional reconciliation step via
+runtime reconcile path. Movie and series ingest are available as optional reconciliation steps via
 `ingest.enabled`.
 
 ## Terms
@@ -34,13 +34,15 @@ On each reconcile cycle, LibrariArr performs:
 1. Refresh Arr root-folder availability state.
 2. Consume scoped movie ids from the Radarr webhook queue (if any).
 3. Consume scoped series ids from the Sonarr webhook queue (if any).
-4. Run movie projection from Radarr movie inventory + movie root mappings.
-5. Run series projection from Sonarr series inventory + series root mappings.
-6. Publish reconcile metrics/status.
+4. Optionally ingest movies/series from library or shadow roots back into managed roots.
+5. Run discovery/auto-add for unmatched managed folders.
+6. Run movie projection from Radarr movie inventory + movie root mappings.
+7. Run series projection from Sonarr series inventory + series root mappings.
+8. Run conservative stale-shadow cleanup for provenance-managed stale outputs.
+9. Publish reconcile metrics/status.
 
-When `ingest.enabled=true`, a movie pre-step moves movie folders that currently resolve under
-movie library roots back into their managed roots, updates Radarr movie paths, and scopes those
-movie ids for projection.
+For detailed scenario-by-scenario outcomes (including manual/startup/full reconcile semantics),
+use `docs/reconciliation_scenarios.md` as the canonical reference.
 
 ## Trigger Sources
 
@@ -84,35 +86,20 @@ movie ids for projection.
 - Unknown library files are replaced by projection by default (`preserve_unknown_files=false`).
 - Reconcile is idempotent and re-links replaced managed files.
 
-## Main Scenarios Covered by E2E
+## Scenario Coverage Reference
 
-### Filesystem E2E
+E2E scenario coverage is tracked in one place:
 
-- projection creates expected hardlink layout,
-- projection respects movie root mappings,
-- projection scopes to webhook movie ids,
-- projection runtime performs optional movie ingest moves when enabled.
-
-### Radarr E2E
-
-- managed-folder naming projection,
-- optional Radarr title/year naming projection,
-- webhook-scoped movie projection,
-- relink when managed source file is replaced,
-- preserve unknown files in library folders,
-- runtime loop processing of queued webhook projection,
-- multi-mapping and extras projection behavior.
-
-### Sonarr E2E
-
-- series projection into library roots,
-- Sonarr title/year naming projection mode,
-- webhook-scoped series projection,
-- runtime loop projection for managed-root file creation,
-- projection edge cases (unmapped managed roots, extras allowlist behavior).
+- `docs/reconciliation_scenarios.md`
 
 ## Practical Summary
 
 - Both movie and series flows are projection-first.
 - Legacy symlink and path-mutation orchestration is removed from active runtime behavior.
 - Wrapper validations stay green when this projection-only architecture is preserved.
+
+## Scenario Reference
+
+For a scenario-by-scenario behavior matrix (including reconciliation definition,
+legacy broken-link diagnostics, and filesystem e2e coverage), see
+`docs/reconciliation_scenarios.md`.

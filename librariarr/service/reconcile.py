@@ -36,12 +36,15 @@ class ServiceReconcileMixin(
             )
 
             movies_inventory, series_inventory = self._fetch_inventories()
-            ingested_movie_ids, auto_added_movie_ids, auto_added_series_ids = (
-                self._collect_pre_projection_ids(
-                    affected_paths=affected_paths,
-                    movies_inventory=movies_inventory,
-                    series_inventory=series_inventory,
-                )
+            (
+                ingested_movie_ids,
+                ingested_series_ids,
+                auto_added_movie_ids,
+                auto_added_series_ids,
+            ) = self._collect_pre_projection_ids(
+                affected_paths=affected_paths,
+                movies_inventory=movies_inventory,
+                series_inventory=series_inventory,
             )
 
             scope = self._resolve_projection_scope(
@@ -49,6 +52,7 @@ class ServiceReconcileMixin(
                 incremental_mode=reconcile_ctx["incremental_mode"],
                 affected_paths=affected_paths,
                 ingested_movie_ids=ingested_movie_ids,
+                ingested_series_ids=ingested_series_ids,
                 auto_added_movie_ids=auto_added_movie_ids,
                 auto_added_series_ids=auto_added_series_ids,
             )
@@ -56,6 +60,7 @@ class ServiceReconcileMixin(
                 reconcile_ctx=reconcile_ctx,
                 scope=scope,
                 ingested_movie_ids=ingested_movie_ids,
+                ingested_series_ids=ingested_series_ids,
                 auto_added_movie_ids=auto_added_movie_ids,
                 auto_added_series_ids=auto_added_series_ids,
             )
@@ -96,6 +101,7 @@ class ServiceReconcileMixin(
                 series_projection_metrics=series_projection_metrics,
                 removed_orphans=removed_orphans,
                 ingested_movie_ids=ingested_movie_ids,
+                ingested_series_ids=ingested_series_ids,
                 auto_added_movie_ids=auto_added_movie_ids,
                 auto_added_series_ids=auto_added_series_ids,
                 queued_movie_ids=scope["queued_movie_ids"],
@@ -109,12 +115,17 @@ class ServiceReconcileMixin(
         affected_paths: set[Path] | None,
         movies_inventory: list[dict] | None,
         series_inventory: list[dict] | None,
-    ) -> tuple[set[int], set[int], set[int]]:
+    ) -> tuple[set[int], set[int], set[int], set[int]]:
         matcher = AffectedPathMatcher(affected_paths)
         ingested_movie_ids = self._ingest_movies_from_library_roots(
             affected_paths,
             matcher=matcher,
             movies_inventory=movies_inventory,
+        )
+        ingested_series_ids = self._ingest_series_from_shadow_roots(
+            affected_paths,
+            matcher=matcher,
+            series_inventory=series_inventory,
         )
         auto_added_movie_ids = self._auto_add_unmatched_movies(
             affected_paths,
@@ -126,7 +137,12 @@ class ServiceReconcileMixin(
             matcher=matcher,
             series_inventory=series_inventory,
         )
-        return ingested_movie_ids, auto_added_movie_ids, auto_added_series_ids
+        return (
+            ingested_movie_ids,
+            ingested_series_ids,
+            auto_added_movie_ids,
+            auto_added_series_ids,
+        )
 
     def reconcile_full(self) -> bool:
         return self.reconcile(affected_paths=None, force_full_scope=True)

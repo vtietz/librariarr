@@ -66,6 +66,7 @@ class MovieProjectionExecutor:
             upserts: list[ProjectedFileState] = []
 
             for planned_file in plan.files:
+                managed_dest = str(planned_file.dest_path) in managed_dest_paths
                 result = self._apply_single_file(
                     movie_id=plan.movie_id,
                     source_path=planned_file.source_path,
@@ -80,6 +81,24 @@ class MovieProjectionExecutor:
                 if result == "unchanged":
                     metrics.unchanged_files += 1
                     metrics.record_file_unchanged(plan.mapping)
+                    # Refresh provenance for unchanged managed outputs so later stale
+                    # cleanup does not treat moved/renamed managed sources as orphaned.
+                    if managed_dest and planned_file.source_path.exists():
+                        source_stat = planned_file.source_path.stat()
+                        upserts.append(
+                            ProjectedFileState(
+                                movie_id=plan.movie_id,
+                                dest_path=str(planned_file.dest_path),
+                                source_path=str(planned_file.source_path),
+                                kind=planned_file.kind,
+                                managed=True,
+                                source_dev=int(source_stat.st_dev),
+                                source_inode=int(source_stat.st_ino),
+                                size=int(source_stat.st_size),
+                                mtime=float(source_stat.st_mtime),
+                                file_hash=None,
+                            )
+                        )
                     continue
 
                 upserts.append(result)

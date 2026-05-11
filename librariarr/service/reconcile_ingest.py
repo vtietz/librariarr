@@ -81,6 +81,72 @@ class ServiceIngestMixin:
 
         return moved_movie_ids
 
+    def _ingest_series_from_shadow_roots(
+        self,
+        affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None = None,
+        series_inventory: list[dict] | None = None,
+    ) -> set[int]:
+        if not (self.sonarr_enabled and self.sonarr_sync_enabled and self.config.ingest.enabled):
+            return set()
+
+        if series_inventory is not None:
+            series_items = series_inventory
+        else:
+            try:
+                series_items = self.sonarr.get_series()
+            except Exception as exc:
+                self._log_sonarr_sync_config_hint(exc)
+                LOG.warning("Skipping Sonarr ingest: inventory fetch failed: %s", exc)
+                return set()
+
+        resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
+        if affected_paths:
+            scoped_series: list[dict] = []
+            for series in series_items:
+                series_path_raw = str(series.get("path") or "").strip()
+                if not series_path_raw:
+                    continue
+                if folder_matches_affected_paths(
+                    Path(series_path_raw),
+                    affected_paths,
+                    matcher=resolved_matcher,
+                ):
+                    scoped_series.append(series)
+            series_items = scoped_series
+
+        moved_series_ids: set[int] = set()
+        tracker = getattr(self, "runtime_status_tracker", None)
+        total_series = len(series_items)
+        if tracker is not None and total_series > 0:
+            tracker.update_reconcile_phase("ingest_series")
+            tracker.update_active_reconcile_metrics(
+                {
+                    "series_items_processed": 0,
+                    "series_items_total": total_series,
+                }
+            )
+
+        for index, series in enumerate(series_items, start=1):
+            moved_series_id = self._ingest_series_if_needed(
+                series,
+                affected_paths=affected_paths,
+                matcher=resolved_matcher,
+            )
+            if moved_series_id is not None:
+                moved_series_ids.add(moved_series_id)
+
+            if tracker is not None and (index == total_series or index % 25 == 0):
+                tracker.update_reconcile_phase("ingest_series")
+                tracker.update_active_reconcile_metrics(
+                    {
+                        "series_items_processed": index,
+                        "series_items_total": total_series,
+                    }
+                )
+
+        return moved_series_ids
+
     def _ingest_movie_if_needed(
         self,
         movie: dict,
@@ -165,6 +231,89 @@ class ServiceIngestMixin:
             return movie_id
         return None
 
+    def _ingest_series_if_needed(
+        self,
+        series: dict,
+        *,
+        affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
+    ) -> int | None:
+        series_id = series.get("id")
+        series_path_raw = str(series.get("path") or "").strip()
+        if not isinstance(series_id, int) or not series_path_raw:
+            return None
+
+        source_folder = Path(series_path_raw)
+        if self._source_is_projected_series_folder(series_id, source_folder):
+            return self._ingest_files_for_existing_series(
+                series_id,
+                source_folder,
+                affected_paths=affected_paths,
+                matcher=matcher,
+            )
+
+        destination_info = self._resolve_series_ingest_target(
+            source_folder,
+            affected_paths=affected_paths,
+            matcher=matcher,
+        )
+        if destination_info is not None:
+            managed_root, resolved_destination = destination_info
+            if not _move_folder(source_folder, resolved_destination):
+                return None
+            LOG.info(
+                "Ingest moved series folder from shadow root to managed root: series_id=%s "
+                "source=%s destination=%s",
+                series_id,
+                source_folder,
+                resolved_destination,
+            )
+            return series_id
+
+        return self._ingest_files_for_existing_series(
+            series_id,
+            source_folder,
+            affected_paths=affected_paths,
+            matcher=matcher,
+        )
+
+    def _ingest_files_for_existing_series(
+        self,
+        series_id: int,
+        source_folder: Path,
+        *,
+        affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
+    ) -> int | None:
+        mapping_info = self._resolve_series_ingest_mapping_for_folder(source_folder)
+        if mapping_info is None:
+            return None
+        managed_root, _shadow_root, relative_folder = mapping_info
+        managed_folder = managed_root / relative_folder
+        if not managed_folder.exists() or not managed_folder.is_dir():
+            return None
+        if not source_folder.exists() or not source_folder.is_dir():
+            return None
+        if not folder_matches_affected_paths(source_folder, affected_paths, matcher=matcher):
+            return None
+
+        proj = self.config.sonarr.projection
+        result = ingest_files_from_library_folder(
+            library_folder=source_folder,
+            managed_folder=managed_folder,
+            managed_video_extensions=set(proj.managed_video_extensions),
+            extras_allowlist=proj.managed_extras_allowlist,
+        )
+        if result.ingested_count > 0:
+            LOG.info(
+                "File-level fs operations for series_id=%s: moved=%s failed=%s",
+                series_id,
+                result.ingested_count,
+                result.failed_count,
+            )
+            return series_id
+        return None
+
     def _resolve_ingest_target(
         self,
         source_folder: Path,
@@ -176,6 +325,32 @@ class ServiceIngestMixin:
         if mapping_and_relative is None:
             return None
         managed_root, _library_root, relative_folder = mapping_and_relative
+
+        if not source_folder.exists() or not source_folder.is_dir():
+            return None
+        if not folder_matches_affected_paths(source_folder, affected_paths, matcher=matcher):
+            return None
+
+        destination_folder = managed_root / relative_folder
+        if destination_folder.resolve(strict=False) == source_folder.resolve(strict=False):
+            return None
+
+        if destination_folder.exists():
+            return None
+
+        return managed_root, destination_folder
+
+    def _resolve_series_ingest_target(
+        self,
+        source_folder: Path,
+        *,
+        affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
+    ) -> tuple[Path, Path] | None:
+        mapping_and_relative = self._resolve_series_ingest_mapping_for_folder(source_folder)
+        if mapping_and_relative is None:
+            return None
+        managed_root, _shadow_root, relative_folder = mapping_and_relative
 
         if not source_folder.exists() or not source_folder.is_dir():
             return None
@@ -223,6 +398,35 @@ class ServiceIngestMixin:
             return True
         return False
 
+    def _source_is_projected_series_folder(self, series_id: int, source_folder: Path) -> bool:
+        if self.sonarr_projection is None:
+            return False
+        state_store = getattr(self.sonarr_projection, "state_store", None)
+        if state_store is None:
+            return False
+        source_folder_resolved = source_folder.resolve(strict=False)
+        try:
+            entries = state_store.get_managed_entries_for_movie(series_id)
+            if not isinstance(entries, list | set | tuple):
+                raise TypeError
+        except (AttributeError, TypeError):
+            managed_paths = state_store.get_managed_paths_for_movie(series_id)
+            entries = [(path, "") for path in managed_paths]
+        except Exception:
+            return False
+
+        for dest_path_raw, source_path_raw in entries:
+            try:
+                dest_path = Path(dest_path_raw).resolve(strict=False)
+            except Exception:
+                continue
+            if not dest_path.is_relative_to(source_folder_resolved):
+                continue
+            if source_path_raw and not Path(source_path_raw).exists():
+                continue
+            return True
+        return False
+
     def _resolve_ingest_mapping_for_folder(
         self,
         folder: Path,
@@ -238,6 +442,23 @@ class ServiceIngestMixin:
             except ValueError:
                 continue
             return managed_root, library_root, relative_folder
+        return None
+
+    def _resolve_series_ingest_mapping_for_folder(
+        self,
+        folder: Path,
+    ) -> tuple[Path, Path, Path] | None:
+        sorted_mappings = sorted(
+            self.series_root_mappings,
+            key=lambda item: len(item[1].parts),
+            reverse=True,
+        )
+        for managed_root, shadow_root in sorted_mappings:
+            try:
+                relative_folder = folder.relative_to(shadow_root)
+            except ValueError:
+                continue
+            return managed_root, shadow_root, relative_folder
         return None
 
 

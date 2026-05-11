@@ -15,6 +15,7 @@ class ServiceReconcileScopeMixin:
         incremental_mode: bool,
         affected_paths: set[Path] | None,
         ingested_movie_ids: set[int],
+        ingested_series_ids: set[int],
         auto_added_movie_ids: set[int],
         auto_added_series_ids: set[int],
     ) -> dict:
@@ -43,6 +44,7 @@ class ServiceReconcileScopeMixin:
             queued_movie_ids=queued_movie_ids,
             queued_series_ids=queued_series_ids,
             ingested_movie_ids=ingested_movie_ids,
+            ingested_series_ids=ingested_series_ids,
             auto_added_movie_ids=auto_added_movie_ids,
             auto_added_series_ids=auto_added_series_ids,
             affected_path_movie_ids=affected_path_movie_ids,
@@ -79,6 +81,7 @@ class ServiceReconcileScopeMixin:
         reconcile_ctx: dict,
         scope: dict,
         ingested_movie_ids: set[int],
+        ingested_series_ids: set[int],
         auto_added_movie_ids: set[int],
         auto_added_series_ids: set[int],
     ) -> None:
@@ -97,6 +100,7 @@ class ServiceReconcileScopeMixin:
             series_full_scope_reason=scope["series_full_scope_reason"],
             scoped_series_ids=scope["scoped_series_ids"],
             queued_series_ids=scope["queued_series_ids"],
+            ingested_series_ids=ingested_series_ids,
             auto_added_series_ids=auto_added_series_ids,
         )
 

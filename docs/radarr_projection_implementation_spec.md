@@ -365,3 +365,9 @@ These are potential improvements, not committed work:
 - **Managed-file cleanup**: delete superseded managed files from library_root based on provenance checks.
 - **Cross-filesystem fallback**: optional reflink/copy mode for mappings where hardlink is not possible.
 - **Sonarr config migration**: rename `nested_root`/`shadow_root` to `managed_root`/`library_root`.
+
+## 14) Scenario Coverage Reference
+
+For an operational scenario matrix (including host-level legacy broken-link
+diagnostics and filesystem e2e coverage mapping), see
+`docs/reconciliation_scenarios.md`.

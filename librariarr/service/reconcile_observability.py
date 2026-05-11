@@ -33,6 +33,7 @@ def log_scope_resolved(
     series_full_scope_reason: str,
     scoped_series_ids: set[int] | None,
     queued_series_ids: set[int],
+    ingested_series_ids: set[int],
     auto_added_series_ids: set[int],
 ) -> None:
     LOG.info(
@@ -53,7 +54,8 @@ def log_scope_resolved(
         "movie_ids_ingest_count=%s movie_ids_ingest_sample=%s movie_ids_auto_add_count=%s "
         "movie_ids_auto_add_sample=%s series_full_scope_reason=%s "
         "series_scoped_ids_sample=%s series_ids_webhook_count=%s "
-        "series_ids_webhook_sample=%s series_ids_auto_add_count=%s "
+        "series_ids_webhook_sample=%s series_ids_ingest_count=%s "
+        "series_ids_ingest_sample=%s series_ids_auto_add_count=%s "
         "series_ids_auto_add_sample=%s",
         trigger_source,
         reconcile_mode,
@@ -69,6 +71,8 @@ def log_scope_resolved(
         _sample_ids(scoped_series_ids or set()),
         len(queued_series_ids),
         _sample_ids(queued_series_ids),
+        len(ingested_series_ids),
+        _sample_ids(ingested_series_ids),
         len(auto_added_series_ids),
         _sample_ids(auto_added_series_ids),
     )

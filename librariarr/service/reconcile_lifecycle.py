@@ -62,6 +62,7 @@ class ServiceReconcileLifecycleMixin:
         series_projection_metrics: dict,
         removed_orphans: int,
         ingested_movie_ids: set[int],
+        ingested_series_ids: set[int],
         auto_added_movie_ids: set[int],
         auto_added_series_ids: set[int],
         queued_movie_ids: set[int],
@@ -148,6 +149,7 @@ class ServiceReconcileLifecycleMixin:
                             "auto_added_movies": len(auto_added_movie_ids),
                             "auto_added_series": len(auto_added_series_ids),
                             "ingested_movies": len(ingested_movie_ids),
+                            "ingested_series": len(ingested_series_ids),
                             "drained_movie_queue": len(queued_movie_ids),
                             "drained_series_queue": len(queued_series_ids),
                             "removed_orphans": removed_orphans,
@@ -158,7 +160,7 @@ class ServiceReconcileLifecycleMixin:
                 "======== Full Reconcile finished: outcome=%s duration=%.1fs "
                 "movies(matched/unmatched)=%s/%s series(matched/unmatched)=%s/%s "
                 "projected_files=%s auto_added_movies=%s auto_added_series=%s "
-                "ingested=%s drained_queue(movies/series)=%s/%s ========",
+                "ingested(movies/series)=%s/%s drained_queue(movies/series)=%s/%s ========",
                 outcome,
                 duration_seconds,
                 matched_movies,
@@ -169,6 +171,7 @@ class ServiceReconcileLifecycleMixin:
                 len(auto_added_movie_ids),
                 len(auto_added_series_ids),
                 len(ingested_movie_ids),
+                len(ingested_series_ids),
                 len(queued_movie_ids),
                 len(queued_series_ids),
             )

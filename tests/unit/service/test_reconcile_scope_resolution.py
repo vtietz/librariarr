@@ -21,6 +21,7 @@ def test_scope_resolution_full_mode_does_not_seed_from_ingest_only(tmp_path: Pat
         incremental_mode=False,
         affected_paths=None,
         ingested_movie_ids={101},
+        ingested_series_ids={303},
         auto_added_movie_ids=set(),
         auto_added_series_ids=set(),
     )
@@ -37,12 +38,13 @@ def test_scope_resolution_incremental_mode_seeds_from_ingest(tmp_path: Path) -> 
         incremental_mode=True,
         affected_paths=None,
         ingested_movie_ids={101},
+        ingested_series_ids={404},
         auto_added_movie_ids={202},
         auto_added_series_ids={303},
     )
 
     assert scope["scoped_movie_ids"] == {101, 202}
-    assert scope["scoped_series_ids"] == {303}
+    assert scope["scoped_series_ids"] == {303, 404}
     assert scope["movie_scope_kind"] == "scoped"
     assert scope["series_scope_kind"] == "scoped"
 
@@ -62,6 +64,7 @@ def test_scope_resolution_force_full_drains_queue_without_scoping(tmp_path: Path
         incremental_mode=True,
         affected_paths=None,
         ingested_movie_ids={101},
+        ingested_series_ids={303},
         auto_added_movie_ids={202},
         auto_added_series_ids={303},
     )

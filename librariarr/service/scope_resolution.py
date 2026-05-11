@@ -37,6 +37,7 @@ def resolve_projection_scope(
     queued_movie_ids: set[int],
     queued_series_ids: set[int],
     ingested_movie_ids: set[int],
+    ingested_series_ids: set[int],
     auto_added_movie_ids: set[int],
     auto_added_series_ids: set[int],
     affected_path_movie_ids: set[int],
@@ -57,6 +58,7 @@ def resolve_projection_scope(
         sonarr_enabled=sonarr_enabled,
         sonarr_sync_enabled=sonarr_sync_enabled,
         queued_series_ids=queued_series_ids,
+        ingested_series_ids=ingested_series_ids,
         auto_added_series_ids=auto_added_series_ids,
         affected_path_series_ids=affected_path_series_ids,
     )
@@ -127,6 +129,7 @@ def _resolve_series_scope_ids(
     sonarr_enabled: bool,
     sonarr_sync_enabled: bool,
     queued_series_ids: set[int],
+    ingested_series_ids: set[int],
     auto_added_series_ids: set[int],
     affected_path_series_ids: set[int],
 ) -> set[int] | None:
@@ -135,6 +138,11 @@ def _resolve_series_scope_ids(
         scoped_series_ids = set(queued_series_ids)
 
     if not force_full_scope:
+        scoped_series_ids = _merge_source_ids(
+            scoped_series_ids,
+            ingested_series_ids,
+            incremental_mode,
+        )
         scoped_series_ids = _merge_source_ids(
             scoped_series_ids,
             auto_added_series_ids,
