@@ -204,8 +204,8 @@ def test_sonarr_ingest_replace_different_inode_soft_delete_default(tmp_path: Pat
     series_dir = nested_root / "Series Replace Soft (2021)"
     season = series_dir / "Season 01"
     season.mkdir(parents=True)
-    managed_episode = season / "Series.Replace.S01E01.1080p.mkv"
-    managed_episode.write_text("old", encoding="utf-8")
+    managed_old_episode = season / "Series.Replace.S01E01.720p.mkv"
+    managed_old_episode.write_text("old", encoding="utf-8")
 
     config = make_sonarr_config(
         nested_root=nested_root,
@@ -219,22 +219,31 @@ def test_sonarr_ingest_replace_different_inode_soft_delete_default(tmp_path: Pat
     service.reconcile()
 
     projected_series = shadow_root / "Series Replace Soft (2021)"
-    projected_episode = projected_series / "Season 01" / managed_episode.name
-    assert projected_episode.exists()
-    assert projected_episode.samefile(managed_episode)
+    projected_old_episode = projected_series / "Season 01" / managed_old_episode.name
+    assert projected_old_episode.exists()
+    assert projected_old_episode.samefile(managed_old_episode)
 
     series["path"] = str(projected_series)
-    projected_episode.unlink()
-    projected_episode.write_text("new", encoding="utf-8")
+    projected_old_episode.unlink()
+    projected_new_episode = (
+        projected_series / "Season 01" / "Series.Replace.S01E01.1080p.WEB-DL.mkv"
+    )
+    projected_new_episode.write_text("new", encoding="utf-8")
 
     service.reconcile()
 
-    assert managed_episode.read_text(encoding="utf-8") == "new"
-    soft_deleted = list((season / ".librariarr-deleted").glob(f"{managed_episode.name}.*"))
+    managed_new_episode = season / projected_new_episode.name
+    assert not managed_old_episode.exists()
+    assert managed_new_episode.read_text(encoding="utf-8") == "new"
+    soft_deleted = list(
+        (nested_root / ".librariarr-deleted" / "Series Replace Soft (2021)" / "Season 01").glob(
+            f"{managed_old_episode.name}.*"
+        )
+    )
     assert len(soft_deleted) == 1
     assert soft_deleted[0].read_text(encoding="utf-8") == "old"
-    assert projected_episode.exists()
-    assert projected_episode.samefile(managed_episode)
+    assert projected_new_episode.exists()
+    assert projected_new_episode.samefile(managed_new_episode)
 
 
 @pytest.mark.fs_e2e
@@ -244,8 +253,8 @@ def test_sonarr_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) 
     series_dir = nested_root / "Series Replace Hard (2021)"
     season = series_dir / "Season 01"
     season.mkdir(parents=True)
-    managed_episode = season / "Series.Replace.Hard.S01E01.1080p.mkv"
-    managed_episode.write_text("old", encoding="utf-8")
+    managed_old_episode = season / "Series.Replace.Hard.S01E01.720p.mkv"
+    managed_old_episode.write_text("old", encoding="utf-8")
 
     config = make_sonarr_config(
         nested_root=nested_root,
@@ -260,18 +269,23 @@ def test_sonarr_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) 
     service.reconcile()
 
     projected_series = shadow_root / "Series Replace Hard (2021)"
-    projected_episode = projected_series / "Season 01" / managed_episode.name
-    assert projected_episode.exists()
-    assert projected_episode.samefile(managed_episode)
+    projected_old_episode = projected_series / "Season 01" / managed_old_episode.name
+    assert projected_old_episode.exists()
+    assert projected_old_episode.samefile(managed_old_episode)
 
     series["path"] = str(projected_series)
-    projected_episode.unlink()
-    projected_episode.write_text("new", encoding="utf-8")
+    projected_old_episode.unlink()
+    projected_new_episode = (
+        projected_series / "Season 01" / "Series.Replace.Hard.S01E01.1080p.BluRay.mkv"
+    )
+    projected_new_episode.write_text("new", encoding="utf-8")
 
     service.reconcile()
 
-    assert managed_episode.read_text(encoding="utf-8") == "new"
-    assert not (season / ".librariarr-deleted").exists()
+    managed_new_episode = season / projected_new_episode.name
+    assert not managed_old_episode.exists()
+    assert managed_new_episode.read_text(encoding="utf-8") == "new"
+    assert not (nested_root / ".librariarr-deleted").exists()
     assert not any(season.glob("**/*.librariarr-ingest-tmp"))
-    assert projected_episode.exists()
-    assert projected_episode.samefile(managed_episode)
+    assert projected_new_episode.exists()
+    assert projected_new_episode.samefile(managed_new_episode)

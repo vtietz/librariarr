@@ -76,8 +76,11 @@ The scenarios below are intentionally ordered the same for Radarr and Sonarr.
 
 Ingest replacement delete mode:
 
-- `ingest.replacement_delete_mode: soft` (default): replaced same-path managed files are moved under `.librariarr-deleted` before the new inode is moved in.
+- `ingest.replacement_delete_mode: soft` (default): replaced/superseded managed files are moved under `managed_root/.librariarr-deleted` before the new inode is moved in.
 - `ingest.replacement_delete_mode: hard`: replaced same-path managed files are deleted after successful replacement.
+- Different-filename conflict handling (incoming Arr filename winner):
+  - Movies: when a new movie filename arrives, other managed video files in that destination folder are treated as superseded and moved/deleted according to `replacement_delete_mode`.
+  - Series: only files matching the same episode identity (`SxxEyy`) are treated as conflicting and replaced.
 
 Manual/full/startup reconcile note:
 

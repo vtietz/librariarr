@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -260,13 +261,16 @@ def ingest_files_from_library_folder(
     *,
     library_folder: Path,
     managed_folder: Path,
+    managed_root: Path | None = None,
     managed_video_extensions: set[str],
     extras_allowlist: list[str],
     replacement_delete_mode: str = "soft",
+    conflict_resolution_mode: str = "none",
 ) -> FileIngestResult:
     """Move files from library_folder into managed_folder when they differ by inode."""
     ingested = 0
     failed = 0
+    resolved_managed_root = managed_root if managed_root is not None else managed_folder
 
     for current, _dirs, files in os.walk(library_folder):
         current_path = Path(current)
@@ -287,7 +291,11 @@ def ingest_files_from_library_folder(
             result = _ingest_single_file(
                 lib_file,
                 managed_file,
+                managed_root=resolved_managed_root,
+                kind=kind,
+                managed_video_extensions=managed_video_extensions,
                 replacement_delete_mode=replacement_delete_mode,
+                conflict_resolution_mode=conflict_resolution_mode,
             )
             if result == "ingested":
                 ingested += 1
@@ -297,13 +305,17 @@ def ingest_files_from_library_folder(
     return FileIngestResult(ingested_count=ingested, failed_count=failed)
 
 
-def _soft_delete_backup_path(managed_file: Path) -> Path:
+def _soft_delete_backup_path(managed_file: Path, managed_root: Path) -> Path:
     timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
-    base = managed_file.parent / ".librariarr-deleted"
-    candidate = base / f"{managed_file.name}.{timestamp}"
+    base = managed_root / ".librariarr-deleted"
+    try:
+        relative = managed_file.relative_to(managed_root)
+    except ValueError:
+        relative = Path(managed_file.name)
+    candidate = base / relative.with_name(f"{relative.name}.{timestamp}")
     suffix = 1
     while candidate.exists():
-        candidate = base / f"{managed_file.name}.{timestamp}.{suffix}"
+        candidate = base / relative.with_name(f"{relative.name}.{timestamp}.{suffix}")
         suffix += 1
     return candidate
 
@@ -312,30 +324,28 @@ def _ingest_single_file(
     lib_file: Path,
     managed_file: Path,
     *,
+    managed_root: Path,
+    kind: str,
+    managed_video_extensions: set[str],
     replacement_delete_mode: str = "soft",
+    conflict_resolution_mode: str = "none",
 ) -> str:
     """Move a single file from library root to managed root if inodes differ.
 
     Returns 'ingested', 'skipped', or 'failed'.
     """
+    delete_mode = _resolve_delete_mode(replacement_delete_mode)
+
     if not managed_file.exists():
-        managed_file.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            lib_file.rename(managed_file)
-        except OSError as exc:
-            LOG.warning(
-                "Ingest file move failed: src=%s dest=%s error=%s",
-                lib_file,
-                managed_file,
-                exc,
-            )
-            return "failed"
-        LOG.info(
-            "FS MOVE file: source=%s destination=%s reason=managed_missing",
-            lib_file,
-            managed_file,
+        return _ingest_into_missing_destination(
+            lib_file=lib_file,
+            managed_file=managed_file,
+            managed_root=managed_root,
+            kind=kind,
+            managed_video_extensions=managed_video_extensions,
+            delete_mode=delete_mode,
+            conflict_resolution_mode=conflict_resolution_mode,
         )
-        return "ingested"
 
     try:
         lib_stat = lib_file.stat()
@@ -348,15 +358,83 @@ def _ingest_single_file(
         LOG.debug("FS SKIP file (same inode): source=%s destination=%s", lib_file, managed_file)
         return "skipped"
 
-    delete_mode = replacement_delete_mode if replacement_delete_mode in {"soft", "hard"} else "soft"
-    if replacement_delete_mode not in {"soft", "hard"}:
-        LOG.warning(
-            "Invalid ingest replacement_delete_mode=%s, defaulting to soft",
-            replacement_delete_mode,
-        )
+    return _replace_existing_file(
+        lib_file=lib_file,
+        managed_file=managed_file,
+        managed_root=managed_root,
+        delete_mode=delete_mode,
+    )
 
+
+def _resolve_delete_mode(replacement_delete_mode: str) -> str:
+    if replacement_delete_mode in {"soft", "hard"}:
+        return replacement_delete_mode
+    LOG.warning(
+        "Invalid ingest replacement_delete_mode=%s, defaulting to soft",
+        replacement_delete_mode,
+    )
+    return "soft"
+
+
+def _ingest_into_missing_destination(
+    *,
+    lib_file: Path,
+    managed_file: Path,
+    managed_root: Path,
+    kind: str,
+    managed_video_extensions: set[str],
+    delete_mode: str,
+    conflict_resolution_mode: str,
+) -> str:
+    if kind == "video":
+        if conflict_resolution_mode == "movie_single_video":
+            conflict_files = _movie_conflict_candidates(
+                incoming_path=managed_file,
+                managed_video_extensions=managed_video_extensions,
+            )
+        elif conflict_resolution_mode == "series_same_episode":
+            conflict_files = _series_conflict_candidates(
+                incoming_path=managed_file,
+                managed_video_extensions=managed_video_extensions,
+            )
+        else:
+            conflict_files = []
+
+        if conflict_files and not _backup_conflict_files(
+            conflict_files,
+            managed_root=managed_root,
+            delete_mode=delete_mode,
+        ):
+            return "failed"
+
+    managed_file.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lib_file.rename(managed_file)
+    except OSError as exc:
+        LOG.warning(
+            "Ingest file move failed: src=%s dest=%s error=%s",
+            lib_file,
+            managed_file,
+            exc,
+        )
+        return "failed"
+    LOG.info(
+        "FS MOVE file: source=%s destination=%s reason=managed_missing",
+        lib_file,
+        managed_file,
+    )
+    return "ingested"
+
+
+def _replace_existing_file(
+    *,
+    lib_file: Path,
+    managed_file: Path,
+    managed_root: Path,
+    delete_mode: str,
+) -> str:
     backup_path = (
-        _soft_delete_backup_path(managed_file)
+        _soft_delete_backup_path(managed_file, managed_root)
         if delete_mode == "soft"
         else managed_file.with_suffix(managed_file.suffix + ".librariarr-ingest-tmp")
     )
@@ -411,3 +489,92 @@ def _ingest_single_file(
     else:
         LOG.info("FS KEEP file: path=%s reason=soft_delete_replaced_file", backup_path)
     return "ingested"
+
+
+def _movie_conflict_candidates(
+    *,
+    incoming_path: Path,
+    managed_video_extensions: set[str],
+) -> list[Path]:
+    return [
+        item
+        for item in incoming_path.parent.iterdir()
+        if item.is_file()
+        and item.name != incoming_path.name
+        and item.suffix.lower() in managed_video_extensions
+    ]
+
+
+_EPISODE_KEY_RE = re.compile(r"(?i)s(\d{1,2})((?:e\d{2})+)")
+
+
+def _episode_key(filename: str) -> tuple[int, tuple[int, ...]] | None:
+    match = _EPISODE_KEY_RE.search(filename)
+    if match is None:
+        return None
+    season = int(match.group(1))
+    episode_token = match.group(2)
+    episodes = tuple(int(ep[1:]) for ep in re.findall(r"(?i)e\d{2}", episode_token))
+    if not episodes:
+        return None
+    return season, episodes
+
+
+def _series_conflict_candidates(
+    *,
+    incoming_path: Path,
+    managed_video_extensions: set[str],
+) -> list[Path]:
+    incoming_key = _episode_key(incoming_path.name)
+    if incoming_key is None:
+        return []
+    candidates: list[Path] = []
+    for item in incoming_path.parent.iterdir():
+        if not item.is_file() or item.name == incoming_path.name:
+            continue
+        if item.suffix.lower() not in managed_video_extensions:
+            continue
+        if _episode_key(item.name) == incoming_key:
+            candidates.append(item)
+    return candidates
+
+
+def _backup_conflict_files(
+    conflict_files: list[Path],
+    *,
+    managed_root: Path,
+    delete_mode: str,
+) -> bool:
+    for conflict_file in conflict_files:
+        backup_path = (
+            _soft_delete_backup_path(conflict_file, managed_root)
+            if delete_mode == "soft"
+            else conflict_file.with_suffix(conflict_file.suffix + ".librariarr-ingest-tmp")
+        )
+        backup_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            conflict_file.rename(backup_path)
+        except OSError as exc:
+            LOG.warning(
+                "Cannot backup conflicting managed file for ingest, skipping: file=%s error=%s",
+                conflict_file,
+                exc,
+            )
+            return False
+
+        LOG.info(
+            "FS RENAME file: source=%s destination=%s "
+            "reason=backup_conflicting_filename delete_mode=%s",
+            conflict_file,
+            backup_path,
+            delete_mode,
+        )
+        if delete_mode == "hard":
+            backup_path.unlink(missing_ok=True)
+            LOG.info(
+                "FS DELETE file: path=%s reason=cleanup_backup_after_conflict_replace",
+                backup_path,
+            )
+        else:
+            LOG.info("FS KEEP file: path=%s reason=soft_delete_conflicting_filename", backup_path)
+    return True

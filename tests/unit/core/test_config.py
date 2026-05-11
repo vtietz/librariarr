@@ -152,7 +152,11 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
 
     config = load_config(config_path)
 
-    assert config.paths.exclude_paths == [".deletedByTMM/", ".librariarr/**"]
+    assert config.paths.exclude_paths == [
+        ".deletedByTMM/",
+        ".librariarr/**",
+        ".librariarr-deleted/",
+    ]
 
 
 def test_load_config_rejects_missing_series_root_mappings(tmp_path: Path) -> None:

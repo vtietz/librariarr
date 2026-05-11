@@ -137,17 +137,17 @@ def test_ingest_disabled_does_not_move_folders(tmp_path: Path) -> None:
 
 @pytest.mark.fs_e2e
 def test_ingest_replace_different_inode_soft_delete_default(tmp_path: Path) -> None:
-    """By default, replacing a same-path file keeps the old inode as soft-delete."""
+    """By default, conflicting old movie filename is soft-deleted and incoming filename wins."""
     managed_root, library_root = make_roots(tmp_path, "ingest_soft_delete_default")
 
     managed_folder = managed_root / "Replace Movie (2024)"
     managed_folder.mkdir(parents=True)
-    managed_file = managed_folder / "Replace.Movie.2024.mkv"
-    managed_file.write_text("old-content", encoding="utf-8")
+    managed_old_file = managed_folder / "Replace.Movie.2024.720p.mkv"
+    managed_old_file.write_text("old-content", encoding="utf-8")
 
     library_folder = library_root / "Replace Movie (2024)"
     library_folder.mkdir(parents=True)
-    incoming = library_folder / "Replace.Movie.2024.mkv"
+    incoming = library_folder / "Replace.Movie.2024.1080p.BluRay.mkv"
     incoming.write_text("new-content", encoding="utf-8")
 
     config = make_radarr_config(
@@ -161,29 +161,35 @@ def test_ingest_replace_different_inode_soft_delete_default(tmp_path: Path) -> N
 
     service.reconcile()
 
-    assert managed_file.exists()
-    assert managed_file.read_text(encoding="utf-8") == "new-content"
+    assert not managed_old_file.exists()
+    managed_new_file = managed_folder / incoming.name
+    assert managed_new_file.exists()
+    assert managed_new_file.read_text(encoding="utf-8") == "new-content"
     assert incoming.exists()
-    assert incoming.samefile(managed_file)
+    assert incoming.samefile(managed_new_file)
 
-    soft_deleted = list((managed_folder / ".librariarr-deleted").glob("Replace.Movie.2024.mkv.*"))
+    soft_deleted = list(
+        (managed_root / ".librariarr-deleted" / "Replace Movie (2024)").glob(
+            "Replace.Movie.2024.720p.mkv.*"
+        )
+    )
     assert len(soft_deleted) == 1
     assert soft_deleted[0].read_text(encoding="utf-8") == "old-content"
 
 
 @pytest.mark.fs_e2e
 def test_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) -> None:
-    """When replacement_delete_mode=hard, replaced files are not kept in soft-delete."""
+    """When replacement_delete_mode=hard, old conflicting movie filename is removed permanently."""
     managed_root, library_root = make_roots(tmp_path, "ingest_hard_delete_mode")
 
     managed_folder = managed_root / "Replace Hard Movie (2024)"
     managed_folder.mkdir(parents=True)
-    managed_file = managed_folder / "Replace.Hard.Movie.2024.mkv"
-    managed_file.write_text("old-content", encoding="utf-8")
+    managed_old_file = managed_folder / "Replace.Hard.Movie.2024.720p.mkv"
+    managed_old_file.write_text("old-content", encoding="utf-8")
 
     library_folder = library_root / "Replace Hard Movie (2024)"
     library_folder.mkdir(parents=True)
-    incoming = library_folder / "Replace.Hard.Movie.2024.mkv"
+    incoming = library_folder / "Replace.Hard.Movie.2024.1080p.WEB-DL.mkv"
     incoming.write_text("new-content", encoding="utf-8")
 
     config = make_radarr_config(
@@ -198,11 +204,13 @@ def test_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) -> None
 
     service.reconcile()
 
-    assert managed_file.exists()
-    assert managed_file.read_text(encoding="utf-8") == "new-content"
+    assert not managed_old_file.exists()
+    managed_new_file = managed_folder / incoming.name
+    assert managed_new_file.exists()
+    assert managed_new_file.read_text(encoding="utf-8") == "new-content"
     assert incoming.exists()
-    assert incoming.samefile(managed_file)
-    assert not (managed_folder / ".librariarr-deleted").exists()
+    assert incoming.samefile(managed_new_file)
+    assert not (managed_root / ".librariarr-deleted").exists()
     assert not any(managed_folder.glob("**/*.librariarr-ingest-tmp"))
 
 
@@ -304,10 +312,16 @@ def test_ingest_skips_when_destination_already_exists(tmp_path: Path) -> None:
     service.reconcile()
 
     assert existing.exists()
-    assert (existing / "Existing.Movie.2023.720p.mkv").exists()
+    assert not (existing / "Existing.Movie.2023.720p.mkv").exists()
     assert (existing / "Existing.Movie.2023.1080p.mkv").exists(), (
-        "File-level ingest should have added the new file"
+        "File-level ingest should keep the incoming canonical filename"
     )
+    soft_deleted = list(
+        (managed_root / ".librariarr-deleted" / "Existing Movie (2023)").glob(
+            "Existing.Movie.2023.720p.mkv.*"
+        )
+    )
+    assert len(soft_deleted) == 1
 
 
 @pytest.mark.fs_e2e

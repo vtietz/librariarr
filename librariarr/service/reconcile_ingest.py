@@ -218,9 +218,11 @@ class ServiceIngestMixin:
         result = ingest_files_from_library_folder(
             library_folder=source_folder,
             managed_folder=managed_folder,
+            managed_root=managed_root,
             managed_video_extensions=set(proj.managed_video_extensions),
             extras_allowlist=proj.managed_extras_allowlist,
             replacement_delete_mode=self.config.ingest.replacement_delete_mode,
+            conflict_resolution_mode="movie_single_video",
         )
         if result.ingested_count > 0:
             LOG.info(
@@ -302,9 +304,11 @@ class ServiceIngestMixin:
         result = ingest_files_from_library_folder(
             library_folder=source_folder,
             managed_folder=managed_folder,
+            managed_root=managed_root,
             managed_video_extensions=set(proj.managed_video_extensions),
             extras_allowlist=proj.managed_extras_allowlist,
             replacement_delete_mode=self.config.ingest.replacement_delete_mode,
+            conflict_resolution_mode="series_same_episode",
         )
         if result.ingested_count > 0:
             LOG.info(

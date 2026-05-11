@@ -26,6 +26,7 @@ def test_ingest_files_moves_new_file_to_managed(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -47,6 +48,7 @@ def test_ingest_files_replaces_different_inode(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -57,7 +59,9 @@ def test_ingest_files_replaces_different_inode(tmp_path: Path) -> None:
     assert (managed / "Movie.mkv").stat().st_ino != old_inode
     assert not (lib / "Movie.mkv").exists()
 
-    soft_deleted = list((managed / ".librariarr-deleted").glob("Movie.mkv.*"))
+    soft_deleted = list(
+        (tmp_path / "managed" / ".librariarr-deleted" / "Movie (2024)").glob("Movie.mkv.*")
+    )
     assert len(soft_deleted) == 1
     assert soft_deleted[0].read_text(encoding="utf-8") == "old-quality"
 
@@ -72,6 +76,7 @@ def test_ingest_files_replaces_different_inode_hard_delete_mode(tmp_path: Path) 
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
         replacement_delete_mode="hard",
@@ -81,7 +86,7 @@ def test_ingest_files_replaces_different_inode_hard_delete_mode(tmp_path: Path) 
     assert result.failed_count == 0
     assert (managed / "Movie.mkv").read_text(encoding="utf-8") == "new-quality"
     assert not (lib / "Movie.mkv").exists()
-    assert not (managed / ".librariarr-deleted").exists()
+    assert not (tmp_path / "managed" / ".librariarr-deleted").exists()
     assert not any(managed.glob("**/*.librariarr-ingest-tmp"))
 
 
@@ -96,6 +101,7 @@ def test_ingest_files_skips_same_inode(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -113,6 +119,7 @@ def test_ingest_files_skips_non_allowlisted_files(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -132,6 +139,7 @@ def test_ingest_files_handles_extras(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -151,6 +159,7 @@ def test_ingest_files_creates_subdirectories(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -168,6 +177,7 @@ def test_ingest_files_returns_zero_for_empty_folder(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -189,6 +199,7 @@ def test_ingest_files_mixed_upgrade_and_skip(tmp_path: Path) -> None:
     result = ingest_files_from_library_folder(
         library_folder=lib,
         managed_folder=managed,
+        managed_root=tmp_path / "managed",
         managed_video_extensions=VIDEO_EXTS,
         extras_allowlist=EXTRAS,
     )
@@ -197,3 +208,61 @@ def test_ingest_files_mixed_upgrade_and_skip(tmp_path: Path) -> None:
     assert result.failed_count == 0
     assert (managed / "Movie.mkv").stat().st_ino == old_video.stat().st_ino
     assert (managed / "poster.jpg").read_text(encoding="utf-8") == "new-poster"
+
+
+def test_ingest_movie_conflict_resolution_prefers_incoming_filename(tmp_path: Path) -> None:
+    lib = tmp_path / "library" / "Movie (2024)"
+    managed = tmp_path / "managed" / "Movie (2024)"
+
+    _write(managed / "Movie.2024.720p.mkv", "old")
+    _write(lib / "Movie.2024.1080p.mkv", "new")
+
+    result = ingest_files_from_library_folder(
+        library_folder=lib,
+        managed_folder=managed,
+        managed_root=tmp_path / "managed",
+        managed_video_extensions=VIDEO_EXTS,
+        extras_allowlist=EXTRAS,
+        conflict_resolution_mode="movie_single_video",
+    )
+
+    assert result.ingested_count == 1
+    assert result.failed_count == 0
+    assert not (managed / "Movie.2024.720p.mkv").exists()
+    assert (managed / "Movie.2024.1080p.mkv").read_text(encoding="utf-8") == "new"
+    soft_deleted = list(
+        (tmp_path / "managed" / ".librariarr-deleted" / "Movie (2024)").glob(
+            "Movie.2024.720p.mkv.*"
+        )
+    )
+    assert len(soft_deleted) == 1
+
+
+def test_ingest_series_conflict_resolution_replaces_same_episode_only(tmp_path: Path) -> None:
+    lib = tmp_path / "library" / "Series (2024)" / "Season 01"
+    managed = tmp_path / "managed" / "Series (2024)" / "Season 01"
+
+    _write(managed / "Series.S01E01.720p.mkv", "old-e01")
+    _write(managed / "Series.S01E02.720p.mkv", "keep-e02")
+    _write(lib / "Series.S01E01.1080p.WEB-DL.mkv", "new-e01")
+
+    result = ingest_files_from_library_folder(
+        library_folder=lib.parent.parent,
+        managed_folder=managed.parent.parent,
+        managed_root=tmp_path / "managed",
+        managed_video_extensions=VIDEO_EXTS,
+        extras_allowlist=EXTRAS,
+        conflict_resolution_mode="series_same_episode",
+    )
+
+    assert result.ingested_count == 1
+    assert result.failed_count == 0
+    assert not (managed / "Series.S01E01.720p.mkv").exists()
+    assert (managed / "Series.S01E02.720p.mkv").read_text(encoding="utf-8") == "keep-e02"
+    assert (managed / "Series.S01E01.1080p.WEB-DL.mkv").read_text(encoding="utf-8") == "new-e01"
+    soft_deleted = list(
+        (tmp_path / "managed" / ".librariarr-deleted" / "Series (2024)" / "Season 01").glob(
+            "Series.S01E01.720p.mkv.*"
+        )
+    )
+    assert len(soft_deleted) == 1
