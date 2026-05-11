@@ -4,7 +4,6 @@ import {
   Card,
   Group,
   Loader,
-  ScrollArea,
   Stack,
   Text,
   Tooltip,
@@ -128,8 +127,7 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         {unmanagedShadowVideoFiles} unmanaged shadow video files
       </Text>
       {hasDiscoveryWarnings && (
-        <ScrollArea mt="xs" type="auto" scrollbars="y" h={220}>
-          <Stack gap="sm">
+        <Stack gap="sm" mt="xs">
             {excludedCandidates > 0 && (
               <Stack gap={2}>
                 <Text size="xs" fw={600}>Excluded Candidates ({excludedCandidates})</Text>
@@ -224,7 +222,6 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
               </Stack>
             )}
           </Stack>
-        </ScrollArea>
       )}
       <DirectoryPickerModal
         opened={browsePath !== null}
