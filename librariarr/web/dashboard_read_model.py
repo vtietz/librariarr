@@ -19,6 +19,7 @@ LOG = logging.getLogger(__name__)
 class DashboardReadModel:
     _TASK_STALE_AFTER_SECONDS = 300
     _TASK_AUTO_FAIL_AFTER_SECONDS = 900
+    _UNMANAGED_SHADOW_WARN_THRESHOLD = 1
 
     def __init__(
         self,
@@ -127,6 +128,7 @@ class DashboardReadModel:
             "last_build_duration_ms": mapped_snapshot.get("last_build_duration_ms"),
         }
         payload["discovery_cache"] = discovery_snapshot.get("cache")
+        payload["discovery_summary"] = discovery_snapshot.get("summary")
         payload["tasks_active_total"] = len(active_tasks_payload)
         payload["pending_tasks"] = build_pending_tasks(
             runtime_payload=payload,
@@ -174,6 +176,20 @@ class DashboardReadModel:
             mark_not_ready=False,
             allow_stale_while_running=reconcile_running,
         )
+
+        discovery_summary = payload.get("discovery_summary")
+        unmanaged_shadow_count = 0
+        if isinstance(discovery_summary, dict):
+            unmanaged_raw = discovery_summary.get("unmanaged_shadow_video_files")
+            if isinstance(unmanaged_raw, int | float):
+                unmanaged_shadow_count = int(unmanaged_raw)
+
+        if unmanaged_shadow_count >= self._UNMANAGED_SHADOW_WARN_THRESHOLD:
+            status = "degraded"
+            reasons.append(
+                f"{unmanaged_shadow_count} unmanaged shadow video file(s) detected; "
+                "review Discovery Warnings"
+            )
 
         if int(jobs_summary_payload.get("failed") or 0) > 0:
             status = "degraded"

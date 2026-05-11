@@ -23,6 +23,7 @@ export type DiscoveryWarningsResponse = {
     excluded_movie_candidates: number;
     duplicate_movie_candidates: number;
     orphaned_managed_movie_candidates: number;
+    unmanaged_shadow_video_files: number;
   };
   exclude_paths: string[];
   excluded_movie_candidates: Array<{
@@ -36,6 +37,10 @@ export type DiscoveryWarningsResponse = {
     contains_excluded: boolean;
   }>;
   orphaned_managed_movie_candidates: Array<{
+    path: string;
+    reason: string;
+  }>;
+  unmanaged_shadow_video_files: Array<{
     path: string;
     reason: string;
   }>;

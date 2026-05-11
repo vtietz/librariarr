@@ -12,11 +12,17 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
   const duplicateCandidates = discoveryWarnings?.summary.duplicate_movie_candidates ?? 0;
   const orphanedManagedCandidates =
     discoveryWarnings?.summary.orphaned_managed_movie_candidates ?? 0;
+  const unmanagedShadowVideoFiles =
+    discoveryWarnings?.summary.unmanaged_shadow_video_files ?? 0;
   const excludedItems = discoveryWarnings?.excluded_movie_candidates.slice(0, 6) ?? [];
   const duplicateItems = discoveryWarnings?.duplicate_movie_candidates.slice(0, 6) ?? [];
   const orphanedItems = discoveryWarnings?.orphaned_managed_movie_candidates.slice(0, 6) ?? [];
+  const unmanagedShadowItems = discoveryWarnings?.unmanaged_shadow_video_files.slice(0, 6) ?? [];
   const hasDiscoveryWarnings =
-    excludedCandidates > 0 || duplicateCandidates > 0 || orphanedManagedCandidates > 0;
+    excludedCandidates > 0 ||
+    duplicateCandidates > 0 ||
+    orphanedManagedCandidates > 0 ||
+    unmanagedShadowVideoFiles > 0;
 
   return (
     <Card withBorder>
@@ -28,7 +34,8 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
       </Group>
       <Text size="sm" c="dimmed" mt="xs">
         {excludedCandidates} excluded movie candidates · {duplicateCandidates} potential duplicates ·{" "}
-        {orphanedManagedCandidates} orphaned managed folders
+        {orphanedManagedCandidates} orphaned managed folders · {unmanagedShadowVideoFiles} unmanaged
+        shadow video files
       </Text>
       {hasDiscoveryWarnings && (
         <ScrollArea mt="xs" type="auto" scrollbars="y" h={220}>
@@ -58,6 +65,18 @@ export default function DiscoveryWarningsCard({ discoveryWarnings }: Props) {
                 <Text size="xs" fw={600}>Orphaned Managed Folders ({orphanedManagedCandidates})</Text>
                 {orphanedItems.map((item) => (
                   <Text key={`orphaned-${item.path}`} size="xs" c="dimmed">
+                    ⚠ {item.path}
+                  </Text>
+                ))}
+              </Stack>
+            )}
+            {unmanagedShadowVideoFiles > 0 && (
+              <Stack gap={2}>
+                <Text size="xs" fw={600}>
+                  Unmanaged Shadow Video Files ({unmanagedShadowVideoFiles})
+                </Text>
+                {unmanagedShadowItems.map((item) => (
+                  <Text key={`shadow-unmanaged-${item.path}`} size="xs" c="dimmed">
                     ⚠ {item.path}
                   </Text>
                 ))}
