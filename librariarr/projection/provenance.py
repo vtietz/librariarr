@@ -195,7 +195,7 @@ class ProjectionStateStore:
                 )
 
     def resolve_movie_ids_by_paths(self, paths: set[Path]) -> set[int]:
-        """Resolve movie IDs whose managed_folder or dest_path matches any of the given paths."""
+        """Resolve movie IDs whose managed/source/dest paths match any of the given paths."""
         if not paths:
             return set()
         with self._lock:
@@ -210,17 +210,26 @@ class ProjectionStateStore:
                         (path_str, path_str + "/%"),
                     )
                     result.update(int(row[0]) for row in cursor.fetchall())
-                    # Search projected files dest_path (prefix match for shadow paths)
+                    # Search projected files source_path (exact or prefix).
                     if not result:
                         cursor = connection.execute(
-                            "SELECT DISTINCT movie_id FROM projected_files WHERE dest_path LIKE ?",
-                            (path_str + "/%",),
+                            "SELECT DISTINCT movie_id FROM projected_files"
+                            " WHERE source_path = ? OR source_path LIKE ?",
+                            (path_str, path_str + "/%"),
+                        )
+                        result.update(int(row[0]) for row in cursor.fetchall())
+                    # Search projected files dest_path (exact or prefix for shadow paths).
+                    if not result:
+                        cursor = connection.execute(
+                            "SELECT DISTINCT movie_id FROM projected_files"
+                            " WHERE dest_path = ? OR dest_path LIKE ?",
+                            (path_str, path_str + "/%"),
                         )
                         result.update(int(row[0]) for row in cursor.fetchall())
                 return result
 
     def resolve_series_ids_by_paths(self, paths: set[Path]) -> set[int]:
-        """Resolve series IDs whose managed_folder or dest_path matches any of the given paths."""
+        """Resolve series IDs whose managed/source/dest paths match any of the given paths."""
         if not paths:
             return set()
         with self._lock:
@@ -236,8 +245,16 @@ class ProjectionStateStore:
                     result.update(int(row[0]) for row in cursor.fetchall())
                     if not result:
                         cursor = connection.execute(
-                            "SELECT DISTINCT movie_id FROM projected_files WHERE dest_path LIKE ?",
-                            (path_str + "/%",),
+                            "SELECT DISTINCT movie_id FROM projected_files"
+                            " WHERE source_path = ? OR source_path LIKE ?",
+                            (path_str, path_str + "/%"),
+                        )
+                        result.update(int(row[0]) for row in cursor.fetchall())
+                    if not result:
+                        cursor = connection.execute(
+                            "SELECT DISTINCT movie_id FROM projected_files"
+                            " WHERE dest_path = ? OR dest_path LIKE ?",
+                            (path_str, path_str + "/%"),
                         )
                         result.update(int(row[0]) for row in cursor.fetchall())
                 return result
