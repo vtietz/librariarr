@@ -36,6 +36,20 @@ _SERIES_PROJECTION_RE = re.compile(
     r"Sonarr projection reconcile:.*projected_files=(\d+) unchanged_files=(\d+) skipped_files=(\d+)"
 )
 _STALE_CLEANUP_RE = re.compile(r"Stale shadow cleanup removed (\d+) orphaned managed file\(s\)")
+_RECONCILE_START_RE = re.compile(
+    r"Reconcile started: source=([^\s]+) mode=([^\s]+) affected_paths=([^\s]+) trigger_path=(.+)$"
+)
+_RECONCILE_FINISH_RE = re.compile(
+    r"Reconcile finished: source=([^\s]+) mode=([^\s]+) affected_paths=([^\s]+) "
+    r"trigger_path=(.+?) outcome=([^\s]+) projected_files=(\d+) "
+    r"matched_movies=(\d+) matched_series=(\d+) duration_seconds=([0-9.]+)"
+)
+_FULL_RECONCILE_START_RE = re.compile(r"^======== Full Reconcile started \(source=(.+)\) ========$")
+_FULL_RECONCILE_FINISH_RE = re.compile(
+    r"^======== Full Reconcile finished: outcome=([^\s]+) duration=([0-9.]+)s"
+)
+_STARTUP_MODE_RE = re.compile(r"^Startup reconcile mode=([^\s;]+)(?:;\s*(.*))?$")
+_STARTUP_SKIPPED_RE = re.compile(r"^Startup reconcile skipped \(mode=([^\)]+)\)$")
 
 
 class HistoryEventHandler(logging.Handler):
@@ -225,8 +239,96 @@ def _cleanup_event(message: str) -> dict[str, str] | None:
     }
 
 
+def _reconcile_lifecycle_event(message: str) -> dict[str, str] | None:
+    start_match = _RECONCILE_START_RE.search(message)
+    if start_match is not None:
+        source = start_match.group(1)
+        mode = start_match.group(2)
+        return {
+            "scenario": "0",
+            "category": "reconcile",
+            "title": f"Reconcile started ({mode})",
+            "message": f"Triggered by {source}.",
+        }
+
+    finish_match = _RECONCILE_FINISH_RE.search(message)
+    if finish_match is not None:
+        source = finish_match.group(1)
+        mode = finish_match.group(2)
+        outcome = finish_match.group(5)
+        projected_files = int(finish_match.group(6))
+        duration_seconds = finish_match.group(9)
+        return {
+            "scenario": "0",
+            "category": "reconcile",
+            "title": f"Reconcile finished ({mode}, {outcome})",
+            "message": (
+                f"Source: {source}. Projected files: {projected_files}. "
+                f"Duration: {duration_seconds}s."
+            ),
+        }
+
+    full_start_match = _FULL_RECONCILE_START_RE.search(message)
+    if full_start_match is not None:
+        source = full_start_match.group(1)
+        return {
+            "scenario": "0",
+            "category": "reconcile",
+            "title": "Full reconcile started",
+            "message": f"Triggered by {source}.",
+        }
+
+    full_finish_match = _FULL_RECONCILE_FINISH_RE.search(message)
+    if full_finish_match is not None:
+        outcome = full_finish_match.group(1)
+        duration_seconds = full_finish_match.group(2)
+        return {
+            "scenario": "0",
+            "category": "reconcile",
+            "title": f"Full reconcile finished ({outcome})",
+            "message": f"Completed in {duration_seconds}s.",
+        }
+
+    return None
+
+
+def _startup_event(message: str) -> dict[str, str] | None:
+    startup_mode_match = _STARTUP_MODE_RE.search(message)
+    if startup_mode_match is not None:
+        mode = startup_mode_match.group(1)
+        detail = startup_mode_match.group(2) or "startup reconcile selected"
+        return {
+            "scenario": "0",
+            "category": "startup",
+            "title": f"Startup reconcile mode: {mode}",
+            "message": detail.rstrip("."),
+        }
+
+    startup_skipped_match = _STARTUP_SKIPPED_RE.search(message)
+    if startup_skipped_match is not None:
+        mode = startup_skipped_match.group(1)
+        return {
+            "scenario": "0",
+            "category": "startup",
+            "title": "Startup reconcile skipped",
+            "message": f"Mode is set to {mode}.",
+        }
+
+    if message.strip() == "================ LibrariArr Startup ================":
+        return {
+            "scenario": "0",
+            "category": "startup",
+            "title": "LibrariArr startup",
+            "message": "Service startup sequence began.",
+        }
+
+    return None
+
+
 def _entry_from_log_message(message: str) -> dict[str, str] | None:
     parsers = (
+        _startup_event,
+        _reconcile_lifecycle_event,
         _movie_import_event,
         _series_import_event,
         _replace_event,

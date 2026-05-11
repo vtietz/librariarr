@@ -104,3 +104,54 @@ def test_history_clear_endpoint(tmp_path: Path) -> None:
 
     after = client.get("/api/history").json()
     assert after["items"] == []
+
+
+def test_history_includes_startup_and_reconcile_lifecycle_events(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    logger = logging.getLogger("librariarr.service")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        logger.info("Startup reconcile mode=full")
+        logger.info(
+            "Reconcile started: source=%s mode=%s affected_paths=%s trigger_path=%s",
+            "startup",
+            "full",
+            "all",
+            "-",
+        )
+        logger.info(
+            "Reconcile finished: source=%s mode=%s affected_paths=%s trigger_path=%s "
+            "outcome=%s projected_files=%s matched_movies=%s matched_series=%s duration_seconds=%s",
+            "startup",
+            "full",
+            "all",
+            "-",
+            "updated",
+            12,
+            4,
+            3,
+            "2.1",
+        )
+    finally:
+        logger.setLevel(previous_level)
+
+    payload = client.get("/api/history").json()
+    titles = {item["title"] for item in payload["items"]}
+    categories = {item["category"] for item in payload["items"]}
+
+    assert "Startup reconcile mode: full" in titles
+    assert "Reconcile started (full)" in titles
+    assert "Reconcile finished (full, updated)" in titles
+    assert "startup" in categories
+    assert "reconcile" in categories

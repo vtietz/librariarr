@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 
 const SCENARIO_LABELS: Record<string, string> = {
+  "0": "System lifecycle",
   "1": "Scenario 1: New import",
   "2": "Scenario 2: File replacement",
   "3": "Scenario 3: Managed rename/move",
@@ -34,6 +35,10 @@ function categoryColor(category: string): string {
       return "green";
     case "deleted_files":
       return "red";
+    case "startup":
+      return "violet";
+    case "reconcile":
+      return "indigo";
     default:
       return "dark";
   }
