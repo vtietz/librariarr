@@ -138,7 +138,7 @@ def build_fs_router(  # noqa: C901
         config = load_config_or_http_fn(read_config_path_fn(request))
         discovery_cache.request_refresh(config)
         snapshot = discovery_cache.snapshot(limit=limit)
-        if not snapshot["cache"]["ready"] and snapshot["cache"]["building"]:
+        if snapshot["cache"]["building"]:
             discovery_cache.wait_for_build(timeout=2.0)
             snapshot = discovery_cache.snapshot(limit=limit)
         return snapshot
