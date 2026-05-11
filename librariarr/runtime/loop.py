@@ -439,6 +439,21 @@ class RuntimeSyncLoop:
 
         return False
 
+    def _matches_dir_only_exclude(
+        self,
+        *,
+        anchored: bool,
+        relative_ci: str,
+        core_ci: str,
+        suffix_candidates: list[str],
+    ) -> bool:
+        if anchored:
+            return relative_ci == core_ci or relative_ci.startswith(core_ci + "/")
+        return any(
+            candidate == core_ci or candidate.startswith(core_ci + "/")
+            for candidate in suffix_candidates
+        )
+
     def _matches_exclude_pattern(self, relative: str, basename: str, *, is_dir: bool) -> bool:
         if relative == ".":
             return False
@@ -455,7 +470,17 @@ class RuntimeSyncLoop:
             core_ci = core.lower()
             if not core:
                 continue
-            if dir_only and not is_dir:
+
+            # Directory-style exclude patterns (trailing slash) should suppress
+            # both the marker directory itself and all descendants beneath it.
+            if dir_only:
+                if self._matches_dir_only_exclude(
+                    anchored=anchored,
+                    relative_ci=relative_ci,
+                    core_ci=core_ci,
+                    suffix_candidates=suffix_candidates,
+                ):
+                    return True
                 continue
 
             if anchored:

@@ -187,6 +187,37 @@ def test_runtime_sync_loop_mark_dirty_ignores_excluded_deletedbytmm_dir_event(tm
     assert schedule.last_event == 0.0
 
 
+def test_runtime_sync_loop_mark_dirty_ignores_descendant_under_excluded_deletedbytmm_dir(
+    tmp_path,
+) -> None:
+    schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
+    loop = RuntimeSyncLoop(
+        nested_roots=[tmp_path / "nested"],
+        shadow_roots=[],
+        schedule=schedule,
+        reconcile=lambda _paths=None: False,
+        on_reconcile_error=lambda exc: None,
+        logger=logging.getLogger("tests.runtime.loop"),
+        exclude_paths=[".deletedByTMM/"],
+    )
+
+    descendant_dir = (
+        tmp_path
+        / "nested"
+        / "FSK06 Erwachsene"
+        / ".deletedByTMM"
+        / "Moderne Zeiten (1936)1778502209"
+    )
+    loop.mark_dirty(
+        SimpleNamespace(
+            event_type="created",
+            is_directory=True,
+            src_path=str(descendant_dir),
+        )
+    )
+    assert schedule.last_event == 0.0
+
+
 def test_runtime_sync_loop_mark_dirty_ignores_excluded_deletedbytmm_file_event(tmp_path) -> None:
     schedule = ReconcileSchedule(debounce_seconds=5, maintenance_interval_seconds=None)
     loop = RuntimeSyncLoop(
