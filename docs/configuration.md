@@ -386,8 +386,7 @@ Audio language token notes:
 
 ## Cleanup
 
-`cleanup.remove_orphaned_links`:
-- Removes links whose source no longer exists.
+Stale projected links whose source no longer exists are always removed during reconcile.
 
 `cleanup.sonarr_action_on_missing`:
 - Controls Sonarr behavior when source disappears.

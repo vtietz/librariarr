@@ -3,28 +3,11 @@ from pathlib import Path
 from librariarr.core import build_cleanup_tasks
 
 
-def test_build_cleanup_tasks_returns_empty_when_cleanup_disabled() -> None:
-    tasks = build_cleanup_tasks(
-        remove_orphaned_links=False,
-        radarr_enabled=True,
-        sonarr_enabled=True,
-        movie_incremental_mode=False,
-        series_incremental_mode=False,
-        movie_affected_targets={Path("/shadow/movies/A")},
-        series_affected_targets={Path("/shadow/series/B")},
-        matched_movie_ids={1},
-        matched_series_ids={2},
-    )
-
-    assert tasks == []
-
-
 def test_build_cleanup_tasks_includes_enabled_kinds() -> None:
     movie_target = Path("/shadow/movies/A")
     series_target = Path("/shadow/series/B")
 
     tasks = build_cleanup_tasks(
-        remove_orphaned_links=True,
         radarr_enabled=True,
         sonarr_enabled=True,
         movie_incremental_mode=True,
@@ -49,7 +32,6 @@ def test_build_cleanup_tasks_includes_enabled_kinds() -> None:
 
 def test_build_cleanup_tasks_skips_disabled_service() -> None:
     tasks = build_cleanup_tasks(
-        remove_orphaned_links=True,
         radarr_enabled=False,
         sonarr_enabled=True,
         movie_incremental_mode=False,

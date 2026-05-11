@@ -16,14 +16,13 @@ from librariarr.service import LibrariArrService
 from .conftest import FakeRadarr, make_movie, make_radarr_config, make_roots
 
 # ---------------------------------------------------------------------------
-# preserve_unknown_files
+# Unknown destination replacement
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.fs_e2e
-def test_preserve_unknown_files_keeps_unrecognized_dest(tmp_path: Path) -> None:
-    """When preserve_unknown_files=True, existing files in library_root
-    that are NOT tracked in the provenance DB must be left alone."""
+def test_unknown_destination_file_is_replaced_by_projection(tmp_path: Path) -> None:
+    """Existing non-tracked files in library_root are replaced by managed hardlinks."""
     managed_root, library_root = make_roots(tmp_path, "preserve_unknown_true")
 
     managed_folder = managed_root / "Test Movie (2024)"
@@ -39,7 +38,7 @@ def test_preserve_unknown_files_keeps_unrecognized_dest(tmp_path: Path) -> None:
     config = make_radarr_config(
         managed_root=managed_root,
         library_root=library_root,
-        projection=RadarrProjectionConfig(preserve_unknown_files=True),
+        projection=RadarrProjectionConfig(),
     )
 
     service = LibrariArrService(config)
@@ -48,39 +47,7 @@ def test_preserve_unknown_files_keeps_unrecognized_dest(tmp_path: Path) -> None:
     service.reconcile()
 
     assert unknown_file.exists()
-    assert unknown_file.read_text(encoding="utf-8") == "user-placed-file"
-
-
-@pytest.mark.fs_e2e
-def test_preserve_unknown_files_false_replaces_dest(tmp_path: Path) -> None:
-    """When preserve_unknown_files=False, existing non-tracked files in library_root
-    should be replaced by hardlinks from the managed folder."""
-    managed_root, library_root = make_roots(tmp_path, "preserve_unknown_false")
-
-    managed_folder = managed_root / "Replace Movie (2024)"
-    managed_folder.mkdir(parents=True)
-    source = managed_folder / "Replace.Movie.2024.1080p.mkv"
-    source.write_text("source-video", encoding="utf-8")
-
-    lib_folder = library_root / "Replace Movie (2024)"
-    lib_folder.mkdir(parents=True)
-    existing = lib_folder / "Replace.Movie.2024.1080p.mkv"
-    existing.write_text("old-file-content", encoding="utf-8")
-
-    config = make_radarr_config(
-        managed_root=managed_root,
-        library_root=library_root,
-        projection=RadarrProjectionConfig(preserve_unknown_files=False),
-    )
-
-    service = LibrariArrService(config)
-    service.radarr = FakeRadarr(movies=[make_movie(1, "Replace Movie", 2024, managed_folder)])
-
-    service.reconcile()
-
-    dest = lib_folder / "Replace.Movie.2024.1080p.mkv"
-    assert dest.exists()
-    assert dest.samefile(source), "File should be replaced by a hardlink to source"
+    assert unknown_file.samefile(source), "File should be replaced by a hardlink to source"
 
 
 # ---------------------------------------------------------------------------

@@ -50,7 +50,7 @@ def _projection_config(
             sync_enabled=sync_enabled,
             projection=RadarrProjectionConfig(),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 

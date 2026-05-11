@@ -436,7 +436,7 @@ def test_radarr_e2e_projection_multi_mapping() -> None:
             sync_enabled=True,
             projection=RadarrProjectionConfig(),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 

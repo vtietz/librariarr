@@ -31,7 +31,6 @@ class SonarrProjectionOrchestrator:
         self.state_store = ProjectionStateStore(state_db_path)
         self.executor = MovieProjectionExecutor(
             state_store=self.state_store,
-            preserve_unknown_files=config.sonarr.projection.preserve_unknown_files,
         )
 
     def reconcile(

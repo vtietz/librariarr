@@ -305,8 +305,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     else:
         raise ValueError("radarr.projection.managed_extras_allowlist must be a list")
 
-    preserve_unknown_files = bool(projection_raw.get("preserve_unknown_files", False))
-
     sonarr_managed_video_extensions = _normalize_extensions(
         sonarr_projection_raw.get("managed_video_extensions"),
         key_name="sonarr.projection.managed_video_extensions",
@@ -329,8 +327,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         ]
     else:
         raise ValueError("sonarr.projection.managed_extras_allowlist must be a list")
-
-    sonarr_preserve_unknown_files = bool(sonarr_projection_raw.get("preserve_unknown_files", False))
 
     periodic_reconcile_minutes = runtime_raw.get(
         "periodic_reconcile_minutes",
@@ -389,7 +385,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             projection=RadarrProjectionConfig(
                 managed_video_extensions=managed_video_extensions,
                 managed_extras_allowlist=managed_extras_allowlist,
-                preserve_unknown_files=preserve_unknown_files,
             ),
             mapping=RadarrMappingConfig(
                 quality_map=quality_map,
@@ -414,7 +409,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             projection=SonarrProjectionConfig(
                 managed_video_extensions=sonarr_managed_video_extensions,
                 managed_extras_allowlist=sonarr_managed_extras_allowlist,
-                preserve_unknown_files=sonarr_preserve_unknown_files,
             ),
             mapping=SonarrMappingConfig(
                 quality_profile_map=sonarr_quality_profile_map,
@@ -422,7 +416,6 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
             ),
         ),
         cleanup=CleanupConfig(
-            remove_orphaned_links=bool(cleanup_raw.get("remove_orphaned_links", True)),
             sonarr_action_on_missing=resolved_sonarr_missing_action,
             missing_grace_seconds=missing_grace_seconds,
         ),

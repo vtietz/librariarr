@@ -182,7 +182,6 @@ def resolve_cleanup_targets(
 
 def run_stale_shadow_cleanup(
     *,
-    remove_orphaned_links: bool,
     reconcile_mode: str,
     affected_paths: set[Path] | None,
     movie_root_mappings: list[tuple[Path, Path]],
@@ -194,9 +193,6 @@ def run_stale_shadow_cleanup(
     movie_projection,
     sonarr_projection,
 ) -> int:
-    if not remove_orphaned_links:
-        return 0
-
     movie_affected_targets = resolve_cleanup_targets(
         affected_paths=affected_paths,
         mappings=movie_root_mappings,
@@ -210,7 +206,6 @@ def run_stale_shadow_cleanup(
     matched_series_ids = set(series_projection_metrics.get("matched_series_ids") or set())
 
     tasks = build_cleanup_tasks(
-        remove_orphaned_links=remove_orphaned_links,
         radarr_enabled=radarr_enabled,
         sonarr_enabled=sonarr_enabled,
         movie_incremental_mode=(reconcile_mode == "incremental"),

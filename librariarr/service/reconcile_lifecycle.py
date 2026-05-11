@@ -186,7 +186,6 @@ class ServiceReconcileLifecycleMixin:
     ) -> int:
         _ = scope
         return run_stale_shadow_cleanup(
-            remove_orphaned_links=self.config.cleanup.remove_orphaned_links,
             reconcile_mode=str(reconcile_ctx.get("reconcile_mode") or "full"),
             affected_paths=reconcile_ctx.get("affected_paths"),
             movie_root_mappings=self.movie_root_mappings,

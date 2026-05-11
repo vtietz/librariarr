@@ -40,7 +40,7 @@ def test_service_disables_periodic_maintenance_when_configured(tmp_path: Path) -
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=0),
     )
 
@@ -91,7 +91,7 @@ def test_service_no_longer_fails_on_ambiguous_ingest_root_mappings(tmp_path: Pat
                 quality_map=[QualityRule(match=["1080p", "x265"], target_id=7)]
             ),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 

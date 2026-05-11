@@ -233,7 +233,7 @@ def _build_service_config(
             api_key=api_key,
             sync_enabled=True,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(
             debounce_seconds=debounce_seconds,
             maintenance_interval_minutes=60,

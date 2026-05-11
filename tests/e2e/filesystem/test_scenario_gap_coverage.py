@@ -177,7 +177,7 @@ def _radarr_auto_add_config(managed_root: Path, library_root: Path) -> AppConfig
             auto_add_quality_profile_id=7,
         ),
         sonarr=SonarrConfig(enabled=False),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True),
     )
@@ -209,7 +209,7 @@ def _sonarr_auto_add_config(
             auto_add_language_profile_id=3,
             projection=projection or SonarrProjectionConfig(),
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(
             enabled=ingest_enabled,
@@ -388,45 +388,12 @@ def test_sonarr_preserve_unknown_true_keeps_existing_dest(tmp_path: Path) -> Non
     config = _sonarr_auto_add_config(
         nested_root,
         shadow_root,
-        projection=SonarrProjectionConfig(preserve_unknown_files=True),
+        projection=SonarrProjectionConfig(),
     )
     config.sonarr.auto_add_unmatched = False
     service = LibrariArrService(config)
     service.sonarr = AutoAddFakeSonarr(
         series=[_series(20, "Unknown Policy", 2020, series_folder)],
-        lookup_sequences=[],
-    )
-
-    service.reconcile()
-
-    assert existing.exists()
-    assert existing.read_text(encoding="utf-8") == "user-file"
-
-
-@pytest.mark.fs_e2e
-def test_sonarr_preserve_unknown_false_replaces_existing_dest(tmp_path: Path) -> None:
-    nested_root = tmp_path / "nested"
-    shadow_root = tmp_path / "shadow"
-    series_folder = nested_root / "Unknown Replace (2020)"
-    season_one = series_folder / "Season 01"
-    season_one.mkdir(parents=True)
-    source = season_one / "Unknown.Replace.S01E01.1080p.mkv"
-    source.write_text("source", encoding="utf-8")
-
-    dest_folder = shadow_root / "Unknown Replace (2020)" / "Season 01"
-    dest_folder.mkdir(parents=True)
-    existing = dest_folder / source.name
-    existing.write_text("user-file", encoding="utf-8")
-
-    config = _sonarr_auto_add_config(
-        nested_root,
-        shadow_root,
-        projection=SonarrProjectionConfig(preserve_unknown_files=False),
-    )
-    config.sonarr.auto_add_unmatched = False
-    service = LibrariArrService(config)
-    service.sonarr = AutoAddFakeSonarr(
-        series=[_series(21, "Unknown Replace", 2020, series_folder)],
         lookup_sequences=[],
     )
 

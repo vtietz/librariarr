@@ -14,7 +14,6 @@ class CleanupTask:
 
 def build_cleanup_tasks(
     *,
-    remove_orphaned_links: bool,
     radarr_enabled: bool,
     sonarr_enabled: bool,
     movie_incremental_mode: bool,
@@ -24,9 +23,6 @@ def build_cleanup_tasks(
     matched_movie_ids: set[int],
     matched_series_ids: set[int],
 ) -> list[CleanupTask]:
-    if not remove_orphaned_links:
-        return []
-
     tasks: list[CleanupTask] = []
     if radarr_enabled:
         tasks.append(

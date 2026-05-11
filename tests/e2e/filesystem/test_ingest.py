@@ -271,7 +271,7 @@ def test_multiple_managed_roots_no_cross_ingest(tmp_path: Path) -> None:
             ],
         ),
         radarr=RadarrConfig(url="http://radarr:7878", api_key="test", sync_enabled=True),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
         ingest=IngestConfig(enabled=True),
     )

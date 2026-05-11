@@ -178,7 +178,6 @@ def make_config(
             ),
         ),
         cleanup=CleanupConfig(
-            remove_orphaned_links=True,
             missing_grace_seconds=0,
         ),
         runtime=RuntimeConfig(

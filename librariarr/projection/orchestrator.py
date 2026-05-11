@@ -33,7 +33,6 @@ class MovieProjectionOrchestrator:
         self.state_store = ProjectionStateStore(state_db_path)
         self.executor = MovieProjectionExecutor(
             state_store=self.state_store,
-            preserve_unknown_files=config.radarr.projection.preserve_unknown_files,
         )
 
     def reconcile(

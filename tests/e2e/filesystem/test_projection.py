@@ -86,7 +86,7 @@ def test_projection_respects_movie_root_mappings(tmp_path: Path) -> None:
             ],
         ),
         radarr=RadarrConfig(url="http://radarr:7878", api_key="test", sync_enabled=False),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -297,7 +297,7 @@ def test_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
         radarr=RadarrConfig(
             enabled=False, url="http://radarr:7878", api_key="test", sync_enabled=False
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 

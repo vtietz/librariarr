@@ -74,7 +74,7 @@ use `docs/reconciliation_scenarios.md` as the canonical reference.
 - Managed files include:
   - video extensions from `radarr.projection.managed_video_extensions`,
   - extras from `radarr.projection.managed_extras_allowlist`.
-- Unknown library files are replaced by projection by default (`preserve_unknown_files=false`).
+- Unknown library files are replaced by projection when destinations collide.
 - Reconcile is idempotent and re-links replaced managed files.
 
 ## Series Projection Behavior
@@ -83,7 +83,7 @@ use `docs/reconciliation_scenarios.md` as the canonical reference.
 - Managed files include:
   - video extensions from `sonarr.projection.managed_video_extensions`,
   - extras from `sonarr.projection.managed_extras_allowlist`.
-- Unknown library files are replaced by projection by default (`preserve_unknown_files=false`).
+- Unknown library files are replaced by projection when destinations collide.
 - Reconcile is idempotent and re-links replaced managed files.
 
 ## Scenario Coverage Reference

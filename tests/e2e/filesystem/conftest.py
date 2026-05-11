@@ -123,7 +123,7 @@ def make_roots(tmp_path: Path, case_name: str) -> tuple[Path, Path]:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_RUNTIME = RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60)
-_DEFAULT_CLEANUP = CleanupConfig(remove_orphaned_links=True)
+_DEFAULT_CLEANUP = CleanupConfig()
 
 
 def make_radarr_config(

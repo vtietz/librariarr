@@ -118,7 +118,7 @@ def _make_config(
             api_key="test",
             sync_enabled=sonarr_sync_enabled,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(
             debounce_seconds=1,
             maintenance_interval_minutes=60,

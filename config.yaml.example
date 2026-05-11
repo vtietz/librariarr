@@ -67,7 +67,6 @@ radarr:
       - "movie.nfo"
       - "poster.jpg"
       - "fanart.jpg"
-    preserve_unknown_files: false
 
   mapping:
     # Optional fallback map for quality-definition IDs.
@@ -130,7 +129,6 @@ sonarr:
       - "tvshow.nfo"
       - "poster.jpg"
       - "fanart.jpg"
-    preserve_unknown_files: false
 
   mapping:
     # Optional: token-based quality profile selection for Sonarr auto-add.
@@ -150,7 +148,6 @@ sonarr:
         profile_id: 6
 
 cleanup:
-  remove_orphaned_links: true
   # What to do in Sonarr when a source folder is missing:
   #   none      -> do not touch Sonarr state (recommended for transient outages/renames)
   #   unmonitor -> unmonitor after grace window

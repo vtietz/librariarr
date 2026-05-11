@@ -82,7 +82,6 @@ radarr:
       - "movie.nfo"
       - "poster.jpg"
       - "fanart.jpg"
-    preserve_unknown_files: false
 
 ingest:
   enabled: true
@@ -99,7 +98,6 @@ runtime:
 - `managed_root` and `library_root` must not overlap.
 - A `managed_root` maps to exactly one `library_root`.
 - If managed and library roots are on different filesystems, that mapping is skipped with a warning.
-- `preserve_unknown_files` is configurable; default is `false`.
 
 ### 5.2 Capability Probes
 
@@ -233,7 +231,7 @@ If any scoping source provides IDs, only those movies are reconciled. Otherwise,
 After projection, LibrariArr performs a conservative stale-shadow cleanup pass for both Radarr and Sonarr.
 
 Rules:
-- Cleanup is gated by `cleanup.remove_orphaned_links`.
+- Cleanup runs on every reconcile cycle.
 - Only provenance-managed projected files (`managed=1`) are candidates.
 - Unknown files in library/shadow roots are never deleted.
 - Current implementation deletes only **definitely stale** entries where:
@@ -308,7 +306,7 @@ Key operations:
 
 ## 10) Safety Guarantees
 
-1. **Unknown file handling is configurable.** When `preserve_unknown_files=false` (default), unknown destination files may be replaced by managed projection outputs when paths collide. Set `preserve_unknown_files=true` to preserve unknown destination files.
+1. **Unknown destination files are replaced on collision.** When a managed projection output needs the same destination path, the destination is replaced by a hardlink to managed source.
 2. **Hardlink-only.** No file copying. If managed and library roots are on different filesystems, the mapping is skipped entirely.
 3. **Atomic file operations.** Executor uses temp file + rename pattern. Ingest uses backup + rename pattern with rollback on failure.
 4. **Idempotent reconcile.** Running reconcile repeatedly with no changes produces no side effects.

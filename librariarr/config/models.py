@@ -37,7 +37,6 @@ class SonarrMappingConfig:
 
 @dataclass
 class CleanupConfig:
-    remove_orphaned_links: bool = True
     sonarr_action_on_missing: str = "unmonitor"
     missing_grace_seconds: int = 3600
 
@@ -126,7 +125,6 @@ class RadarrProjectionConfig:
     managed_extras_allowlist: list[str] = field(
         default_factory=lambda: ["*.srt", "*.sub", "movie.nfo", "poster.jpg", "fanart.jpg"]
     )
-    preserve_unknown_files: bool = False
 
 
 @dataclass
@@ -145,7 +143,6 @@ class SonarrProjectionConfig:
             "fanart.jpg",
         ]
     )
-    preserve_unknown_files: bool = False
 
 
 @dataclass

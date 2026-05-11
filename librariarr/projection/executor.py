@@ -22,10 +22,8 @@ class MovieProjectionExecutor:
         self,
         *,
         state_store: ProjectionStateStore,
-        preserve_unknown_files: bool,
     ) -> None:
         self.state_store = state_store
-        self.preserve_unknown_files = preserve_unknown_files
 
     def apply(
         self,
@@ -72,7 +70,6 @@ class MovieProjectionExecutor:
                     source_path=planned_file.source_path,
                     dest_path=planned_file.dest_path,
                     kind=planned_file.kind,
-                    managed_dest_paths=managed_dest_paths,
                 )
                 if result is None:
                     metrics.skipped_files += 1
@@ -132,19 +129,14 @@ class MovieProjectionExecutor:
         source_path: Path,
         dest_path: Path,
         kind: str,
-        managed_dest_paths: set[str],
     ) -> ProjectedFileState | str | None:
         if not source_path.exists() or not source_path.is_file():
             return None
 
         dest_path.parent.mkdir(parents=True, exist_ok=True)
-        managed_dest = str(dest_path) in managed_dest_paths
-
         if dest_path.exists() or dest_path.is_symlink():
             if _is_same_file(source_path, dest_path):
                 return "unchanged"
-            if not managed_dest and self.preserve_unknown_files:
-                return None
             # Rename before unlinking so we can restore on hardlink failure
             backup_path = dest_path.with_suffix(dest_path.suffix + ".librariarr-tmp")
             try:

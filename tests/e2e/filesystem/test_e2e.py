@@ -105,7 +105,7 @@ def test_e2e_projection_creates_expected_hardlink_layout(tmp_path: Path) -> None
             api_key="test",
             sync_enabled=False,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -159,7 +159,7 @@ def test_e2e_projection_respects_movie_root_mappings(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -208,7 +208,7 @@ def test_e2e_projection_scopes_to_webhook_movie_ids(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -261,7 +261,7 @@ def test_e2e_projection_flattens_nested_library_path(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
@@ -303,7 +303,7 @@ def test_e2e_projection_does_not_ingest_shadow_folder(tmp_path: Path) -> None:
             api_key="test",
             sync_enabled=False,
         ),
-        cleanup=CleanupConfig(remove_orphaned_links=True),
+        cleanup=CleanupConfig(),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
     )
 
