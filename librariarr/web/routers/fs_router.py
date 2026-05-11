@@ -12,6 +12,8 @@ from typing import Annotated, Any
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 
+from ..history_events import append_history_event
+
 
 def build_fs_router(  # noqa: C901
     *,
@@ -353,6 +355,16 @@ def build_fs_router(  # noqa: C901
         target.rename(restore_path)
         _prune_empty_parents(trash_root, target.parent)
 
+        state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
+        if state_store is not None:
+            append_history_event(
+                state_store,
+                scenario="2",
+                category="deleted_files",
+                title=f"Restored file: {restore_path.name}",
+                message="A file was restored from .librariarr-deleted back to managed storage.",
+            )
+
         return {
             "ok": True,
             "restored_path": str(restore_path),
@@ -375,6 +387,16 @@ def build_fs_router(  # noqa: C901
         trash_root = _trash_root_for_managed_root(managed_root)
         target.unlink()
         _prune_empty_parents(trash_root, target.parent)
+
+        state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
+        if state_store is not None:
+            append_history_event(
+                state_store,
+                scenario="2",
+                category="deleted_files",
+                title=f"Permanently deleted: {target.name}",
+                message="A file was permanently removed from .librariarr-deleted.",
+            )
 
         return {
             "ok": True,
@@ -401,6 +423,16 @@ def build_fs_router(  # noqa: C901
             )
             shutil.rmtree(trash_root)
             removed_roots += 1
+
+        state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
+        if state_store is not None and removed_files > 0:
+            append_history_event(
+                state_store,
+                scenario="2",
+                category="deleted_files",
+                title=f"Cleared deleted files ({removed_files})",
+                message="Removed files from one or more managed .librariarr-deleted folders.",
+            )
 
         return {
             "ok": True,

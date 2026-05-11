@@ -12,6 +12,7 @@ import type { RuntimeStatusResponse } from "./api/client";
 import ConfigEditor from "./components/ConfigEditor";
 import Dashboard from "./components/Dashboard";
 import DirectoryMapper from "./components/DirectoryMapper";
+import HistoryPanel from "./components/HistoryPanel";
 import LogsPanel from "./components/LogsPanel";
 import type { ConfigModel, ConfigResponse, Issue } from "./types/config";
 
@@ -21,6 +22,7 @@ const TAB_PATHS = {
   dashboard: "/dashboard",
   config: "/config",
   mapper: "/mapper",
+  history: "/history",
   logs: "/logs"
 } as const;
 
@@ -31,6 +33,7 @@ const PATH_TO_TAB: Record<string, TabKey> = {
   "/dashboard": "dashboard",
   "/config": "config",
   "/mapper": "mapper",
+  "/history": "history",
   "/logs": "logs"
 };
 
@@ -256,6 +259,7 @@ export default function App() {
             <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
             <Tabs.Tab value="config">Config Editor</Tabs.Tab>
             <Tabs.Tab value="mapper">Path Mapping Status</Tabs.Tab>
+            <Tabs.Tab value="history">History</Tabs.Tab>
             <Tabs.Tab value="logs">Logs</Tabs.Tab>
           </Tabs.List>
 
@@ -282,6 +286,10 @@ export default function App() {
 
           <Tabs.Panel value="mapper" pt="md">
             {activeTab === "mapper" && <DirectoryMapper />}
+          </Tabs.Panel>
+
+          <Tabs.Panel value="history" pt="md">
+            {activeTab === "history" && <HistoryPanel />}
           </Tabs.Panel>
 
           <Tabs.Panel value="logs" pt="md">

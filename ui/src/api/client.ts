@@ -3,6 +3,7 @@ import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/con
 import type {
   DeletedFilesResponse,
   DiscoveryWarningsResponse,
+  HistoryResponse,
   JobRecord,
   JobsSummary,
   LogItem,
@@ -11,6 +12,8 @@ import type {
 export type {
   DeletedFilesResponse,
   DiscoveryWarningsResponse,
+  HistoryEvent,
+  HistoryResponse,
   JobRecord,
   JobsSummary,
   LogItem,
@@ -406,4 +409,23 @@ export const getAppLogs = async (params?: { tail?: number; timeoutMs?: number })
 };
 export const getAppLogStreamUrl = () => {
   return "/api/logs/stream";
+};
+
+export const getHistory = async (params?: { limit?: number }) => {
+  const { data } = await api.get<HistoryResponse>("/history", {
+    params: {
+      limit: params?.limit,
+    },
+  });
+  return data;
+};
+
+export const clearHistory = async () => {
+  const { data } = await api.post<{ ok: boolean; removed: number }>("/history/clear");
+  return data;
+};
+
+export const deleteHistoryEvent = async (eventId: string) => {
+  const { data } = await api.delete<{ ok: boolean; event_id: string }>(`/history/${eventId}`);
+  return data;
 };

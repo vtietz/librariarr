@@ -11,6 +11,7 @@ def _default_state() -> dict[str, Any]:
     return {
         "jobs": {"items": {}, "order": []},
         "dashboard": None,
+        "history": {"items": []},
         "cache_snapshots": {},
     }
 
@@ -76,6 +77,25 @@ class PersistentStateStore:
         payload = snapshots.get(cache_name)
         return dict(payload) if isinstance(payload, dict) else None
 
+    def load_history(self) -> list[dict[str, Any]]:
+        state = self.load_state()
+        history = state.get("history")
+        if not isinstance(history, dict):
+            return []
+        items = history.get("items")
+        if not isinstance(items, list):
+            return []
+        return [dict(item) for item in items if isinstance(item, dict)]
+
+    def save_history(self, items: list[dict[str, Any]]) -> None:
+        with self._lock:
+            state = self.load_state()
+            state["history"] = {
+                "items": [dict(item) for item in items if isinstance(item, dict)],
+                "updated_at": time.time(),
+            }
+            self._write_state_locked(state)
+
     def save_cache_snapshot(self, cache_name: str, payload: dict[str, Any]) -> None:
         with self._lock:
             state = self.load_state()
@@ -98,6 +118,7 @@ class PersistentStateStore:
 
         payload.setdefault("jobs", {"items": {}, "order": []})
         payload.setdefault("dashboard", None)
+        payload.setdefault("history", {"items": []})
         payload.setdefault("cache_snapshots", {})
 
         jobs = payload.get("jobs")
@@ -113,5 +134,12 @@ class PersistentStateStore:
 
         if not isinstance(payload.get("cache_snapshots"), dict):
             payload["cache_snapshots"] = {}
+
+        history = payload.get("history")
+        if not isinstance(history, dict):
+            history = {"items": []}
+            payload["history"] = history
+        if not isinstance(history.get("items"), list):
+            history["items"] = []
 
         return payload

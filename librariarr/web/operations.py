@@ -27,6 +27,7 @@ from .routers import (
     build_arr_router,
     build_fs_router,
     build_full_reconcile_router,
+    build_history_router,
     build_jobs_router,
     build_logs_router,
     build_maintenance_router,
@@ -359,6 +360,15 @@ def build_operations_router() -> APIRouter:
         )
     )
     router.include_router(build_jobs_router(job_manager_or_http_fn=job_manager_or_http))
+
+    def _state_store_or_http(request: Request):
+        web_state = getattr(request.app.state, "web", None)
+        state_store = getattr(web_state, "state_store", None)
+        if state_store is not None:
+            return state_store
+        return job_manager_or_http(request).state_store
+
+    router.include_router(build_history_router(state_store_or_http_fn=_state_store_or_http))
     router.include_router(build_runtime_router(runtime_status=runtime_status))
 
     def _enrich_with_snapshot(items, **kwargs):

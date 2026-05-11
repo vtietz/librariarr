@@ -22,16 +22,30 @@ def test_persistent_state_store_round_trip_jobs_and_dashboard(tmp_path: Path) ->
         "mapped_directories",
         {"items": [{"virtual_path": "/shadow/Movie One"}], "version": 2},
     )
+    store.save_history(
+        [
+            {
+                "id": "evt-1",
+                "scenario": "1",
+                "category": "ingest",
+                "title": "Imported movie",
+                "message": "Moved into managed root",
+                "timestamp": 123.0,
+            }
+        ]
+    )
 
     items, order = store.load_jobs()
     dashboard = store.load_dashboard()
     mapped_snapshot = store.load_cache_snapshot("mapped_directories")
+    history = store.load_history()
 
     assert order == ["job-1"]
     assert items["job-1"]["kind"] == "reconcile-manual"
     assert dashboard is not None
     assert dashboard["health"]["status"] == "ok"
     assert mapped_snapshot == {"items": [{"virtual_path": "/shadow/Movie One"}], "version": 2}
+    assert history[0]["id"] == "evt-1"
 
 
 def test_job_manager_marks_running_jobs_interrupted_when_reloaded(tmp_path: Path) -> None:

@@ -184,3 +184,18 @@ export type LogItem = {
   level: string;
   seq: string;
 };
+
+export type HistoryEvent = {
+  id: string;
+  timestamp: number;
+  scenario: string;
+  category: string;
+  title: string;
+  message: string;
+};
+
+export type HistoryResponse = {
+  items: HistoryEvent[];
+  total: number;
+  truncated: boolean;
+};

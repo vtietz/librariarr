@@ -30,6 +30,7 @@ from ..service import LibrariArrService
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .dashboard_read_model import DashboardReadModel
 from .discovery_cache import get_discovery_warnings_cache, warmup_discovery_warnings_cache
+from .history_events import install_history_event_handler
 from .jobs import JobManager
 from .log_buffer import install_log_buffer
 from .mapped_cache import get_mapped_directories_cache, warmup_mapped_directories_cache
@@ -355,6 +356,7 @@ def create_app(  # noqa: C901
 
     app = FastAPI(title="LibrariArr Web API", version="0.1.0", lifespan=lifespan)
     install_log_buffer()
+    install_history_event_handler(state_store)
     state = WebState(
         config_path=config_path,
         runtime_supervisor=runtime_supervisor,
