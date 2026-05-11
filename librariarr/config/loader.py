@@ -357,8 +357,12 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     ingest_raw = raw.get("ingest", {})
     if not isinstance(ingest_raw, dict):
         raise ValueError("ingest must be a mapping")
+    replacement_delete_mode = str(ingest_raw.get("replacement_delete_mode", "soft")).strip().lower()
+    if replacement_delete_mode not in {"soft", "hard"}:
+        raise ValueError("ingest.replacement_delete_mode must be 'soft' or 'hard'")
     ingest = IngestConfig(
         enabled=bool(ingest_raw.get("enabled", True)),
+        replacement_delete_mode=replacement_delete_mode,
     )
 
     return AppConfig(

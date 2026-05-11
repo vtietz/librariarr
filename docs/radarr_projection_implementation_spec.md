@@ -86,6 +86,7 @@ radarr:
 
 ingest:
   enabled: true
+  replacement_delete_mode: "soft" # soft (default) | hard
 
 runtime:
   periodic_reconcile_minutes: 180
@@ -167,8 +168,10 @@ Moves files that Radarr placed in library_root back into managed_root. Two tiers
   - Walk the library folder and classify each file (video, extra, or ignored) using the projection allowlist.
   - For each allowlisted file: compare inodes between library and managed copies.
   - If inodes differ (upgrade): atomically move the library file to managed_root using rename-to-backup pattern.
+    - `replacement_delete_mode=soft` (default): renamed managed backup is kept under `.librariarr-deleted`.
+    - `replacement_delete_mode=hard`: renamed managed backup is deleted after successful replacement.
   - If inodes match (already hardlinked): skip — no action needed.
-  - Safety: backup is created before move; restored on failure; deleted on success.
+  - Safety: backup is created before move and restored on failure; on success it is either retained (`soft`) or deleted (`hard`).
 
 Implementation: `librariarr/service/reconcile.py` — `_ingest_movies_from_library_roots()`, `_ingest_movie_if_needed()`, `_ingest_files_for_existing_movie()`. Helper: `librariarr/service/reconcile_helpers.py` — `ingest_files_from_library_folder()`.
 

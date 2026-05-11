@@ -195,3 +195,83 @@ def test_sonarr_uses_stored_mapping_when_series_path_is_shadow_root(tmp_path: Pa
     projected = shadow_root / "Fixture Series (2020)" / "Season 01" / source_file.name
     assert projected.exists()
     assert projected.samefile(source_file)
+
+
+@pytest.mark.fs_e2e
+def test_sonarr_ingest_replace_different_inode_soft_delete_default(tmp_path: Path) -> None:
+    nested_root, shadow_root = make_roots(tmp_path, "sonarr_ingest_replace_soft")
+
+    series_dir = nested_root / "Series Replace Soft (2021)"
+    season = series_dir / "Season 01"
+    season.mkdir(parents=True)
+    managed_episode = season / "Series.Replace.S01E01.1080p.mkv"
+    managed_episode.write_text("old", encoding="utf-8")
+
+    config = make_sonarr_config(
+        nested_root=nested_root,
+        shadow_root=shadow_root,
+        ingest_enabled=True,
+    )
+    service = LibrariArrService(config)
+    series = make_series(151, "Series Replace Soft", 2021, series_dir)
+    service.sonarr = FakeSonarr(series=[series])
+
+    service.reconcile()
+
+    projected_series = shadow_root / "Series Replace Soft (2021)"
+    projected_episode = projected_series / "Season 01" / managed_episode.name
+    assert projected_episode.exists()
+    assert projected_episode.samefile(managed_episode)
+
+    series["path"] = str(projected_series)
+    projected_episode.unlink()
+    projected_episode.write_text("new", encoding="utf-8")
+
+    service.reconcile()
+
+    assert managed_episode.read_text(encoding="utf-8") == "new"
+    soft_deleted = list((season / ".librariarr-deleted").glob(f"{managed_episode.name}.*"))
+    assert len(soft_deleted) == 1
+    assert soft_deleted[0].read_text(encoding="utf-8") == "old"
+    assert projected_episode.exists()
+    assert projected_episode.samefile(managed_episode)
+
+
+@pytest.mark.fs_e2e
+def test_sonarr_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) -> None:
+    nested_root, shadow_root = make_roots(tmp_path, "sonarr_ingest_replace_hard")
+
+    series_dir = nested_root / "Series Replace Hard (2021)"
+    season = series_dir / "Season 01"
+    season.mkdir(parents=True)
+    managed_episode = season / "Series.Replace.Hard.S01E01.1080p.mkv"
+    managed_episode.write_text("old", encoding="utf-8")
+
+    config = make_sonarr_config(
+        nested_root=nested_root,
+        shadow_root=shadow_root,
+        ingest_enabled=True,
+        ingest_replacement_delete_mode="hard",
+    )
+    service = LibrariArrService(config)
+    series = make_series(152, "Series Replace Hard", 2021, series_dir)
+    service.sonarr = FakeSonarr(series=[series])
+
+    service.reconcile()
+
+    projected_series = shadow_root / "Series Replace Hard (2021)"
+    projected_episode = projected_series / "Season 01" / managed_episode.name
+    assert projected_episode.exists()
+    assert projected_episode.samefile(managed_episode)
+
+    series["path"] = str(projected_series)
+    projected_episode.unlink()
+    projected_episode.write_text("new", encoding="utf-8")
+
+    service.reconcile()
+
+    assert managed_episode.read_text(encoding="utf-8") == "new"
+    assert not (season / ".librariarr-deleted").exists()
+    assert not any(season.glob("**/*.librariarr-ingest-tmp"))
+    assert projected_episode.exists()
+    assert projected_episode.samefile(managed_episode)

@@ -112,6 +112,21 @@ React/TypeScript SPA built with Vite, served as static files in production.
 - Keep domain logic, I/O, mapping, and validation separated
 - Preserve behavior and verify with `./run.sh test` and `./run.sh quality`
 
+## Canonical Behavior Sources (Authoritative)
+
+Always treat these documents as the single source of truth for runtime behavior and scenarios:
+
+- `docs/reconciliation_scenarios.md` (canonical scenario matrix and expected outcomes)
+- `docs/workflows.md` (runtime/reconcile flow overview)
+- `docs/radarr_projection_implementation_spec.md` (architecture and invariants)
+
+Required policy:
+
+- Do not implement behavior based on ad-hoc assumptions, memory, or inferred intent if it conflicts with these docs.
+- If behavior is unclear, first align with the canonical docs and then implement.
+- If the user explicitly requests behavior that differs from the canonical docs, update the relevant canonical docs in the same change before or alongside code changes.
+- Keep other docs lightweight and link to canonical docs instead of duplicating scenario semantics.
+
 ## Agent Team Workflow
 
 For non-trivial feature requests, use the agent team in order:

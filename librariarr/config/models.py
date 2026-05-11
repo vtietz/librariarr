@@ -58,6 +58,7 @@ class RuntimeConfig:
 @dataclass
 class IngestConfig:
     enabled: bool = True
+    replacement_delete_mode: str = "soft"
 
 
 @dataclass

@@ -189,6 +189,7 @@ def _sonarr_auto_add_config(
     *,
     projection: SonarrProjectionConfig | None = None,
     ingest_enabled: bool = False,
+    ingest_replacement_delete_mode: str = "soft",
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
@@ -210,7 +211,10 @@ def _sonarr_auto_add_config(
         ),
         cleanup=CleanupConfig(remove_orphaned_links=True),
         runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
-        ingest=IngestConfig(enabled=ingest_enabled),
+        ingest=IngestConfig(
+            enabled=ingest_enabled,
+            replacement_delete_mode=ingest_replacement_delete_mode,
+        ),
     )
 
 

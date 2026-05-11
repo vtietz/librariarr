@@ -57,6 +57,33 @@ def test_ingest_files_replaces_different_inode(tmp_path: Path) -> None:
     assert (managed / "Movie.mkv").stat().st_ino != old_inode
     assert not (lib / "Movie.mkv").exists()
 
+    soft_deleted = list((managed / ".librariarr-deleted").glob("Movie.mkv.*"))
+    assert len(soft_deleted) == 1
+    assert soft_deleted[0].read_text(encoding="utf-8") == "old-quality"
+
+
+def test_ingest_files_replaces_different_inode_hard_delete_mode(tmp_path: Path) -> None:
+    lib = tmp_path / "library" / "Movie (2024)"
+    managed = tmp_path / "managed" / "Movie (2024)"
+
+    _write(managed / "Movie.mkv", "old-quality")
+    _write(lib / "Movie.mkv", "new-quality")
+
+    result = ingest_files_from_library_folder(
+        library_folder=lib,
+        managed_folder=managed,
+        managed_video_extensions=VIDEO_EXTS,
+        extras_allowlist=EXTRAS,
+        replacement_delete_mode="hard",
+    )
+
+    assert result.ingested_count == 1
+    assert result.failed_count == 0
+    assert (managed / "Movie.mkv").read_text(encoding="utf-8") == "new-quality"
+    assert not (lib / "Movie.mkv").exists()
+    assert not (managed / ".librariarr-deleted").exists()
+    assert not any(managed.glob("**/*.librariarr-ingest-tmp"))
+
 
 def test_ingest_files_skips_same_inode(tmp_path: Path) -> None:
     lib = tmp_path / "library" / "Movie (2024)"

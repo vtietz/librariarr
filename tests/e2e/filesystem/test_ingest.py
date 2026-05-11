@@ -136,6 +136,77 @@ def test_ingest_disabled_does_not_move_folders(tmp_path: Path) -> None:
 
 
 @pytest.mark.fs_e2e
+def test_ingest_replace_different_inode_soft_delete_default(tmp_path: Path) -> None:
+    """By default, replacing a same-path file keeps the old inode as soft-delete."""
+    managed_root, library_root = make_roots(tmp_path, "ingest_soft_delete_default")
+
+    managed_folder = managed_root / "Replace Movie (2024)"
+    managed_folder.mkdir(parents=True)
+    managed_file = managed_folder / "Replace.Movie.2024.mkv"
+    managed_file.write_text("old-content", encoding="utf-8")
+
+    library_folder = library_root / "Replace Movie (2024)"
+    library_folder.mkdir(parents=True)
+    incoming = library_folder / "Replace.Movie.2024.mkv"
+    incoming.write_text("new-content", encoding="utf-8")
+
+    config = make_radarr_config(
+        managed_root=managed_root,
+        library_root=library_root,
+        sync_enabled=True,
+    )
+
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(movies=[make_movie(1, "Replace Movie", 2024, library_folder)])
+
+    service.reconcile()
+
+    assert managed_file.exists()
+    assert managed_file.read_text(encoding="utf-8") == "new-content"
+    assert incoming.exists()
+    assert incoming.samefile(managed_file)
+
+    soft_deleted = list((managed_folder / ".librariarr-deleted").glob("Replace.Movie.2024.mkv.*"))
+    assert len(soft_deleted) == 1
+    assert soft_deleted[0].read_text(encoding="utf-8") == "old-content"
+
+
+@pytest.mark.fs_e2e
+def test_ingest_replace_different_inode_hard_delete_mode(tmp_path: Path) -> None:
+    """When replacement_delete_mode=hard, replaced files are not kept in soft-delete."""
+    managed_root, library_root = make_roots(tmp_path, "ingest_hard_delete_mode")
+
+    managed_folder = managed_root / "Replace Hard Movie (2024)"
+    managed_folder.mkdir(parents=True)
+    managed_file = managed_folder / "Replace.Hard.Movie.2024.mkv"
+    managed_file.write_text("old-content", encoding="utf-8")
+
+    library_folder = library_root / "Replace Hard Movie (2024)"
+    library_folder.mkdir(parents=True)
+    incoming = library_folder / "Replace.Hard.Movie.2024.mkv"
+    incoming.write_text("new-content", encoding="utf-8")
+
+    config = make_radarr_config(
+        managed_root=managed_root,
+        library_root=library_root,
+        sync_enabled=True,
+        ingest_replacement_delete_mode="hard",
+    )
+
+    service = LibrariArrService(config)
+    service.radarr = FakeRadarr(movies=[make_movie(1, "Replace Hard Movie", 2024, library_folder)])
+
+    service.reconcile()
+
+    assert managed_file.exists()
+    assert managed_file.read_text(encoding="utf-8") == "new-content"
+    assert incoming.exists()
+    assert incoming.samefile(managed_file)
+    assert not (managed_folder / ".librariarr-deleted").exists()
+    assert not any(managed_folder.glob("**/*.librariarr-ingest-tmp"))
+
+
+@pytest.mark.fs_e2e
 def test_ingest_with_name_mismatch_and_projection_no_phantom(tmp_path: Path) -> None:
     """Full 'Amadeus' bug scenario across multiple reconcile cycles: managed folder
     has decorated name, Radarr path points to managed root. After two reconciles

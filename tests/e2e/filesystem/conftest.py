@@ -132,6 +132,7 @@ def make_radarr_config(
     library_root: Path,
     sync_enabled: bool = False,
     ingest_enabled: bool = True,
+    ingest_replacement_delete_mode: str = "soft",
     projection: RadarrProjectionConfig | None = None,
     exclude_paths: list[str] | None = None,
     radarr_enabled: bool = True,
@@ -155,7 +156,10 @@ def make_radarr_config(
         radarr=RadarrConfig(**radarr_kwargs),
         cleanup=_DEFAULT_CLEANUP,
         runtime=_DEFAULT_RUNTIME,
-        ingest=IngestConfig(enabled=ingest_enabled),
+        ingest=IngestConfig(
+            enabled=ingest_enabled,
+            replacement_delete_mode=ingest_replacement_delete_mode,
+        ),
     )
 
 
@@ -163,6 +167,8 @@ def make_sonarr_config(
     *,
     nested_root: Path,
     shadow_root: Path,
+    ingest_enabled: bool = True,
+    ingest_replacement_delete_mode: str = "soft",
 ) -> AppConfig:
     return AppConfig(
         paths=PathsConfig(
@@ -177,6 +183,10 @@ def make_sonarr_config(
         sonarr=SonarrConfig(enabled=True, url="http://sonarr:8989", api_key="test"),
         cleanup=_DEFAULT_CLEANUP,
         runtime=_DEFAULT_RUNTIME,
+        ingest=IngestConfig(
+            enabled=ingest_enabled,
+            replacement_delete_mode=ingest_replacement_delete_mode,
+        ),
     )
 
 

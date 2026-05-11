@@ -191,6 +191,10 @@ ingest:
   # back into the configured managed roots, then queue projection.
   # File-level ingest also handles quality upgrades via inode comparison.
   enabled: true
+  # Behavior when replacing a same-path managed file with a new inode:
+  # - soft: move replaced managed file to .librariarr-deleted (default)
+  # - hard: delete replaced managed file after successful move
+  replacement_delete_mode: "soft"
 
 analysis:
   # Include NFO text in quality detection.

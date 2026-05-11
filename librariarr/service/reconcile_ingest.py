@@ -220,6 +220,7 @@ class ServiceIngestMixin:
             managed_folder=managed_folder,
             managed_video_extensions=set(proj.managed_video_extensions),
             extras_allowlist=proj.managed_extras_allowlist,
+            replacement_delete_mode=self.config.ingest.replacement_delete_mode,
         )
         if result.ingested_count > 0:
             LOG.info(
@@ -303,6 +304,7 @@ class ServiceIngestMixin:
             managed_folder=managed_folder,
             managed_video_extensions=set(proj.managed_video_extensions),
             extras_allowlist=proj.managed_extras_allowlist,
+            replacement_delete_mode=self.config.ingest.replacement_delete_mode,
         )
         if result.ingested_count > 0:
             LOG.info(

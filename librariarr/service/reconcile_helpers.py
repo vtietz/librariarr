@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -261,6 +262,7 @@ def ingest_files_from_library_folder(
     managed_folder: Path,
     managed_video_extensions: set[str],
     extras_allowlist: list[str],
+    replacement_delete_mode: str = "soft",
 ) -> FileIngestResult:
     """Move files from library_folder into managed_folder when they differ by inode."""
     ingested = 0
@@ -282,7 +284,11 @@ def ingest_files_from_library_folder(
                 continue
 
             managed_file = managed_folder / relative_path
-            result = _ingest_single_file(lib_file, managed_file)
+            result = _ingest_single_file(
+                lib_file,
+                managed_file,
+                replacement_delete_mode=replacement_delete_mode,
+            )
             if result == "ingested":
                 ingested += 1
             elif result == "failed":
@@ -291,7 +297,23 @@ def ingest_files_from_library_folder(
     return FileIngestResult(ingested_count=ingested, failed_count=failed)
 
 
-def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
+def _soft_delete_backup_path(managed_file: Path) -> Path:
+    timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    base = managed_file.parent / ".librariarr-deleted"
+    candidate = base / f"{managed_file.name}.{timestamp}"
+    suffix = 1
+    while candidate.exists():
+        candidate = base / f"{managed_file.name}.{timestamp}.{suffix}"
+        suffix += 1
+    return candidate
+
+
+def _ingest_single_file(
+    lib_file: Path,
+    managed_file: Path,
+    *,
+    replacement_delete_mode: str = "soft",
+) -> str:
     """Move a single file from library root to managed root if inodes differ.
 
     Returns 'ingested', 'skipped', or 'failed'.
@@ -326,7 +348,19 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
         LOG.debug("FS SKIP file (same inode): source=%s destination=%s", lib_file, managed_file)
         return "skipped"
 
-    backup_path = managed_file.with_suffix(managed_file.suffix + ".librariarr-ingest-tmp")
+    delete_mode = replacement_delete_mode if replacement_delete_mode in {"soft", "hard"} else "soft"
+    if replacement_delete_mode not in {"soft", "hard"}:
+        LOG.warning(
+            "Invalid ingest replacement_delete_mode=%s, defaulting to soft",
+            replacement_delete_mode,
+        )
+
+    backup_path = (
+        _soft_delete_backup_path(managed_file)
+        if delete_mode == "soft"
+        else managed_file.with_suffix(managed_file.suffix + ".librariarr-ingest-tmp")
+    )
+    backup_path.parent.mkdir(parents=True, exist_ok=True)
     try:
         managed_file.rename(backup_path)
     except OSError as exc:
@@ -337,9 +371,10 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
         )
         return "failed"
     LOG.info(
-        "FS RENAME file: source=%s destination=%s reason=backup_before_replace",
+        "FS RENAME file: source=%s destination=%s reason=backup_before_replace delete_mode=%s",
         managed_file,
         backup_path,
+        delete_mode,
     )
 
     try:
@@ -363,11 +398,16 @@ def _ingest_single_file(lib_file: Path, managed_file: Path) -> str:
             )
         return "failed"
 
-    backup_path.unlink(missing_ok=True)
+    if delete_mode == "hard":
+        backup_path.unlink(missing_ok=True)
     LOG.info(
-        "FS MOVE file: source=%s destination=%s reason=replace_different_inode",
+        "FS MOVE file: source=%s destination=%s reason=replace_different_inode delete_mode=%s",
         lib_file,
         managed_file,
+        delete_mode,
     )
-    LOG.info("FS DELETE file: path=%s reason=cleanup_backup_after_replace", backup_path)
+    if delete_mode == "hard":
+        LOG.info("FS DELETE file: path=%s reason=cleanup_backup_after_replace", backup_path)
+    else:
+        LOG.info("FS KEEP file: path=%s reason=soft_delete_replaced_file", backup_path)
     return "ingested"
