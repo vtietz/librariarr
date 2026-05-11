@@ -106,7 +106,7 @@ export default function HistoryPanel() {
         <div>
           <Title order={3}>History</Title>
           <Text size="sm" c="dimmed">
-            User-friendly event timeline aligned to reconcile scenarios.
+            User-friendly event timeline for startup, reconcile, and filesystem activity.
           </Text>
         </div>
         <Group>

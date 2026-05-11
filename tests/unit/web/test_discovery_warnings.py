@@ -36,6 +36,7 @@ def _write_config_with_trailer_excludes(path: Path, nested_root: Path, shadow_ro
 
 def test_discovery_warnings_does_not_exclude_folder_with_valid_m4v_and_trailer(
     tmp_path: Path,
+    monkeypatch,
 ) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
@@ -49,6 +50,8 @@ def test_discovery_warnings_does_not_exclude_folder_with_valid_m4v_and_trailer(
 
     config_path = tmp_path / "config.yaml"
     _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(tmp_path / "movie-state.db"))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series-state.db"))
 
     app = create_app(config_path=config_path)
     client = TestClient(app)
@@ -60,7 +63,9 @@ def test_discovery_warnings_does_not_exclude_folder_with_valid_m4v_and_trailer(
     assert all(item["path"] != str(movie_dir) for item in payload["excluded_movie_candidates"])
 
 
-def test_discovery_warnings_reports_unmanaged_shadow_video_files(tmp_path: Path) -> None:
+def test_discovery_warnings_reports_unmanaged_shadow_video_files(
+    tmp_path: Path, monkeypatch
+) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
     nested_root.mkdir()
@@ -72,6 +77,8 @@ def test_discovery_warnings_reports_unmanaged_shadow_video_files(tmp_path: Path)
 
     config_path = tmp_path / "config.yaml"
     _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(tmp_path / "movie-state.db"))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series-state.db"))
 
     app = create_app(config_path=config_path)
     client = TestClient(app)

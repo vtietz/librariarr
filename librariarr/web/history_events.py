@@ -59,6 +59,8 @@ class HistoryEventHandler(logging.Handler):
     def __init__(self, state_store: PersistentStateStore) -> None:
         super().__init__()
         self._state_store = state_store
+        self._last_fingerprint: tuple[str, str, str] | None = None
+        self._last_emitted_at = 0.0
 
     def set_state_store(self, state_store: PersistentStateStore) -> None:
         self._state_store = state_store
@@ -75,6 +77,19 @@ class HistoryEventHandler(logging.Handler):
         entry = _entry_from_log_message(message)
         if entry is None:
             return
+
+        # Skip rapid duplicate log-derived entries to keep timeline noise low.
+        fingerprint = (
+            str(entry.get("category", "")),
+            str(entry.get("title", "")),
+            str(entry.get("message", "")),
+        )
+        now = time.time()
+        if self._last_fingerprint == fingerprint and (now - self._last_emitted_at) < 5.0:
+            return
+
+        self._last_fingerprint = fingerprint
+        self._last_emitted_at = now
 
         append_history_event(self._state_store, **entry)
 
@@ -319,14 +334,6 @@ def _startup_event(message: str) -> dict[str, str] | None:
             "category": "startup",
             "title": "Startup reconcile skipped",
             "message": f"Mode is set to {mode}.",
-        }
-
-    if message.strip() == "================ LibrariArr Startup ================":
-        return {
-            "scenario": "0",
-            "category": "startup",
-            "title": "LibrariArr startup",
-            "message": "Service startup sequence began.",
         }
 
     return None
