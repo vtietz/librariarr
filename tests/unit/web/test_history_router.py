@@ -155,3 +155,54 @@ def test_history_includes_startup_and_reconcile_lifecycle_events(tmp_path: Path)
     assert "Reconcile finished (full, updated)" in titles
     assert "startup" in categories
     assert "reconcile" in categories
+
+
+def test_history_includes_filesystem_event_trigger_and_consequence(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    logger = logging.getLogger("librariarr.service")
+    previous_level = logger.level
+    logger.setLevel(logging.INFO)
+    try:
+        logger.info(
+            "Filesystem event queued: source=%s path=%s debounce_seconds=%s",
+            "filesystem:deleted",
+            "/managed/Movie One/file.mkv",
+            2,
+        )
+        logger.info(
+            "Reconcile finished: source=%s mode=%s affected_paths=%s trigger_path=%s "
+            "outcome=%s projected_files=%s matched_movies=%s matched_series=%s duration_seconds=%s",
+            "filesystem",
+            "incremental",
+            1,
+            "/managed/Movie One/file.mkv",
+            "updated",
+            0,
+            1,
+            0,
+            "0.9",
+        )
+    finally:
+        logger.setLevel(previous_level)
+
+    payload = client.get("/api/history").json()
+    items = payload["items"]
+    filesystem_items = [item for item in items if item["category"] == "filesystem"]
+    reconcile_items = [item for item in items if item["category"] == "reconcile"]
+
+    assert filesystem_items
+    assert filesystem_items[0]["title"] == "Managed file event: deleted"
+    assert "A reconcile cycle was queued" in filesystem_items[0]["message"]
+
+    assert reconcile_items
+    assert any("Re-validated existing mappings" in item["message"] for item in reconcile_items)

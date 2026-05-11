@@ -50,6 +50,9 @@ _FULL_RECONCILE_FINISH_RE = re.compile(
 )
 _STARTUP_MODE_RE = re.compile(r"^Startup reconcile mode=([^\s;]+)(?:;\s*(.*))?$")
 _STARTUP_SKIPPED_RE = re.compile(r"^Startup reconcile skipped \(mode=([^\)]+)\)$")
+_FILESYSTEM_EVENT_QUEUED_RE = re.compile(
+    r"^Filesystem event queued: source=([^\s]+) path=(.+) debounce_seconds=([^\s]+)$"
+)
 
 
 class HistoryEventHandler(logging.Handler):
@@ -257,15 +260,19 @@ def _reconcile_lifecycle_event(message: str) -> dict[str, str] | None:
         mode = finish_match.group(2)
         outcome = finish_match.group(5)
         projected_files = int(finish_match.group(6))
+        matched_movies = int(finish_match.group(7))
+        matched_series = int(finish_match.group(8))
         duration_seconds = finish_match.group(9)
+        consequence = "No projection changes were required"
+        if projected_files > 0:
+            consequence = f"Applied {projected_files} projection update(s)"
+        elif matched_movies > 0 or matched_series > 0:
+            consequence = "Re-validated existing mappings without creating new links"
         return {
             "scenario": "0",
             "category": "reconcile",
             "title": f"Reconcile finished ({mode}, {outcome})",
-            "message": (
-                f"Source: {source}. Projected files: {projected_files}. "
-                f"Duration: {duration_seconds}s."
-            ),
+            "message": (f"Source: {source}. {consequence}. Duration: {duration_seconds}s."),
         }
 
     full_start_match = _FULL_RECONCILE_START_RE.search(message)
@@ -325,9 +332,41 @@ def _startup_event(message: str) -> dict[str, str] | None:
     return None
 
 
+def _filesystem_event(message: str) -> dict[str, str] | None:
+    queued_match = _FILESYSTEM_EVENT_QUEUED_RE.search(message)
+    if queued_match is None:
+        return None
+
+    source = queued_match.group(1)
+    path = queued_match.group(2)
+    trigger = source.split(":", maxsplit=1)[-1] if ":" in source else source
+    normalized_trigger = trigger.strip().lower() or "changed"
+    if normalized_trigger == "deleted":
+        action = "deleted"
+    elif normalized_trigger == "created":
+        action = "created"
+    elif normalized_trigger == "moved":
+        action = "moved"
+    elif normalized_trigger == "modified":
+        action = "modified"
+    else:
+        action = normalized_trigger
+
+    return {
+        "scenario": "0",
+        "category": "filesystem",
+        "title": f"Managed file event: {action}",
+        "message": (
+            f"Detected {action} filesystem event at {path}. "
+            "A reconcile cycle was queued to apply consequences."
+        ),
+    }
+
+
 def _entry_from_log_message(message: str) -> dict[str, str] | None:
     parsers = (
         _startup_event,
+        _filesystem_event,
         _reconcile_lifecycle_event,
         _movie_import_event,
         _series_import_event,

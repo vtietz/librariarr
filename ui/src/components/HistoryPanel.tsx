@@ -8,19 +8,6 @@ import {
   type HistoryResponse,
 } from "../api/client";
 
-const SCENARIO_LABELS: Record<string, string> = {
-  "0": "System lifecycle",
-  "1": "Scenario 1: New import",
-  "2": "Scenario 2: File replacement",
-  "3": "Scenario 3: Managed rename/move",
-  "4": "Scenario 4: Auto-add unmatched",
-  "8": "Scenario 8: Cleanup/idempotency",
-};
-
-function scenarioLabel(scenario: string): string {
-  return SCENARIO_LABELS[scenario] ?? `Scenario ${scenario}`;
-}
-
 function categoryColor(category: string): string {
   switch (category) {
     case "ingest":
@@ -39,6 +26,8 @@ function categoryColor(category: string): string {
       return "violet";
     case "reconcile":
       return "indigo";
+    case "filesystem":
+      return "cyan";
     default:
       return "dark";
   }
@@ -169,7 +158,6 @@ export default function HistoryPanel() {
                           <Badge color={categoryColor(item.category)} variant="light">
                             {item.category}
                           </Badge>
-                          <Badge variant="outline">{scenarioLabel(item.scenario)}</Badge>
                         </Group>
                         <Text fw={600}>{item.title}</Text>
                         <Text size="sm" c="dimmed">
