@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import shutil
 import time
 from collections.abc import Callable
@@ -266,7 +267,210 @@ def build_fs_router(  # noqa: C901
             "removed_files": removed_files,
         }
 
+    @router.get("/api/fs/deleted-files")
+    def list_deleted_files(
+        request: Request,
+        managed_root: str | None = Query(default=None),
+        limit: int = Query(default=500, ge=1, le=5000),
+    ) -> dict[str, Any]:
+        config = load_config_or_http_fn(read_config_path_fn(request))
+        managed_roots = _managed_roots_for_deleted_files(config)
+        selected_roots = _selected_managed_roots(managed_roots, managed_root)
+
+        items: list[dict[str, Any]] = []
+        for root in selected_roots:
+            trash_root = _trash_root_for_managed_root(root)
+            if not trash_root.exists() or not trash_root.is_dir():
+                continue
+            for entry in trash_root.rglob("*"):
+                if not entry.is_file():
+                    continue
+                try:
+                    relative = entry.relative_to(trash_root)
+                except ValueError:
+                    continue
+                restore_rel = _restore_relative_path(relative)
+                if restore_rel is None:
+                    continue
+                restore_path = root / restore_rel
+                stat = entry.stat()
+                items.append(
+                    {
+                        "path": str(entry),
+                        "managed_root": str(root),
+                        "restore_path": str(restore_path),
+                        "size_bytes": int(stat.st_size),
+                        "updated_at": float(stat.st_mtime),
+                        "exists": restore_path.exists(),
+                    }
+                )
+
+        items.sort(key=lambda item: float(item.get("updated_at") or 0.0), reverse=True)
+        truncated = len(items) > limit
+        if truncated:
+            items = items[:limit]
+
+        return {
+            "items": items,
+            "managed_roots": [str(root) for root in managed_roots],
+            "truncated": truncated,
+        }
+
+    @router.post("/api/fs/deleted-files/restore")
+    def restore_deleted_file(
+        request: Request,
+        path: str = Query(...),
+    ) -> dict[str, Any]:
+        target = _validated_absolute_path(path)
+        config = load_config_or_http_fn(read_config_path_fn(request))
+        managed_roots = _managed_roots_for_deleted_files(config)
+        managed_root = _managed_root_for_deleted_file(target, managed_roots)
+
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="deleted file does not exist")
+
+        trash_root = _trash_root_for_managed_root(managed_root)
+        try:
+            relative = target.relative_to(trash_root)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="path is not inside a managed trash folder",
+            ) from exc
+
+        restore_rel = _restore_relative_path(relative)
+        if restore_rel is None:
+            raise HTTPException(
+                status_code=400,
+                detail="cannot determine restore target from deleted filename",
+            )
+
+        restore_path = managed_root / restore_rel
+        if restore_path.exists():
+            raise HTTPException(status_code=409, detail="restore target already exists")
+
+        restore_path.parent.mkdir(parents=True, exist_ok=True)
+        target.rename(restore_path)
+        _prune_empty_parents(trash_root, target.parent)
+
+        return {
+            "ok": True,
+            "restored_path": str(restore_path),
+            "source_path": str(target),
+        }
+
+    @router.delete("/api/fs/deleted-files")
+    def delete_deleted_file(
+        request: Request,
+        path: str = Query(...),
+    ) -> dict[str, Any]:
+        target = _validated_absolute_path(path)
+        config = load_config_or_http_fn(read_config_path_fn(request))
+        managed_roots = _managed_roots_for_deleted_files(config)
+        managed_root = _managed_root_for_deleted_file(target, managed_roots)
+
+        if not target.exists() or not target.is_file():
+            raise HTTPException(status_code=404, detail="deleted file does not exist")
+
+        trash_root = _trash_root_for_managed_root(managed_root)
+        target.unlink()
+        _prune_empty_parents(trash_root, target.parent)
+
+        return {
+            "ok": True,
+            "deleted_path": str(target),
+        }
+
+    @router.post("/api/fs/deleted-files/clear")
+    def clear_deleted_files(
+        request: Request,
+        managed_root: str | None = Query(default=None),
+    ) -> dict[str, Any]:
+        config = load_config_or_http_fn(read_config_path_fn(request))
+        managed_roots = _managed_roots_for_deleted_files(config)
+        selected_roots = _selected_managed_roots(managed_roots, managed_root)
+
+        removed_files = 0
+        removed_roots = 0
+        for root in selected_roots:
+            trash_root = _trash_root_for_managed_root(root)
+            if not trash_root.exists() or not trash_root.is_dir():
+                continue
+            removed_files += sum(
+                1 for item in trash_root.rglob("*") if item.is_file() or item.is_symlink()
+            )
+            shutil.rmtree(trash_root)
+            removed_roots += 1
+
+        return {
+            "ok": True,
+            "removed_files": removed_files,
+            "removed_roots": removed_roots,
+        }
+
     return router
+
+
+_SOFT_DELETE_SUFFIX_RE = re.compile(r"\.\d{8}T\d{12}Z(?:\.\d+)?$")
+
+
+def _managed_roots_for_deleted_files(config: Any) -> list[Path]:
+    roots = {
+        Path(item.managed_root).resolve(strict=False) for item in config.paths.movie_root_mappings
+    }
+    roots.update(
+        Path(item.nested_root).resolve(strict=False) for item in config.paths.series_root_mappings
+    )
+    return sorted(roots)
+
+
+def _selected_managed_roots(managed_roots: list[Path], selected_root: str | None) -> list[Path]:
+    if selected_root is None:
+        return managed_roots
+    selected = Path(selected_root.strip()).resolve(strict=False)
+    if selected not in managed_roots:
+        raise HTTPException(status_code=400, detail="Unknown managed_root filter value")
+    return [selected]
+
+
+def _trash_root_for_managed_root(managed_root: Path) -> Path:
+    return managed_root / ".librariarr-deleted"
+
+
+def _restore_relative_path(relative_path: Path) -> Path | None:
+    filename = relative_path.name
+    restored_name = _SOFT_DELETE_SUFFIX_RE.sub("", filename)
+    if restored_name == filename:
+        return None
+    return relative_path.with_name(restored_name)
+
+
+def _validated_absolute_path(raw_path: str) -> Path:
+    value = raw_path.strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="path must not be empty")
+    path = Path(value)
+    if not path.is_absolute():
+        raise HTTPException(status_code=400, detail="path must be an absolute path")
+    return path.resolve(strict=False)
+
+
+def _managed_root_for_deleted_file(path: Path, managed_roots: list[Path]) -> Path:
+    for managed_root in managed_roots:
+        trash_root = _trash_root_for_managed_root(managed_root)
+        if path == trash_root or trash_root in path.parents:
+            return managed_root
+    raise HTTPException(status_code=403, detail="path is not under a managed deleted-files folder")
+
+
+def _prune_empty_parents(stop_root: Path, start_dir: Path) -> None:
+    current = start_dir
+    while current != stop_root and stop_root in current.parents:
+        try:
+            current.rmdir()
+        except OSError:
+            break
+        current = current.parent
 
 
 def _purge_provenance_for_shadow_path(shadow_path: Path) -> None:

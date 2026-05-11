@@ -41,6 +41,21 @@ export type DiscoveryWarningsResponse = {
   }>;
 };
 
+export type DeletedFileEntry = {
+  path: string;
+  managed_root: string;
+  restore_path: string;
+  size_bytes: number;
+  updated_at: number;
+  exists: boolean;
+};
+
+export type DeletedFilesResponse = {
+  items: DeletedFileEntry[];
+  managed_roots: string[];
+  truncated: boolean;
+};
+
 export type JobRecord = {
   job_id: string;
   kind: string;

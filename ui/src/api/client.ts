@@ -1,6 +1,7 @@
 import axios from "axios";
 import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/config";
 import type {
+  DeletedFilesResponse,
   DiscoveryWarningsResponse,
   JobRecord,
   JobsSummary,
@@ -8,6 +9,7 @@ import type {
   RuntimeStatusResponse
 } from "./types";
 export type {
+  DeletedFilesResponse,
   DiscoveryWarningsResponse,
   JobRecord,
   JobsSummary,
@@ -160,6 +162,45 @@ export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
       limit: params?.limit
     }
   });
+  return data;
+};
+
+export const getDeletedFiles = async (params?: { managedRoot?: string; limit?: number }) => {
+  const { data } = await api.get<DeletedFilesResponse>("/fs/deleted-files", {
+    params: {
+      managed_root: params?.managedRoot,
+      limit: params?.limit,
+    },
+  });
+  return data;
+};
+
+export const restoreDeletedFile = async (path: string) => {
+  const { data } = await api.post<{ ok: boolean; restored_path: string; source_path: string }>(
+    "/fs/deleted-files/restore",
+    undefined,
+    { params: { path } }
+  );
+  return data;
+};
+
+export const deleteDeletedFile = async (path: string) => {
+  const { data } = await api.delete<{ ok: boolean; deleted_path: string }>("/fs/deleted-files", {
+    params: { path },
+  });
+  return data;
+};
+
+export const clearDeletedFiles = async (managedRoot?: string) => {
+  const { data } = await api.post<{ ok: boolean; removed_files: number; removed_roots: number }>(
+    "/fs/deleted-files/clear",
+    undefined,
+    {
+      params: {
+        managed_root: managedRoot,
+      },
+    }
+  );
   return data;
 };
 

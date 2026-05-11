@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { getDiscoveryWarnings, runFullReconcile } from "../api/client";
 import type { RuntimeStatusResponse } from "../api/client";
 import DiscoveryWarningsCard from "./dashboard/DiscoveryWarningsCard";
+import DeletedFilesCard from "./dashboard/DeletedFilesCard";
 import LibraryStatsCards from "./dashboard/LibraryStatsCards";
 import PerRootInsightsCard from "./dashboard/PerRootInsightsCard";
 import SyncStatusCard from "./dashboard/SyncStatusCard";
@@ -81,6 +82,8 @@ export default function Dashboard({
       />
 
       <PerRootInsightsCard runtimeStatus={runtimeStatus} />
+
+      <DeletedFilesCard />
 
       <DiscoveryWarningsCard discoveryWarnings={discoveryWarnings} />
     </Stack>
