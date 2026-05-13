@@ -233,6 +233,10 @@ def _discover_orphaned_managed_movie_folders(
                 dirs[:] = []
                 continue
 
+            # Treat any folder with child directories as a container folder,
+            # even when those children are excluded from scanning.
+            has_child_directories = bool(dirs)
+
             dirs[:] = sorted(
                 dirname
                 for dirname in dirs
@@ -245,7 +249,7 @@ def _discover_orphaned_managed_movie_folders(
             )
             if current_path == managed_root:
                 continue
-            if dirs:
+            if has_child_directories:
                 continue
             if _contains_video_recursively(
                 current_path,

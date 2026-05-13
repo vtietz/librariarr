@@ -140,7 +140,8 @@ def test_orphaned_managed_candidates_respect_exclude_paths(tmp_path: Path, monke
     nested_root.mkdir()
     shadow_root.mkdir()
 
-    excluded_orphan = nested_root / "Movie A (2022)" / "@eaDir" / "Movie A (2022).mkv"
+    managed_container = nested_root / "Movie A (2022)"
+    excluded_orphan = managed_container / "@eaDir" / "Movie A (2022).mkv"
     excluded_orphan.mkdir(parents=True)
 
     config_path = tmp_path / "config.yaml"
@@ -161,6 +162,7 @@ def test_orphaned_managed_candidates_respect_exclude_paths(tmp_path: Path, monke
     assert response.status_code == 200
     payload = response.json()
     orphan_paths = {item["path"] for item in payload["orphaned_managed_movie_candidates"]}
+    assert str(managed_container) not in orphan_paths
     assert str(excluded_orphan) not in orphan_paths
     assert all("/@eaDir/" not in path for path in orphan_paths)
 
