@@ -319,6 +319,7 @@ class DiscoveryWarningsCache:
         self._last_build_finished = 0.0
         self._last_build_duration_ms: int | None = None
         self._last_signature: tuple[Any, ...] | None = None
+        self._build_generation = 0
         self._build_event = threading.Event()
         self._state_store: PersistentStateStore | None = None
         self._task_manager: JobManager | None = None
@@ -350,6 +351,7 @@ class DiscoveryWarningsCache:
             self._last_build_finished = 0.0
             self._last_build_duration_ms = None
             self._last_signature = None
+            self._build_generation += 1
             self._build_event = threading.Event()
             payload = state_store.load_cache_snapshot("discovery_warnings")
             if not isinstance(payload, dict):
@@ -379,7 +381,10 @@ class DiscoveryWarningsCache:
             },
         )
 
-    def _rebuild_worker(self, config: AppConfig) -> None:
+    def _rebuild_worker(self, config: AppConfig, build_generation: int) -> None:
+        with self._lock:
+            if build_generation != self._build_generation:
+                return
         started = time.perf_counter()
         task_id: str | None = None
         if self._task_manager is not None:
@@ -396,6 +401,8 @@ class DiscoveryWarningsCache:
             payload = _build_discovery_warnings_payload(config=config)
             duration_ms = int((time.perf_counter() - started) * 1000)
             with self._lock:
+                if build_generation != self._build_generation:
+                    return
                 self._payload = payload
                 self._updated_at_ms = int(time.time() * 1000)
                 self._last_error = None
@@ -430,6 +437,8 @@ class DiscoveryWarningsCache:
         except Exception as exc:
             duration_ms = int((time.perf_counter() - started) * 1000)
             with self._lock:
+                if build_generation != self._build_generation:
+                    return
                 self._last_error = str(exc)
                 self._version += 1
                 self._last_build_finished = time.time()
@@ -445,8 +454,9 @@ class DiscoveryWarningsCache:
                 )
         finally:
             with self._lock:
-                self._building = False
-                self._build_event.set()
+                if build_generation == self._build_generation:
+                    self._building = False
+                    self._build_event.set()
 
     def request_refresh(self, config: AppConfig, *, force: bool = False) -> bool:
         signature = (
@@ -471,9 +481,14 @@ class DiscoveryWarningsCache:
                     return False
             self._building = True
             self._last_signature = signature
+            build_generation = self._build_generation
             self._build_event.clear()
 
-        thread = threading.Thread(target=self._rebuild_worker, args=(config,), daemon=True)
+        thread = threading.Thread(
+            target=self._rebuild_worker,
+            args=(config, build_generation),
+            daemon=True,
+        )
         thread.start()
         return True
 
