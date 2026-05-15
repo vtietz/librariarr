@@ -37,6 +37,11 @@ class ServiceAutoAddMixin:
                 return set()
 
         resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
+        existing_movie_ids = {
+            movie_id
+            for movie_id in (movie.get("id") for movie in movies)
+            if isinstance(movie_id, int)
+        }
         existing_paths = {
             managed_path.resolve(strict=False)
             for managed_path in (
@@ -109,10 +114,19 @@ class ServiceAutoAddMixin:
                     folder,
                 )
 
+        reconciled_existing_movie_ids = added_movie_ids & existing_movie_ids
+        new_movie_ids = added_movie_ids - reconciled_existing_movie_ids
+        unresolved_count = max(
+            0,
+            len(unmatched_folders) - len(new_movie_ids) - len(reconciled_existing_movie_ids),
+        )
         LOG.info(
-            "Radarr auto-add processed: added=%s total_unmatched=%s",
-            len(added_movie_ids),
+            "Radarr auto-add processed: added=%s total_unmatched=%s "
+            "reconciled_existing=%s unresolved=%s",
+            len(new_movie_ids),
             len(unmatched_folders),
+            len(reconciled_existing_movie_ids),
+            unresolved_count,
         )
         return added_movie_ids
 
@@ -138,6 +152,11 @@ class ServiceAutoAddMixin:
                 return set()
 
         resolved_matcher = matcher or AffectedPathMatcher(affected_paths)
+        existing_series_ids = {
+            series_id
+            for series_id in (item.get("id") for item in series)
+            if isinstance(series_id, int)
+        }
         existing_paths = {
             managed_path.resolve(strict=False)
             for managed_path in (
@@ -209,10 +228,19 @@ class ServiceAutoAddMixin:
                     folder,
                 )
 
+        reconciled_existing_series_ids = added_series_ids & existing_series_ids
+        new_series_ids = added_series_ids - reconciled_existing_series_ids
+        unresolved_count = max(
+            0,
+            len(unmatched_folders) - len(new_series_ids) - len(reconciled_existing_series_ids),
+        )
         LOG.info(
-            "Sonarr auto-add processed: added=%s total_unmatched=%s",
-            len(added_series_ids),
+            "Sonarr auto-add processed: added=%s total_unmatched=%s "
+            "reconciled_existing=%s unresolved=%s",
+            len(new_series_ids),
             len(unmatched_folders),
+            len(reconciled_existing_series_ids),
+            unresolved_count,
         )
         return added_series_ids
 

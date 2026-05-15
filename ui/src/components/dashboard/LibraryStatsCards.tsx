@@ -105,8 +105,13 @@ function CoverageCard({
 function statsFromRoots(
   roots: NonNullable<RuntimeStatusResponse["library_root_stats"]>,
   arrType: "radarr" | "sonarr",
+  minUpdatedAt: number | null = null,
 ): { matched: number; unmatched: number } | null {
-  const filtered = roots.filter((r) => r.arr_type === arrType);
+  const filtered = roots.filter((r) => {
+    if (r.arr_type !== arrType) return false;
+    if (minUpdatedAt == null) return true;
+    return typeof r.updated_at === "number" && r.updated_at >= minUpdatedAt;
+  });
   if (filtered.length === 0) return null;
   let matched = 0;
   let unmatched = 0;
@@ -126,9 +131,14 @@ export default function LibraryStatsCards({ runtimeStatus }: Props) {
   const lastReconcile = runtimeStatus?.last_reconcile ?? null;
   const roots = runtimeStatus?.library_root_stats ?? [];
 
+  const currentTaskStartedAt =
+    currentTask && typeof currentTask.started_at === "number"
+      ? currentTask.started_at
+      : null;
+
   // Primary source: per-root stats (always current, updated live during projection)
-  const movieRootStats = statsFromRoots(roots, "radarr");
-  const seriesRootStats = statsFromRoots(roots, "sonarr");
+  const movieRootStats = statsFromRoots(roots, "radarr", currentTaskStartedAt);
+  const seriesRootStats = statsFromRoots(roots, "sonarr", currentTaskStartedAt);
 
   // Fallback: reconcile-level metrics (full reconcile preferred)
   const hasFullMetrics =
@@ -146,10 +156,18 @@ export default function LibraryStatsCards({ runtimeStatus }: Props) {
       : lastReconcile;
 
   // Use per-root stats when available, otherwise fall back to reconcile metrics
-  const movieMatched = movieRootStats?.matched ?? reconcileMetrics?.matched_movies;
-  const movieUnmatched = movieRootStats?.unmatched ?? reconcileMetrics?.unmatched_movies;
-  const seriesMatched = seriesRootStats?.matched ?? reconcileMetrics?.matched_series;
-  const seriesUnmatched = seriesRootStats?.unmatched ?? reconcileMetrics?.unmatched_series;
+  const movieMatched =
+    movieRootStats?.matched ??
+    (currentTask != null ? undefined : reconcileMetrics?.matched_movies);
+  const movieUnmatched =
+    movieRootStats?.unmatched ??
+    (currentTask != null ? undefined : reconcileMetrics?.unmatched_movies);
+  const seriesMatched =
+    seriesRootStats?.matched ??
+    (currentTask != null ? undefined : reconcileMetrics?.matched_series);
+  const seriesUnmatched =
+    seriesRootStats?.unmatched ??
+    (currentTask != null ? undefined : reconcileMetrics?.unmatched_series);
 
   const movieInProgress =
     currentTask != null &&
