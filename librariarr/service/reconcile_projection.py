@@ -187,7 +187,7 @@ class ServiceReconcileProjectionMixin:
                 if processed != total and processed - last_series_progress < 25:
                     return
                 last_series_progress = processed
-                tracker.update_reconcile_phase("cleaned")
+                tracker.update_reconcile_phase("indexed")
                 tracker.update_active_reconcile_metrics(
                     {
                         "series_items_processed": processed,
