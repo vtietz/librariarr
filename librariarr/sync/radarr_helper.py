@@ -324,7 +324,17 @@ class RadarrSyncHelper:
         """Try NFO-based ID lookup first, then fall back to name-based search."""
         nfo_candidate = self._try_nfo_lookup(folder)
         if nfo_candidate is not None:
-            return nfo_candidate
+            # Guard against stale/wrong NFO IDs by requiring the resolved
+            # candidate to still be a safe match for the folder name.
+            if pick_lookup_candidate(folder, [nfo_candidate]) is not None:
+                return nfo_candidate
+            self.log.warning(
+                "Ignoring NFO lookup candidate that conflicts with folder naming: "
+                "folder=%s candidate_title=%s candidate_year=%s",
+                folder,
+                nfo_candidate.get("title"),
+                nfo_candidate.get("year"),
+            )
 
         try:
             candidates = self._radarr().lookup_movies(name_term)

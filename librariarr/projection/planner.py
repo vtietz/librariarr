@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 from ..config import AppConfig
+from ..sync.naming import parse_movie_ref
 from .models import MovieProjectionMapping, MovieProjectionPlan
 from .planner_common import (
     classify_file as common_classify_file,
@@ -18,10 +20,55 @@ from .planner_common import (
 )
 
 PATH_SEPARATOR_TRANSLATION = str.maketrans({"/": "-", "\\": "-"})
+TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+TITLE_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "der",
+    "die",
+    "das",
+    "ein",
+    "eine",
+    "le",
+    "la",
+    "les",
+    "el",
+    "los",
+    "las",
+    "un",
+    "une",
+}
 
 
 def safe_path_component(name: str) -> str:
     return name.translate(PATH_SEPARATOR_TRANSLATION).strip()
+
+
+def _title_words(value: str) -> set[str]:
+    words = [token for token in TITLE_TOKEN_RE.findall(value.strip().lower()) if token]
+    if not words:
+        return set()
+    filtered = [token for token in words if token not in TITLE_STOPWORDS]
+    return set(filtered or words)
+
+
+def _stored_folder_conflicts_with_movie(item: dict[str, Any], stored_folder: Path) -> bool:
+    ref = parse_movie_ref(stored_folder.name)
+    movie_title = str(item.get("title") or "").strip().lower()
+    movie_year = item.get("year")
+
+    if isinstance(movie_year, int) and ref.year is not None and movie_year != ref.year:
+        return True
+
+    if not movie_title or not ref.title:
+        return False
+
+    movie_words = _title_words(movie_title)
+    folder_words = _title_words(ref.title)
+    if not movie_words or not folder_words:
+        return False
+    return movie_words.isdisjoint(folder_words)
 
 
 def build_movie_projection_plans(
@@ -105,6 +152,7 @@ def build_movie_projection_plans(
                     stored_folder
                     and stored_folder.exists()
                     and stored_folder.is_dir()
+                    and not _stored_folder_conflicts_with_movie(movie, stored_folder)
                     and any(
                         stored_folder == m.managed_root or m.managed_root in stored_folder.parents
                         for m in sorted_mappings

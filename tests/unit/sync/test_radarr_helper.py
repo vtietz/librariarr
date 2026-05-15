@@ -587,3 +587,74 @@ def test_auto_add_uses_nfo_tmdb_id_for_lookup(tmp_path: Path) -> None:
 
     assert "tmdb:504608" in fake.lookup_terms
     assert result is not None
+
+
+def test_auto_add_ignores_conflicting_nfo_candidate_and_falls_back_to_name_lookup(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    managed_root = tmp_path / "managed"
+    library_root = tmp_path / "library"
+    managed_root.mkdir(parents=True)
+    library_root.mkdir(parents=True)
+
+    folder = managed_root / "Der Unbeugsame (1984) FSK6"
+    folder.mkdir(parents=True)
+    (folder / "movie.mkv").write_text("stub", encoding="utf-8")
+    (folder / "movie.nfo").write_text(
+        """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<movie>
+  <title>Der Unbeugsame</title>
+  <year>1984</year>
+  <uniqueid type=\"tmdb\">999001</uniqueid>
+</movie>""",
+        encoding="utf-8",
+    )
+
+    config = AppConfig(
+        paths=PathsConfig(
+            series_root_mappings=[],
+            movie_root_mappings=[
+                MovieRootMapping(managed_root=str(managed_root), library_root=str(library_root))
+            ],
+        ),
+        radarr=RadarrConfig(
+            url="http://radarr:7878",
+            api_key="test",
+            sync_enabled=False,
+            auto_add_quality_profile_id=1,
+        ),
+        cleanup=CleanupConfig(),
+        runtime=RuntimeConfig(),
+    )
+
+    class FakeRadarrPerTerm(FakeRadarr):
+        def lookup_movies(self, term: str) -> list[dict]:
+            self.lookup_terms.append(term)
+            if term == "tmdb:999001":
+                # Conflicts with folder year and should be rejected.
+                return [{"title": "Der Unbeugsame", "year": 1967, "tmdbId": 1967001}]
+            if term == "der unbeugsame 1984":
+                return [{"title": "Der Unbeugsame", "year": 1984, "tmdbId": 1984001}]
+            return []
+
+    fake = FakeRadarrPerTerm(
+        add_movie_result={"id": 101, "title": "Der Unbeugsame", "year": 1984},
+        quality_profiles=[{"id": 1, "name": "Any"}],
+    )
+    helper = RadarrSyncHelper(
+        config=config,
+        logger=logging.getLogger("test_nfo_guard"),
+        get_radarr_client=lambda: fake,
+    )
+
+    with caplog.at_level(logging.WARNING, logger="test_nfo_guard"):
+        result = helper.auto_add_movie_for_folder(folder, managed_root)
+
+    assert result is not None
+    assert fake.lookup_terms[:2] == ["tmdb:999001", "der unbeugsame 1984"]
+    assert fake.add_calls[0]["lookup_movie"]["year"] == 1984
+    assert any(
+        "Ignoring NFO lookup candidate that conflicts with folder naming" in record.message
+        for record in caplog.records
+    )
