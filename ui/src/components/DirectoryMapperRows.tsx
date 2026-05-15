@@ -225,7 +225,7 @@ const MappedRows = memo(function MappedRows({
           onMouseEnter={() => setHoveredRowKey(rowKey)}
           onMouseLeave={() => setHoveredRowKey((current) => (current === rowKey ? null : current))}
           style={{
-            backgroundColor: isHovered ? "var(--mantine-color-default-hover)" : undefined,
+            backgroundColor: isHovered ? "rgba(120, 130, 145, 0.08)" : undefined,
             transition: "background-color 120ms ease"
           }}
         >

@@ -4,8 +4,10 @@ import logging
 import threading
 import time
 from copy import deepcopy
+from pathlib import Path
 from typing import Any
 
+from ..config import load_config
 from ..runtime.status import RuntimeStatusTracker
 from .dashboard_tasks import build_pending_tasks
 from .discovery_cache import DiscoveryWarningsCache
@@ -20,6 +22,7 @@ class DashboardReadModel:
     _TASK_STALE_AFTER_SECONDS = 300
     _TASK_AUTO_FAIL_AFTER_SECONDS = 900
     _UNMANAGED_SHADOW_WARN_THRESHOLD = 1
+    _DISCOVERY_REFRESH_INTERVAL_SECONDS = 30.0
 
     def __init__(
         self,
@@ -29,14 +32,21 @@ class DashboardReadModel:
         mapped_cache: MappedDirectoriesCache,
         discovery_cache: DiscoveryWarningsCache,
         state_store: PersistentStateStore,
+        config_path: Path | None = None,
         refresh_interval_seconds: float = 1.0,
+        discovery_refresh_interval_seconds: float = _DISCOVERY_REFRESH_INTERVAL_SECONDS,
     ) -> None:
         self.runtime_status_tracker = runtime_status_tracker
         self.job_manager = job_manager
         self.mapped_cache = mapped_cache
         self.discovery_cache = discovery_cache
         self.state_store = state_store
+        self.config_path = config_path
         self.refresh_interval_seconds = max(0.5, float(refresh_interval_seconds))
+        self.discovery_refresh_interval_seconds = max(
+            10.0,
+            float(discovery_refresh_interval_seconds),
+        )
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
@@ -46,6 +56,7 @@ class DashboardReadModel:
         }
         self._failure_count = 0
         self._last_refresh_error: str | None = None
+        self._last_discovery_refresh_request = 0.0
 
     def start(self) -> None:
         with self._lock:
@@ -106,6 +117,7 @@ class DashboardReadModel:
                     self.state_store.save_dashboard(stale_snapshot)
 
     def _build_snapshot(self) -> dict[str, Any]:
+        self._maybe_schedule_discovery_refresh()
         self.runtime_status_tracker.fail_stale_running_task(
             max_age_seconds=self._TASK_AUTO_FAIL_AFTER_SECONDS,
             error="reconcile task timed out waiting for progress updates",
@@ -137,6 +149,35 @@ class DashboardReadModel:
         payload["health"] = self._build_health(payload, jobs_summary_payload)
         payload["updated_at"] = time.time()
         return payload
+
+    def _maybe_schedule_discovery_refresh(self) -> None:
+        if self.config_path is None:
+            return
+
+        now = time.time()
+        if now - self._last_discovery_refresh_request < self.discovery_refresh_interval_seconds:
+            return
+
+        cache = self.discovery_cache.snapshot(limit=1).get("cache") or {}
+        if bool(cache.get("building")):
+            self._last_discovery_refresh_request = now
+            return
+
+        updated_at_ms = cache.get("updated_at_ms")
+        if isinstance(updated_at_ms, int | float):
+            age_seconds = max(0.0, now - (float(updated_at_ms) / 1000.0))
+            if age_seconds < self.discovery_refresh_interval_seconds:
+                return
+
+        try:
+            config = load_config(self.config_path)
+        except Exception as exc:
+            LOG.debug("Discovery cache refresh skipped (config load failed): %s", exc)
+            self._last_discovery_refresh_request = now
+            return
+
+        self.discovery_cache.request_refresh(config, force=False)
+        self._last_discovery_refresh_request = now
 
     def _build_health(
         self,

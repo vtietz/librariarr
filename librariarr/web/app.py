@@ -296,6 +296,7 @@ def create_app(  # noqa: C901
         mapped_cache=mapped_cache,
         discovery_cache=discovery_cache,
         state_store=state_store,
+        config_path=config_path,
     )
 
     @asynccontextmanager

@@ -17,6 +17,7 @@ import {
   getFsRoots,
   recycleOrphanedManagedFolder,
   runMaintenanceReconcile,
+  waitForJobCompletion,
 } from "../../api/client";
 import DirectoryPickerModal from "../DirectoryPickerModal";
 
@@ -52,6 +53,10 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
   const [loadingRoots, setLoadingRoots] = useState(false);
   const [busyOrphanPath, setBusyOrphanPath] = useState<string | null>(null);
   const [busyImportPath, setBusyImportPath] = useState<string | null>(null);
+  const [importInFlightByPath, setImportInFlightByPath] = useState<Record<string, boolean>>({});
+  const [importStatusByPath, setImportStatusByPath] = useState<
+    Record<string, { color: string; message: string }>
+  >({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [importErrorsByPath, setImportErrorsByPath] = useState<Record<string, string>>({});
   const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
@@ -63,7 +68,7 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
     borderRadius: "6px",
     padding: "4px 6px",
     backgroundColor:
-      hoveredRowKey === rowKey ? "var(--mantine-color-gray-1)" : "transparent",
+      hoveredRowKey === rowKey ? "rgba(120, 130, 145, 0.08)" : "transparent",
     transition: "background-color 120ms ease"
   });
 
@@ -143,10 +148,42 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
 
   const handleImportUnmatched = async (path: string) => {
     setBusyImportPath(path);
+    setImportInFlightByPath((current) => ({ ...current, [path]: true }));
+    setImportStatusByPath((current) => ({
+      ...current,
+      [path]: { color: "blue", message: "Queueing import in Radarr..." },
+    }));
     setImportErrorsByPath((current) => ({ ...current, [path]: "" }));
     try {
-      await runMaintenanceReconcile({ path });
+      const queued = await runMaintenanceReconcile({ path });
+      setImportStatusByPath((current) => ({
+        ...current,
+        [path]: { color: "blue", message: `Import queued (job ${queued.job_id.slice(0, 8)}...)` },
+      }));
       setImportErrorDialogPath((current) => (current === path ? null : current));
+
+      void (async () => {
+        try {
+          await waitForJobCompletion(queued.job_id, { timeoutMs: 180000, pollIntervalMs: 1500 });
+          setImportStatusByPath((current) => ({
+            ...current,
+            [path]: { color: "green", message: "Import finished successfully." },
+          }));
+          setImportErrorsByPath((current) => ({ ...current, [path]: "" }));
+          await onRefreshWarnings();
+        } catch (error) {
+          const message = parseApiErrorMessage(error, "Import failed after being queued.");
+          setImportErrorsByPath((current) => ({ ...current, [path]: message }));
+          setImportStatusByPath((current) => ({
+            ...current,
+            [path]: { color: "red", message },
+          }));
+          setImportErrorDialogPath(path);
+        } finally {
+          setImportInFlightByPath((current) => ({ ...current, [path]: false }));
+        }
+      })();
+
       try {
         await onRefreshWarnings();
       } catch (error) {
@@ -158,6 +195,10 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         "Import trigger failed. Open details and retry."
       );
       setImportErrorsByPath((current) => ({ ...current, [path]: message }));
+      setImportStatusByPath((current) => ({
+        ...current,
+        [path]: { color: "red", message },
+      }));
       setImportErrorDialogPath(path);
     } finally {
       setBusyImportPath((current) => (current === path ? null : current));
@@ -308,50 +349,58 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
                   Usually this means the folder is not imported in Radarr yet.
                 </Text>
                 {unmatchedItems.map((item) => (
-                  <Group
-                    key={`unmatched-${item.path}`}
-                    gap="xs"
-                    wrap="nowrap"
-                    align="flex-start"
-                    onMouseEnter={() => setHoveredRowKey(`unmatched-${item.path}`)}
-                    onMouseLeave={() => setHoveredRowKey(null)}
-                    style={warningRowStyle(`unmatched-${item.path}`)}
-                  >
-                    <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
-                      ⚠ {item.path}
-                    </Text>
-                    {busyImportPath === item.path ? <Loader size="xs" /> : null}
-                    {importErrorsByPath[item.path] ? (
-                      <Tooltip
-                        label="Import failed. Click for details and retry."
-                        withArrow
-                      >
-                        <ActionIcon
-                          size="sm"
-                          color="red"
-                          variant="light"
-                          onClick={() => setImportErrorDialogPath(item.path)}
-                          disabled={busyImportPath === item.path}
-                          aria-label="Show import error details"
+                  <Stack key={`unmatched-${item.path}`} gap={0}>
+                    <Group
+                      gap="xs"
+                      wrap="nowrap"
+                      align="flex-start"
+                      onMouseEnter={() => setHoveredRowKey(`unmatched-${item.path}`)}
+                      onMouseLeave={() => setHoveredRowKey(null)}
+                      style={warningRowStyle(`unmatched-${item.path}`)}
+                    >
+                      <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
+                        ⚠ {item.path}
+                      </Text>
+                      {busyImportPath === item.path || importInFlightByPath[item.path] ? (
+                        <Loader size="xs" />
+                      ) : null}
+                      {importErrorsByPath[item.path] ? (
+                        <Tooltip
+                          label="Import failed. Click for details and retry."
+                          withArrow
                         >
-                          <IconAlertCircle size={14} />
-                        </ActionIcon>
-                      </Tooltip>
-                    ) : (
-                      <Tooltip label="Trigger import to Radarr" withArrow>
-                        <ActionIcon
-                          size="sm"
-                          color="blue"
-                          variant="light"
-                          onClick={() => void handleImportUnmatched(item.path)}
-                          disabled={busyImportPath === item.path}
-                          aria-label="Import unmatched folder"
-                        >
-                          <IconUpload size={14} />
-                        </ActionIcon>
-                      </Tooltip>
-                    )}
-                  </Group>
+                          <ActionIcon
+                            size="sm"
+                            color="red"
+                            variant="light"
+                            onClick={() => setImportErrorDialogPath(item.path)}
+                            disabled={busyImportPath === item.path}
+                            aria-label="Show import error details"
+                          >
+                            <IconAlertCircle size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip label="Trigger import to Radarr" withArrow>
+                          <ActionIcon
+                            size="sm"
+                            color="blue"
+                            variant="light"
+                            onClick={() => void handleImportUnmatched(item.path)}
+                            disabled={busyImportPath === item.path}
+                            aria-label="Import unmatched folder"
+                          >
+                            <IconUpload size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      )}
+                    </Group>
+                    {importStatusByPath[item.path] ? (
+                      <Text size="xs" c={importStatusByPath[item.path].color}>
+                        {importStatusByPath[item.path].message}
+                      </Text>
+                    ) : null}
+                  </Stack>
                 ))}
               </Stack>
             )}
