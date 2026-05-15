@@ -22,6 +22,12 @@ paths:
   exclude_paths:
     - ".deletedByTMM/"
     - ".actors/"
+    - "sample/"
+    - "samples/"
+    - "*-sample.*"
+    - "sample-*.*"
+    - "*.sample.*"
+    - "* sample.*"
     - ".librariarr/**"
 
 radarr:
@@ -183,6 +189,7 @@ Notes:
 - Patterns are evaluated relative to each `nested_root` (gitignore-style intent).
 - Useful for skipping transient/trash trees such as `.deletedByTMM/`.
 - Supports `*` and `**` globs, and comments/blank entries are ignored.
+- Built-in defaults are always appended (unless already present): `.deletedByLibrariarr/`, sample dirs (`sample/`, `samples/`) and sample filename patterns (`*-sample.*`, `sample-*.*`, `*.sample.*`, `* sample.*`).
 
 ## Radarr
 

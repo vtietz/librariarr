@@ -35,6 +35,10 @@ paths:
     - "bonus/"
     - "sample/"
     - "samples/"
+    - "*-sample.*"
+    - "sample-*.*"
+    - "*.sample.*"
+    - "* sample.*"
 
 radarr:
   # Enabled by default. Disable for Sonarr-only mode.

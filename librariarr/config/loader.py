@@ -6,7 +6,7 @@ from typing import Any
 
 import yaml
 
-from .defaults import DEFAULT_SCAN_VIDEO_EXTENSIONS
+from .defaults import DEFAULT_EXCLUDE_PATH_PATTERNS, DEFAULT_SCAN_VIDEO_EXTENSIONS
 from .models import (
     AnalysisConfig,
     AppConfig,
@@ -161,8 +161,12 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
     if not isinstance(exclude_paths_raw, list):
         raise ValueError("paths.exclude_paths must be a list of glob-style path patterns")
     exclude_paths = [str(item).strip() for item in exclude_paths_raw if str(item).strip()]
-    if ".deletedByLibrariarr/" not in {item.lower() for item in exclude_paths}:
-        exclude_paths.append(".deletedByLibrariarr/")
+    configured_excludes = {item.lower() for item in exclude_paths}
+    for pattern in DEFAULT_EXCLUDE_PATH_PATTERNS:
+        if pattern.lower() in configured_excludes:
+            continue
+        exclude_paths.append(pattern)
+        configured_excludes.add(pattern.lower())
 
     radarr_default_url = str(_require(radarr, "url")).rstrip("/") if has_radarr else ""
     radarr_default_api_key = str(_require(radarr, "api_key")) if has_radarr else ""

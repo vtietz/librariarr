@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from librariarr.config.defaults import DEFAULT_EXCLUDE_PATH_PATTERNS
 from librariarr.service.reconcile_helpers import discover_unmatched_folders
 from librariarr.sync.discovery import (
     collect_current_links,
@@ -192,6 +193,53 @@ def test_discover_movie_folders_honors_exclude_paths_case_insensitive(tmp_path: 
 
     assert valid_dir in found
     assert deleted_dir not in found
+
+
+def test_discover_movie_folders_ignores_sample_only_folder(tmp_path: Path) -> None:
+    root = tmp_path / "movies"
+    sample_only_dir = root / "Movie A (2020)"
+    sample_only_dir.mkdir(parents=True)
+    (sample_only_dir / "Movie.A.2020-sample.mkv").write_text("x", encoding="utf-8")
+
+    found = discover_movie_folders(root, {".mkv", ".mp4"}, DEFAULT_EXCLUDE_PATH_PATTERNS)
+
+    assert sample_only_dir not in found
+
+
+def test_discover_movie_folders_accepts_real_video_when_sample_also_exists(tmp_path: Path) -> None:
+    root = tmp_path / "movies"
+    mixed_dir = root / "Movie B (2021)"
+    mixed_dir.mkdir(parents=True)
+    (mixed_dir / "Movie.B.2021-sample.mkv").write_text("x", encoding="utf-8")
+    (mixed_dir / "Movie.B.2021.1080p.mkv").write_text("x", encoding="utf-8")
+
+    found = discover_movie_folders(root, {".mkv", ".mp4"}, DEFAULT_EXCLUDE_PATH_PATTERNS)
+
+    assert mixed_dir in found
+
+
+def test_discover_series_folders_ignores_sample_only_folder(tmp_path: Path) -> None:
+    root = tmp_path / "series"
+    sample_only_series = root / "Show A (2020)"
+    sample_only_series.mkdir(parents=True)
+    (sample_only_series / "Show.A.S01E01-sample.mkv").write_text("x", encoding="utf-8")
+
+    found = discover_series_folders(root, {".mkv", ".mp4"}, DEFAULT_EXCLUDE_PATH_PATTERNS)
+
+    assert sample_only_series not in found
+
+
+def test_discover_series_accepts_real_episode_with_sample(tmp_path: Path) -> None:
+    root = tmp_path / "series"
+    series_dir = root / "Show B (2021)"
+    season_one = series_dir / "Season 01"
+    season_one.mkdir(parents=True)
+    (season_one / "Show.B.S01E01-sample.mkv").write_text("x", encoding="utf-8")
+    (season_one / "Show.B.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    found = discover_series_folders(root, {".mkv", ".mp4"}, DEFAULT_EXCLUDE_PATH_PATTERNS)
+
+    assert series_dir in found
 
 
 def test_discover_unmatched_folders_marks_non_canonical_names_unmatched(tmp_path: Path) -> None:

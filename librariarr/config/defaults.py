@@ -10,3 +10,13 @@ DEFAULT_SCAN_VIDEO_EXTENSIONS = [
     ".mpg",
     ".mpeg",
 ]
+
+DEFAULT_EXCLUDE_PATH_PATTERNS = [
+    ".deletedByLibrariarr/",
+    "sample/",
+    "samples/",
+    "*-sample.*",
+    "sample-*.*",
+    "*.sample.*",
+    "* sample.*",
+]

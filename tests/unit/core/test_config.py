@@ -159,7 +159,44 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
         ".deletedByTMM/",
         ".librariarr/**",
         ".deletedByLibrariarr/",
+        "sample/",
+        "samples/",
+        "*-sample.*",
+        "sample-*.*",
+        "*.sample.*",
+        "* sample.*",
     ]
+
+
+def test_load_config_exclude_paths_no_duplicate_sample_defaults(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/series\n"
+            "      shadow_root: /data/sonarr_library\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies\n"
+            "      library_root: /data/radarr_library\n"
+            "  exclude_paths:\n"
+            "    - SAMPLE/\n"
+            "    - '*.sample.*'\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.paths.exclude_paths.count("sample/") == 0
+    assert config.paths.exclude_paths.count("SAMPLE/") == 1
+    assert config.paths.exclude_paths.count("*.sample.*") == 1
+    assert config.paths.exclude_paths.count("samples/") == 1
 
 
 def test_load_config_rejects_missing_series_root_mappings(tmp_path: Path) -> None:

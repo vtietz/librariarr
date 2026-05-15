@@ -16,6 +16,7 @@ from fastapi.responses import StreamingResponse
 
 from ...quality import VIDEO_EXTENSIONS
 from ...service.reconcile_helpers import resolve_managed_root_for_folder
+from ...sync.discovery import _is_excluded_path, _normalize_exclude_patterns
 from ..history_events import append_history_event
 
 
@@ -310,7 +311,12 @@ def build_fs_router(  # noqa: C901
 
         state_store = getattr(getattr(request.app.state, "web", None), "state_store", None)
         video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
-        if not _is_orphaned_managed_movie_folder(target, video_exts):
+        if not _is_orphaned_managed_movie_folder(
+            target,
+            video_exts,
+            root=managed_root,
+            exclude_patterns=config.paths.exclude_paths,
+        ):
             if state_store is not None:
                 append_history_event(
                     state_store,
@@ -568,13 +574,47 @@ def _restore_relative_path(relative_path: Path) -> Path | None:
     return Path(*restored_parts)
 
 
-def _is_orphaned_managed_movie_folder(folder: Path, video_exts: set[str]) -> bool:
-    return not _contains_video_recursively(folder, video_exts)
+def _is_orphaned_managed_movie_folder(
+    folder: Path,
+    video_exts: set[str],
+    *,
+    root: Path | None = None,
+    exclude_patterns: list[str] | None = None,
+) -> bool:
+    return not _contains_video_recursively(
+        folder,
+        video_exts,
+        root=root,
+        exclude_patterns=exclude_patterns,
+    )
 
 
-def _contains_video_recursively(folder: Path, video_exts: set[str]) -> bool:
-    for _current, _dirs, files in os.walk(folder):
-        if any(Path(filename).suffix.lower() in video_exts for filename in files):
+def _contains_video_recursively(
+    folder: Path,
+    video_exts: set[str],
+    *,
+    root: Path | None = None,
+    exclude_patterns: list[str] | None = None,
+) -> bool:
+    base_root = root or folder
+    excludes = _normalize_exclude_patterns(exclude_patterns)
+    for current, dirs, files in os.walk(folder):
+        current_path = Path(current)
+        if _is_excluded_path(current_path, base_root, excludes, is_dir=True):
+            dirs[:] = []
+            continue
+
+        dirs[:] = [
+            dirname
+            for dirname in dirs
+            if not _is_excluded_path(current_path / dirname, base_root, excludes, is_dir=True)
+        ]
+
+        if any(
+            Path(filename).suffix.lower() in video_exts
+            and not _is_excluded_path(current_path / filename, base_root, excludes, is_dir=False)
+            for filename in files
+        ):
             return True
     return False
 
