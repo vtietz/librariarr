@@ -165,3 +165,40 @@ def test_ingest_scoped_filters_movies_before_iteration(tmp_path: Path) -> None:
         )
 
     assert called_ids == [1]
+
+
+def test_ingest_series_continues_when_single_item_raises(tmp_path: Path) -> None:
+    service, _managed_root, library_root = _build_service(tmp_path)
+
+    series_a_path = library_root / "Series A (2024)"
+    series_b_path = library_root / "Series B (2024)"
+    series_a_path.mkdir(parents=True)
+    series_b_path.mkdir(parents=True)
+
+    series_items = [
+        {"id": 101, "path": str(series_a_path)},
+        {"id": 102, "path": str(series_b_path)},
+    ]
+
+    call_order: list[int] = []
+
+    def _fake_ingest(series: dict, *, affected_paths=None, matcher=None) -> int | None:
+        del affected_paths, matcher
+        series_id = int(series["id"])
+        call_order.append(series_id)
+        if series_id == 101:
+            raise FileNotFoundError("simulated missing season folder")
+        return series_id
+
+    service.sonarr_enabled = True
+    service.sonarr_sync_enabled = True
+    service.config.ingest.enabled = True
+
+    with patch.object(service, "_ingest_series_if_needed", side_effect=_fake_ingest):
+        moved_ids = service._ingest_series_from_shadow_roots(
+            affected_paths=None,
+            series_inventory=series_items,
+        )
+
+    assert call_order == [101, 102]
+    assert moved_ids == {102}

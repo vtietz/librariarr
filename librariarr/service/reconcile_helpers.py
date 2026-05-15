@@ -491,9 +491,18 @@ def _movie_conflict_candidates(
     incoming_path: Path,
     managed_video_extensions: set[str],
 ) -> list[Path]:
+    try:
+        siblings = list(incoming_path.parent.iterdir())
+    except OSError as exc:
+        LOG.debug(
+            "Skipping movie conflict scan for missing/unreadable folder=%s error=%s",
+            incoming_path.parent,
+            exc,
+        )
+        return []
     return [
         item
-        for item in incoming_path.parent.iterdir()
+        for item in siblings
         if item.is_file()
         and item.name != incoming_path.name
         and item.suffix.lower() in managed_video_extensions
@@ -524,7 +533,16 @@ def _series_conflict_candidates(
     if incoming_key is None:
         return []
     candidates: list[Path] = []
-    for item in incoming_path.parent.iterdir():
+    try:
+        siblings = list(incoming_path.parent.iterdir())
+    except OSError as exc:
+        LOG.debug(
+            "Skipping series conflict scan for missing/unreadable folder=%s error=%s",
+            incoming_path.parent,
+            exc,
+        )
+        return []
+    for item in siblings:
         if not item.is_file() or item.name == incoming_path.name:
             continue
         if item.suffix.lower() not in managed_video_extensions:

@@ -266,3 +266,44 @@ def test_ingest_series_conflict_resolution_replaces_same_episode_only(tmp_path: 
         )
     )
     assert len(soft_deleted) == 1
+
+
+def test_ingest_movie_conflict_scan_handles_missing_parent_folder(tmp_path: Path) -> None:
+    lib = tmp_path / "library" / "Movie (2024)"
+    managed = tmp_path / "managed" / "Movie (2024)"
+
+    _write(lib / "Movie.2024.1080p.mkv", "new")
+
+    result = ingest_files_from_library_folder(
+        library_folder=lib,
+        managed_folder=managed,
+        managed_root=tmp_path / "managed",
+        managed_video_extensions=VIDEO_EXTS,
+        extras_allowlist=EXTRAS,
+        conflict_resolution_mode="movie_single_video",
+    )
+
+    assert result.ingested_count == 1
+    assert result.failed_count == 0
+    assert (managed / "Movie.2024.1080p.mkv").exists()
+
+
+def test_ingest_series_conflict_scan_handles_missing_parent_folder(tmp_path: Path) -> None:
+    lib = tmp_path / "library" / "Series (2024)" / "Season 01"
+    managed = tmp_path / "managed" / "Series (2024)"
+
+    _write(lib / "Series.S01E01.1080p.WEB-DL.mkv", "new")
+
+    result = ingest_files_from_library_folder(
+        library_folder=lib.parent.parent,
+        managed_folder=managed,
+        managed_root=tmp_path / "managed",
+        managed_video_extensions=VIDEO_EXTS,
+        extras_allowlist=EXTRAS,
+        conflict_resolution_mode="series_same_episode",
+    )
+
+    assert result.ingested_count == 1
+    assert result.failed_count == 0
+    assert not (lib / "Series.S01E01.1080p.WEB-DL.mkv").exists()
+    assert list(managed.rglob("Series.S01E01.1080p.WEB-DL.mkv"))

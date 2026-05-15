@@ -62,7 +62,7 @@ class ServiceIngestMixin:
             )
 
         for index, movie in enumerate(movies, start=1):
-            moved_movie_id = self._ingest_movie_if_needed(
+            moved_movie_id = self._ingest_movie_if_needed_safe(
                 movie,
                 affected_paths=affected_paths,
                 matcher=resolved_matcher,
@@ -128,7 +128,7 @@ class ServiceIngestMixin:
             )
 
         for index, series in enumerate(series_items, start=1):
-            moved_series_id = self._ingest_series_if_needed(
+            moved_series_id = self._ingest_series_if_needed_safe(
                 series,
                 affected_paths=affected_paths,
                 matcher=resolved_matcher,
@@ -146,6 +146,50 @@ class ServiceIngestMixin:
                 )
 
         return moved_series_ids
+
+    def _ingest_movie_if_needed_safe(
+        self,
+        movie: dict,
+        *,
+        affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
+    ) -> int | None:
+        try:
+            return self._ingest_movie_if_needed(
+                movie,
+                affected_paths=affected_paths,
+                matcher=matcher,
+            )
+        except Exception as exc:
+            LOG.warning(
+                "Skipping movie ingest for movie_id=%s path=%s due to error=%s",
+                movie.get("id"),
+                movie.get("path"),
+                exc,
+            )
+            return None
+
+    def _ingest_series_if_needed_safe(
+        self,
+        series: dict,
+        *,
+        affected_paths: set[Path] | None,
+        matcher: AffectedPathMatcher | None,
+    ) -> int | None:
+        try:
+            return self._ingest_series_if_needed(
+                series,
+                affected_paths=affected_paths,
+                matcher=matcher,
+            )
+        except Exception as exc:
+            LOG.warning(
+                "Skipping series ingest for series_id=%s path=%s due to error=%s",
+                series.get("id"),
+                series.get("path"),
+                exc,
+            )
+            return None
 
     def _ingest_movie_if_needed(
         self,
