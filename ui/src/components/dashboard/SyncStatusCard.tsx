@@ -30,6 +30,27 @@ type StepDef = {
   phases: string[];
 };
 
+const FETCH_PHASES = new Set([
+  "reconcile",
+  "full_reconcile",
+  "startup_full_reconcile",
+  "startup_incremental_reconcile",
+  "running",
+  "inventory_fetched",
+]);
+
+const MOVIE_PROGRESS_PHASES = new Set([
+  "ingest_movies",
+  "planning_movies",
+  "auto_add_movies",
+]);
+
+const SERIES_PROGRESS_PHASES = new Set([
+  "ingest_series",
+  "planning_series",
+  "auto_add_series",
+]);
+
 const SYNC_STEPS: StepDef[] = [
   {
     id: "fetch",
@@ -43,7 +64,11 @@ const SYNC_STEPS: StepDef[] = [
       "inventory_fetched",
     ],
   },
-  { id: "ingest", label: "Ingest library changes", phases: ["ingest_movies"] },
+  {
+    id: "ingest",
+    label: "Ingest library changes",
+    phases: ["ingest_movies", "ingest_series"],
+  },
   { id: "scope", label: "Resolve scope", phases: ["scope_resolved"] },
   { id: "plan", label: "Plan projections", phases: ["planning_movies", "planning_series"] },
   {
@@ -100,6 +125,7 @@ function phaseExplanation(task: RuntimeStatusResponse["current_task"]): string |
     running: "Starting reconcile",
     inventory_fetched: "Inventory fetched; preparing scope",
     ingest_movies: "Checking library-root items and ingesting to managed roots",
+    ingest_series: "Checking shadow-root items and ingesting to managed roots",
     scope_resolved: "Scope resolved (deciding full vs incremental items)",
     planning_movies: "Planning movie projections",
     planning_series: "Planning series projections",
@@ -174,42 +200,39 @@ function buildProgressDetail(
 
   const parts: string[] = [];
 
-  const moviesSeen = task.movie_folders_seen ?? 0;
-  const seriesSeen = task.series_folders_seen ?? 0;
-  if (moviesSeen > 0 || seriesSeen > 0) {
-    const items: string[] = [];
-    if (moviesSeen > 0) items.push(`${moviesSeen} movies`);
-    if (seriesSeen > 0) items.push(`${seriesSeen} series`);
-    parts.push(items.join(", "));
-  }
-
-  const links = task.created_links ?? 0;
-  if (links > 0) parts.push(`${links} links created`);
-
   const phase = task.phase;
   const movieProcessed = task.movie_items_processed ?? 0;
   const movieTotal = task.movie_items_total ?? 0;
   const seriesProcessed = task.series_items_processed ?? 0;
   const seriesTotal = task.series_items_total ?? 0;
 
-  const movieCounter = movieTotal > 0 ? `${movieProcessed}/${movieTotal} movies` : null;
-  const seriesCounter = seriesTotal > 0 ? `${seriesProcessed}/${seriesTotal} series` : null;
+  const movieCounter = movieTotal > 0 ? `movies ${movieProcessed}/${movieTotal}` : null;
+  const seriesCounter = seriesTotal > 0 ? `series ${seriesProcessed}/${seriesTotal}` : null;
+
+  const moviesSeen = task.movie_folders_seen ?? 0;
+  const seriesSeen = task.series_folders_seen ?? 0;
+  if (FETCH_PHASES.has(phase ?? "") && (moviesSeen > 0 || seriesSeen > 0)) {
+    const items: string[] = [];
+    if (moviesSeen > 0) items.push(`${moviesSeen} movies`);
+    if (seriesSeen > 0) items.push(`${seriesSeen} series`);
+    parts.push(`inventory ${items.join(", ")}`);
+  }
 
   let phaseCounter: string | null = null;
-  if (
-    phase === "ingest_movies" ||
-    phase === "planning_movies" ||
-    phase === "auto_add_movies" ||
-    phase === "indexed"
-  ) {
+  if (MOVIE_PROGRESS_PHASES.has(phase ?? "")) {
     phaseCounter = movieCounter;
-  } else if (phase === "planning_series" || phase === "auto_add_series") {
+  } else if (SERIES_PROGRESS_PHASES.has(phase ?? "")) {
     phaseCounter = seriesCounter;
+  } else if (phase === "indexed") {
+    phaseCounter = movieCounter ?? seriesCounter;
   }
 
   if (phaseCounter) {
     parts.push(phaseCounter);
   }
+
+  const links = task.created_links ?? 0;
+  if (links > 0) parts.push(`${links} links created`);
 
   if (task.started_at) {
     parts.push(formatElapsed(task.started_at));
