@@ -203,23 +203,30 @@ class ProjectionStateStore:
                 result: set[int] = set()
                 for p in paths:
                     path_str = str(p)
+                    path_matched = False
                     # Search managed folder table (exact or parent match)
                     cursor = connection.execute(
                         "SELECT movie_id FROM movie_managed_folders"
                         " WHERE managed_folder = ? OR managed_folder LIKE ?",
                         (path_str, path_str + "/%"),
                     )
-                    result.update(int(row[0]) for row in cursor.fetchall())
+                    managed_rows = cursor.fetchall()
+                    result.update(int(row[0]) for row in managed_rows)
+                    if managed_rows:
+                        path_matched = True
                     # Search projected files source_path (exact or prefix).
-                    if not result:
+                    if not path_matched:
                         cursor = connection.execute(
                             "SELECT DISTINCT movie_id FROM projected_files"
                             " WHERE source_path = ? OR source_path LIKE ?",
                             (path_str, path_str + "/%"),
                         )
-                        result.update(int(row[0]) for row in cursor.fetchall())
+                        source_rows = cursor.fetchall()
+                        result.update(int(row[0]) for row in source_rows)
+                        if source_rows:
+                            path_matched = True
                     # Search projected files dest_path (exact or prefix for shadow paths).
-                    if not result:
+                    if not path_matched:
                         cursor = connection.execute(
                             "SELECT DISTINCT movie_id FROM projected_files"
                             " WHERE dest_path = ? OR dest_path LIKE ?",
@@ -237,20 +244,27 @@ class ProjectionStateStore:
                 result: set[int] = set()
                 for p in paths:
                     path_str = str(p)
+                    path_matched = False
                     cursor = connection.execute(
                         "SELECT series_id FROM series_managed_folders"
                         " WHERE managed_folder = ? OR managed_folder LIKE ?",
                         (path_str, path_str + "/%"),
                     )
-                    result.update(int(row[0]) for row in cursor.fetchall())
-                    if not result:
+                    managed_rows = cursor.fetchall()
+                    result.update(int(row[0]) for row in managed_rows)
+                    if managed_rows:
+                        path_matched = True
+                    if not path_matched:
                         cursor = connection.execute(
                             "SELECT DISTINCT movie_id FROM projected_files"
                             " WHERE source_path = ? OR source_path LIKE ?",
                             (path_str, path_str + "/%"),
                         )
-                        result.update(int(row[0]) for row in cursor.fetchall())
-                    if not result:
+                        source_rows = cursor.fetchall()
+                        result.update(int(row[0]) for row in source_rows)
+                        if source_rows:
+                            path_matched = True
+                    if not path_matched:
                         cursor = connection.execute(
                             "SELECT DISTINCT movie_id FROM projected_files"
                             " WHERE dest_path = ? OR dest_path LIKE ?",

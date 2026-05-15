@@ -83,6 +83,37 @@ def test_parse_title_calls_parse_endpoint(monkeypatch) -> None:
     assert kwargs["params"]["title"] == "Fixture.Title.2017.1080p.x265"
 
 
+def test_get_history_reads_records_payload(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+    calls: list[tuple[str, str, dict]] = []
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return {"records": [{"id": 5}, {"id": 4}]}
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    records = client.get_history(page=2, page_size=50)
+
+    assert [record["id"] for record in records] == [5, 4]
+    assert len(calls) == 1
+    method, path, kwargs = calls[0]
+    assert method == "GET"
+    assert path == "/history"
+    assert kwargs["params"]["page"] == 2
+    assert kwargs["params"]["pageSize"] == 50
+
+
+def test_get_history_supports_list_payload(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+
+    monkeypatch.setattr(client, "_request", lambda method, path, **kwargs: [{"id": 1}, "bad"])
+
+    records = client.get_history()
+
+    assert records == [{"id": 1}]
+
+
 def test_refresh_movie_debounce_skips_within_window(monkeypatch) -> None:
     client = RadarrClient(
         base_url="http://radarr:7878",

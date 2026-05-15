@@ -85,3 +85,20 @@ def test_resolve_series_ids_by_paths_matches_exact_source_file_path(tmp_path: Pa
     resolved = store.resolve_series_ids_by_paths({source_path})
 
     assert resolved == {302}
+
+
+def test_resolve_series_ids_by_paths_checks_each_path_independently(tmp_path: Path) -> None:
+    store = ProjectionStateStore(tmp_path / "projection.db")
+
+    mapped_folder = tmp_path / "series" / "Mapped Show"
+    other_source_path = tmp_path / "series" / "Other Show" / "Season 01" / "Other.S01E01.mkv"
+    other_dest_path = tmp_path / "shadow" / "Other Show" / "Season 01" / "E01.mkv"
+
+    store.set_managed_series_folder(501, mapped_folder)
+    store.upsert_projected_files(
+        [_sample_state(movie_id=502, source_path=other_source_path, dest_path=other_dest_path)]
+    )
+
+    resolved = store.resolve_series_ids_by_paths({mapped_folder, other_source_path.parent})
+
+    assert resolved == {501, 502}

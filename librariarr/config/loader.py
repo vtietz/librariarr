@@ -339,6 +339,15 @@ def load_config(path: str | Path) -> AppConfig:  # noqa: C901
         debounce_seconds=int(runtime_raw.get("debounce_seconds", 8)),
         maintenance_interval_minutes=int(periodic_reconcile_minutes),
         arr_root_poll_interval_minutes=int(runtime_raw.get("arr_root_poll_interval_minutes", 1)),
+        arr_event_safety_poll_interval_minutes=int(
+            runtime_raw.get("arr_event_safety_poll_interval_minutes", 10)
+        ),
+        arr_event_safety_bootstrap_lookback_minutes=int(
+            runtime_raw.get("arr_event_safety_bootstrap_lookback_minutes", 0)
+        ),
+        arr_event_safety_history_page_size=int(
+            runtime_raw.get("arr_event_safety_history_page_size", 100)
+        ),
         polling_fallback_interval_seconds=int(
             runtime_raw.get("polling_fallback_interval_seconds", 60)
         ),

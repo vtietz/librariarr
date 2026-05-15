@@ -171,6 +171,15 @@ runtime:
   # Minutes between Arr root-folder checks used to auto-trigger reconcile when
   # configured managed roots are added later in Radarr/Sonarr (0 disables polling).
   arr_root_poll_interval_minutes: 1
+  # Minutes between lightweight Radarr/Sonarr history probes that enqueue scoped
+  # reconcile IDs as a safety net for missed webhook/filesystem signals (0 disables).
+  arr_event_safety_poll_interval_minutes: 10
+  # On first safety probe after startup, only enqueue events newer than this lookback.
+  # Set to 0 to initialize cursor only (no startup backfill from history).
+  arr_event_safety_bootstrap_lookback_minutes: 0
+  # Number of newest history rows fetched per safety poll from each Arr instance.
+  # Lower values reduce API work, higher values improve burst catch-up.
+  arr_event_safety_history_page_size: 100
   # Polling interval (seconds) when inotify watch limit is exceeded and
   # LibrariArr falls back to polling-based filesystem monitoring.
   # Only used in fallback mode; ignored when inotify is active.

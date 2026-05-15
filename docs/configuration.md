@@ -424,6 +424,22 @@ Stale projected links whose source no longer exists are always removed during re
 - LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
 - Set `0` to disable this poller.
 
+`runtime.arr_event_safety_poll_interval_minutes`:
+- Interval for lightweight Radarr/Sonarr history probes used as a missed-signal safety net.
+- When new history rows are observed, LibrariArr enqueues scoped reconcile IDs through existing webhook queues.
+- This complements filesystem events/webhooks and helps converge after missed notifications.
+- Set `0` to disable this safety poller.
+
+`runtime.arr_event_safety_bootstrap_lookback_minutes`:
+- Startup-only lookback window for the first safety history probe.
+- `0` means "initialize cursor only" (no startup backfill).
+- Values greater than `0` allow bounded startup catch-up for recent Arr history events.
+
+`runtime.arr_event_safety_history_page_size`:
+- Number of newest history rows fetched per safety probe from each Arr instance.
+- Lower values reduce API load; higher values improve burst catch-up.
+- Effective range is clamped internally to keep load bounded.
+
 `runtime.polling_fallback_interval_seconds`:
 - Polling interval used when inotify watch limit is exceeded and LibrariArr falls back to polling-based filesystem monitoring.
 - Only applies in fallback mode; ignored when inotify watches are active.

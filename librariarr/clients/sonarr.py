@@ -182,6 +182,30 @@ class SonarrClient:
         folders = self._request("GET", "/rootfolder")
         return folders if isinstance(folders, list) else []
 
+    def get_history(
+        self,
+        *,
+        page: int = 1,
+        page_size: int = 100,
+        sort_direction: str = "descending",
+    ) -> list[dict[str, Any]]:
+        payload = self._request(
+            "GET",
+            "/history",
+            params={
+                "page": max(1, int(page)),
+                "pageSize": max(1, int(page_size)),
+                "sortDirection": sort_direction,
+            },
+        )
+        if isinstance(payload, list):
+            return [row for row in payload if isinstance(row, dict)]
+        if isinstance(payload, dict):
+            records = payload.get("records")
+            if isinstance(records, list):
+                return [row for row in records if isinstance(row, dict)]
+        return []
+
     def get_tags(self) -> list[dict[str, Any]]:
         tags = self._request("GET", "/tag")
         return tags if isinstance(tags, list) else []

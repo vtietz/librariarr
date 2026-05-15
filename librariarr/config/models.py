@@ -47,6 +47,9 @@ class RuntimeConfig:
     debounce_seconds: int = 8
     maintenance_interval_minutes: int = 1440
     arr_root_poll_interval_minutes: int = 1
+    arr_event_safety_poll_interval_minutes: int = 10
+    arr_event_safety_bootstrap_lookback_minutes: int = 0
+    arr_event_safety_history_page_size: int = 100
     polling_fallback_interval_seconds: int = 60
     scoped_fetch_threshold: int = 50
     scan_video_extensions: list[str] | None = field(

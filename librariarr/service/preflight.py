@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 from urllib.parse import urlparse
 
 import requests
@@ -273,7 +274,220 @@ class ServicePreflightMixin:
         radarr_queue_pending = get_radarr_webhook_queue().has_pending()
         sonarr_queue_pending = get_sonarr_webhook_queue().has_pending()
         root_poll_triggered = self._update_arr_root_folder_availability(force=False)
-        return radarr_queue_pending or sonarr_queue_pending or root_poll_triggered
+        history_poll_triggered = self._poll_arr_history_safety_trigger()
+        return (
+            radarr_queue_pending
+            or sonarr_queue_pending
+            or root_poll_triggered
+            or history_poll_triggered
+        )
+
+    def _poll_arr_history_safety_trigger(self) -> bool:
+        if self._arr_event_safety_poll_interval is None:
+            return False
+
+        now = time.time()
+        if now < self._next_arr_event_safety_poll_at:
+            return False
+
+        self._next_arr_event_safety_poll_at = now + max(1, self._arr_event_safety_poll_interval)
+        radarr_triggered = self._poll_radarr_history_for_safety_events()
+        sonarr_triggered = self._poll_sonarr_history_for_safety_events()
+        return radarr_triggered or sonarr_triggered
+
+    def _poll_radarr_history_for_safety_events(self) -> bool:
+        if not self.sync_enabled:
+            return False
+
+        return self._poll_arr_history_events(
+            arr_name="Radarr",
+            cursor_attr="_radarr_event_safety_cursor_id",
+            fetch_records=lambda: self.radarr.get_history(
+                page=1,
+                page_size=self._arr_event_safety_history_page_size,
+                sort_direction="descending",
+            ),
+            id_extractor=self._extract_radarr_history_movie_id,
+            enqueue=lambda item_id, event_type, normalized_path: get_radarr_webhook_queue().enqueue(
+                movie_id=item_id,
+                event_type=f"safety:{event_type}",
+                normalized_path=normalized_path,
+            ),
+        )
+
+    def _poll_sonarr_history_for_safety_events(self) -> bool:
+        if not self.sonarr_sync_enabled:
+            return False
+
+        return self._poll_arr_history_events(
+            arr_name="Sonarr",
+            cursor_attr="_sonarr_event_safety_cursor_id",
+            fetch_records=lambda: self.sonarr.get_history(
+                page=1,
+                page_size=self._arr_event_safety_history_page_size,
+                sort_direction="descending",
+            ),
+            id_extractor=self._extract_sonarr_history_series_id,
+            enqueue=lambda item_id, event_type, normalized_path: get_sonarr_webhook_queue().enqueue(
+                series_id=item_id,
+                event_type=f"safety:{event_type}",
+                normalized_path=normalized_path,
+            ),
+        )
+
+    def _poll_arr_history_events(
+        self,
+        *,
+        arr_name: str,
+        cursor_attr: str,
+        fetch_records,
+        id_extractor,
+        enqueue,
+    ) -> bool:
+        try:
+            records = fetch_records()
+        except Exception as exc:
+            if arr_name == "Radarr":
+                self._log_sync_config_hint(exc)
+            else:
+                self._log_sonarr_sync_config_hint(exc)
+            LOG.debug("%s safety history poll failed: %s", arr_name, exc)
+            return False
+
+        if not records:
+            return False
+
+        cursor_id = getattr(self, cursor_attr)
+        lookback_cutoff = self._history_bootstrap_cutoff_epoch(cursor_id)
+        latest_id = cursor_id
+        queued_any = False
+        queued_ids: set[int] = set()
+
+        for record in sorted(records, key=self._history_record_id):
+            event_id, queued_item_id = self._process_arr_history_record(
+                record=record,
+                cursor_id=cursor_id,
+                lookback_cutoff=lookback_cutoff,
+                id_extractor=id_extractor,
+                enqueue=enqueue,
+            )
+            if event_id is None:
+                continue
+            latest_id = event_id if latest_id is None else max(latest_id, event_id)
+            if queued_item_id is None:
+                continue
+            queued_any = True
+            queued_ids.add(queued_item_id)
+
+        if latest_id is not None:
+            setattr(self, cursor_attr, latest_id)
+
+        if queued_any:
+            LOG.info(
+                "%s safety history poll queued scoped reconcile ids=%s",
+                arr_name,
+                sorted(queued_ids),
+            )
+        return queued_any
+
+    def _process_arr_history_record(
+        self,
+        *,
+        record: dict,
+        cursor_id: int | None,
+        lookback_cutoff: float | None,
+        id_extractor,
+        enqueue,
+    ) -> tuple[int | None, int | None]:
+        event_id = self._history_record_id(record)
+        if event_id is None:
+            return None, None
+        if not self._should_process_history_record(record, event_id, cursor_id, lookback_cutoff):
+            return event_id, None
+
+        item_id = id_extractor(record)
+        if item_id is None:
+            return event_id, None
+
+        event_type = str(record.get("eventType") or "history")
+        normalized_path = self._extract_history_normalized_path(record)
+        outcome = enqueue(item_id, event_type, normalized_path)
+        if outcome.get("queued"):
+            return event_id, item_id
+        return event_id, None
+
+    def _should_process_history_record(
+        self,
+        record: dict,
+        event_id: int,
+        cursor_id: int | None,
+        lookback_cutoff: float | None,
+    ) -> bool:
+        if cursor_id is not None:
+            return event_id > cursor_id
+        if lookback_cutoff is None:
+            return False
+        event_time = self._history_record_epoch(record)
+        if event_time is None:
+            return True
+        return event_time >= lookback_cutoff
+
+    def _history_bootstrap_cutoff_epoch(self, cursor_id: int | None) -> float | None:
+        if cursor_id is not None:
+            return None
+        if self._arr_event_safety_bootstrap_lookback_seconds <= 0:
+            return None
+        return time.time() - float(self._arr_event_safety_bootstrap_lookback_seconds)
+
+    def _history_record_id(self, record: dict) -> int | None:
+        raw = record.get("id")
+        if isinstance(raw, int) and not isinstance(raw, bool):
+            return raw
+        return None
+
+    def _history_record_epoch(self, record: dict) -> float | None:
+        raw = record.get("date")
+        if not isinstance(raw, str) or not raw.strip():
+            return None
+        candidate = raw.strip()
+        if candidate.endswith("Z"):
+            candidate = candidate[:-1] + "+00:00"
+        try:
+            parsed = datetime.fromisoformat(candidate)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=UTC)
+        return parsed.timestamp()
+
+    def _extract_radarr_history_movie_id(self, record: dict) -> int | None:
+        movie_id = record.get("movieId")
+        if isinstance(movie_id, int) and not isinstance(movie_id, bool):
+            return movie_id
+        movie = record.get("movie")
+        if isinstance(movie, dict):
+            nested_id = movie.get("id")
+            if isinstance(nested_id, int) and not isinstance(nested_id, bool):
+                return nested_id
+        return None
+
+    def _extract_sonarr_history_series_id(self, record: dict) -> int | None:
+        series_id = record.get("seriesId")
+        if isinstance(series_id, int) and not isinstance(series_id, bool):
+            return series_id
+        series = record.get("series")
+        if isinstance(series, dict):
+            nested_id = series.get("id")
+            if isinstance(nested_id, int) and not isinstance(nested_id, bool):
+                return nested_id
+        return None
+
+    def _extract_history_normalized_path(self, record: dict) -> str:
+        for key in ("sourcePath", "path", "relativePath"):
+            value = record.get(key)
+            if isinstance(value, str) and value.strip():
+                return str(value).strip()
+        return ""
 
     def _normalize_arr_root_path(self, value: str) -> str:
         return str(value).strip().rstrip("/\\")

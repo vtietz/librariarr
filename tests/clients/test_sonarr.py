@@ -129,3 +129,34 @@ def test_request_does_not_retry_post_on_timeout(monkeypatch) -> None:
         raise AssertionError("Expected timeout to be raised for non-retried POST")
 
     assert calls["count"] == 1
+
+
+def test_get_history_reads_records_payload(monkeypatch) -> None:
+    client = SonarrClient(base_url="http://sonarr:8989", api_key="test")
+    calls: list[tuple[str, str, dict]] = []
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        return {"records": [{"id": 9}, {"id": 8}]}
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    records = client.get_history(page=3, page_size=40)
+
+    assert [record["id"] for record in records] == [9, 8]
+    assert len(calls) == 1
+    method, path, kwargs = calls[0]
+    assert method == "GET"
+    assert path == "/history"
+    assert kwargs["params"]["page"] == 3
+    assert kwargs["params"]["pageSize"] == 40
+
+
+def test_get_history_supports_list_payload(monkeypatch) -> None:
+    client = SonarrClient(base_url="http://sonarr:8989", api_key="test")
+
+    monkeypatch.setattr(client, "_request", lambda method, path, **kwargs: [{"id": 1}, "bad"])
+
+    records = client.get_history()
+
+    assert records == [{"id": 1}]

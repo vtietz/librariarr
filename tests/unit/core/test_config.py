@@ -63,6 +63,9 @@ def test_load_config_reads_yaml_values(tmp_path: Path, monkeypatch) -> None:
     assert config.cleanup.sonarr_action_on_missing == "unmonitor"
     assert config.cleanup.missing_grace_seconds == 3600
     assert config.runtime.arr_root_poll_interval_minutes == 1
+    assert config.runtime.arr_event_safety_poll_interval_minutes == 10
+    assert config.runtime.arr_event_safety_bootstrap_lookback_minutes == 0
+    assert config.runtime.arr_event_safety_history_page_size == 100
     assert config.analysis.use_nfo is False
     assert config.analysis.use_media_probe is False
     assert config.analysis.media_probe_bin == "ffprobe"
@@ -261,6 +264,36 @@ def test_load_config_reads_arr_root_poll_interval(tmp_path: Path) -> None:
     config = load_config(config_path)
 
     assert config.runtime.arr_root_poll_interval_minutes == 3
+
+
+def test_load_config_reads_arr_event_safety_runtime_values(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.yaml"
+    config_path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            "    - nested_root: /data/movies/one\n"
+            "      shadow_root: /data/radarr_library/one\n"
+            "  movie_root_mappings:\n"
+            "    - managed_root: /data/movies/one\n"
+            "      library_root: /data/radarr_library/one\n"
+            "radarr:\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "cleanup: {}\n"
+            "runtime:\n"
+            "  arr_event_safety_poll_interval_minutes: 2\n"
+            "  arr_event_safety_bootstrap_lookback_minutes: 15\n"
+            "  arr_event_safety_history_page_size: 250\n"
+        ),
+        encoding="utf-8",
+    )
+
+    config = load_config(config_path)
+
+    assert config.runtime.arr_event_safety_poll_interval_minutes == 2
+    assert config.runtime.arr_event_safety_bootstrap_lookback_minutes == 15
+    assert config.runtime.arr_event_safety_history_page_size == 250
 
 
 def test_load_config_ignores_legacy_preserve_unknown_files_flags(tmp_path: Path) -> None:

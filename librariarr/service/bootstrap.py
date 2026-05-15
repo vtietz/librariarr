@@ -88,16 +88,36 @@ class ServiceBootstrapMixin:
         self._polling_fallback_interval_seconds = config.runtime.polling_fallback_interval_seconds
         maintenance_minutes = config.runtime.maintenance_interval_minutes
         root_poll_minutes = config.runtime.arr_root_poll_interval_minutes
+        arr_event_safety_poll_minutes = config.runtime.arr_event_safety_poll_interval_minutes
+        arr_event_safety_lookback_minutes = (
+            config.runtime.arr_event_safety_bootstrap_lookback_minutes
+        )
         self._maintenance_interval = (
             None if maintenance_minutes <= 0 else max(60, maintenance_minutes * 60)
         )
         self._arr_root_poll_interval = (
             None if root_poll_minutes <= 0 else max(15, root_poll_minutes * 60)
         )
+        self._arr_event_safety_poll_interval = (
+            None
+            if arr_event_safety_poll_minutes <= 0
+            else max(60, arr_event_safety_poll_minutes * 60)
+        )
+        self._arr_event_safety_bootstrap_lookback_seconds = max(
+            0,
+            arr_event_safety_lookback_minutes * 60,
+        )
+        self._arr_event_safety_history_page_size = max(
+            10,
+            min(500, config.runtime.arr_event_safety_history_page_size),
+        )
         self._lock = threading.Lock()
         self._sync_hint_logged = False
         self._sonarr_sync_hint_logged = False
         self._next_arr_root_poll_at = 0.0
+        self._next_arr_event_safety_poll_at = 0.0
+        self._radarr_event_safety_cursor_id: int | None = None
+        self._sonarr_event_safety_cursor_id: int | None = None
         self._radarr_missing_managed_roots: set[str] = set()
         self._sonarr_missing_managed_roots: set[str] = set()
         self.runtime_status_tracker = get_runtime_status_tracker()
@@ -154,7 +174,10 @@ class ServiceBootstrapMixin:
         LOG.info(
             "  Runtime: startup_reconcile_mode=%s debounce_seconds=%s "
             "maintenance_interval_seconds=%s "
-            "arr_root_poll_interval_seconds=%s",
+            "arr_root_poll_interval_seconds=%s "
+            "arr_event_safety_poll_interval_seconds=%s "
+            "arr_event_safety_bootstrap_lookback_seconds=%s "
+            "arr_event_safety_history_page_size=%s",
             self._startup_reconcile_mode,
             self._debounce_seconds,
             self._maintenance_interval if self._maintenance_interval is not None else "disabled",
@@ -163,6 +186,13 @@ class ServiceBootstrapMixin:
                 if self._arr_root_poll_interval is not None
                 else "disabled"
             ),
+            (
+                self._arr_event_safety_poll_interval
+                if self._arr_event_safety_poll_interval is not None
+                else "disabled"
+            ),
+            self._arr_event_safety_bootstrap_lookback_seconds,
+            self._arr_event_safety_history_page_size,
         )
         LOG.info("====================================================")
         for managed_root, library_root in self.movie_root_mappings:

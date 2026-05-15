@@ -3,8 +3,31 @@ from pathlib import Path
 import requests
 
 from librariarr.config import CustomFormatRule, QualityRule
+from librariarr.projection import get_radarr_webhook_queue, get_sonarr_webhook_queue
 from librariarr.service import LibrariArrService
 from tests.service.helpers import FakeRadarr, make_config
+
+
+class _FakeSonarr:
+    def __init__(self, history_records: list[dict] | None = None) -> None:
+        self.history_records = history_records or []
+
+    def get_root_folders(self) -> list[dict]:
+        return []
+
+    def get_history(self, **kwargs) -> list[dict]:
+        del kwargs
+        return list(self.history_records)
+
+
+class _FakeRadarrWithHistory(FakeRadarr):
+    def __init__(self, history_records: list[dict]) -> None:
+        super().__init__(root_folders=[])
+        self.history_records = list(history_records)
+
+    def get_history(self, **kwargs) -> list[dict]:
+        del kwargs
+        return list(self.history_records)
 
 
 def test_sync_hint_logs_actionable_message_for_unauthorized_radarr(
@@ -200,3 +223,70 @@ def test_sync_preflight_warns_when_custom_format_id_missing(tmp_path: Path, capl
 
     assert "radarr.mapping.custom_format_map format_id values not found" in caplog.text
     assert "missing_ids=[999]" in caplog.text
+
+
+def test_arr_history_safety_poll_queues_both_radarr_and_sonarr(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.sonarr.enabled = True
+    config.sonarr.sync_enabled = True
+    config.sonarr.url = "http://sonarr:8989"
+    config.sonarr.api_key = "test"
+    config.runtime.arr_event_safety_poll_interval_minutes = 1
+    config.runtime.arr_event_safety_bootstrap_lookback_minutes = 60
+
+    service = LibrariArrService(config)
+    service.radarr = _FakeRadarrWithHistory(
+        [{"id": 11, "date": "2025-01-01T01:00:00Z", "movieId": 101, "eventType": "download"}]
+    )
+    service.sonarr = _FakeSonarr(
+        [{"id": 22, "date": "2025-01-01T01:00:00Z", "seriesId": 202, "eventType": "grabbed"}]
+    )
+
+    radarr_queue = get_radarr_webhook_queue()
+    sonarr_queue = get_sonarr_webhook_queue()
+    radarr_queue.consume_movie_ids()
+    sonarr_queue.consume_series_ids()
+
+    monkeypatch.setattr("librariarr.service.preflight.time.time", lambda: 1735696800.0)
+
+    assert service._poll_arr_root_reconcile_trigger() is True
+
+    assert radarr_queue.consume_movie_ids() == {101}
+    assert sonarr_queue.consume_series_ids() == {202}
+
+
+def test_arr_history_safety_poll_bootstrap_without_lookback_only_sets_cursor(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "library"
+    nested_root.mkdir(parents=True)
+
+    config = make_config(nested_root, shadow_root, sync_enabled=True)
+    config.runtime.arr_event_safety_poll_interval_minutes = 1
+    config.runtime.arr_event_safety_bootstrap_lookback_minutes = 0
+
+    service = LibrariArrService(config)
+    history_records = [{"id": 50, "date": "2025-01-01T01:00:00Z", "movieId": 42}]
+    service.radarr = _FakeRadarrWithHistory(history_records)
+
+    radarr_queue = get_radarr_webhook_queue()
+    radarr_queue.consume_movie_ids()
+
+    now = {"value": 1735696800.0}
+    monkeypatch.setattr("librariarr.service.preflight.time.time", lambda: now["value"])
+
+    assert service._poll_arr_root_reconcile_trigger() is False
+    assert radarr_queue.consume_movie_ids() == set()
+    assert service._radarr_event_safety_cursor_id == 50
+
+    service.radarr.history_records.append({"id": 51, "date": "2025-01-01T01:02:00Z", "movieId": 43})
+    now["value"] += 61.0
+    assert service._poll_arr_root_reconcile_trigger() is True
+
+    assert radarr_queue.consume_movie_ids() == {43}
