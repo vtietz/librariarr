@@ -22,6 +22,8 @@ class DashboardReadModel:
     _TASK_STALE_AFTER_SECONDS = 300
     _TASK_AUTO_FAIL_AFTER_SECONDS = 900
     _UNMANAGED_SHADOW_WARN_THRESHOLD = 1
+    _MAPPED_REFRESH_INTERVAL_RUNNING_SECONDS = 10.0
+    _MAPPED_REFRESH_INTERVAL_IDLE_SECONDS = 30.0
     _DISCOVERY_REFRESH_INTERVAL_SECONDS = 30.0
 
     def __init__(
@@ -56,6 +58,7 @@ class DashboardReadModel:
         }
         self._failure_count = 0
         self._last_refresh_error: str | None = None
+        self._last_mapped_refresh_request = 0.0
         self._last_discovery_refresh_request = 0.0
 
     def start(self) -> None:
@@ -117,6 +120,11 @@ class DashboardReadModel:
                     self.state_store.save_dashboard(stale_snapshot)
 
     def _build_snapshot(self) -> dict[str, Any]:
+        runtime_payload = self.runtime_status_tracker.snapshot()
+        reconcile_running = bool(
+            (runtime_payload.get("current_task") or {}).get("state") == "running"
+        )
+        self._maybe_schedule_mapped_refresh(reconcile_running=reconcile_running)
         self._maybe_schedule_discovery_refresh()
         self.runtime_status_tracker.fail_stale_running_task(
             max_age_seconds=self._TASK_AUTO_FAIL_AFTER_SECONDS,
@@ -149,6 +157,41 @@ class DashboardReadModel:
         payload["health"] = self._build_health(payload, jobs_summary_payload)
         payload["updated_at"] = time.time()
         return payload
+
+    def _maybe_schedule_mapped_refresh(self, *, reconcile_running: bool) -> None:
+        if self.config_path is None:
+            return
+
+        interval_seconds = (
+            self._MAPPED_REFRESH_INTERVAL_RUNNING_SECONDS
+            if reconcile_running
+            else self._MAPPED_REFRESH_INTERVAL_IDLE_SECONDS
+        )
+
+        now = time.time()
+        if now - self._last_mapped_refresh_request < interval_seconds:
+            return
+
+        cache = self.mapped_cache.snapshot()
+        if bool(cache.get("building")):
+            self._last_mapped_refresh_request = now
+            return
+
+        updated_at_ms = cache.get("updated_at_ms")
+        if isinstance(updated_at_ms, int | float):
+            age_seconds = max(0.0, now - (float(updated_at_ms) / 1000.0))
+            if age_seconds < interval_seconds:
+                return
+
+        try:
+            config = load_config(self.config_path)
+        except Exception as exc:
+            LOG.debug("Mapped cache refresh skipped (config load failed): %s", exc)
+            self._last_mapped_refresh_request = now
+            return
+
+        self.mapped_cache.request_refresh(config, force=False)
+        self._last_mapped_refresh_request = now
 
     def _maybe_schedule_discovery_refresh(self) -> None:
         if self.config_path is None:
@@ -291,7 +334,7 @@ class DashboardReadModel:
                 if allow_stale_while_running:
                     reasons.append(
                         f"{cache_name} is stale ({int(age_seconds)}s old); "
-                        "refresh deferred while sync is running"
+                        "refreshing in background during sync"
                     )
                 else:
                     status = "degraded"
