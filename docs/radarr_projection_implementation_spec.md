@@ -239,6 +239,12 @@ Rules:
   - destination inode still matches recorded provenance inode/dev metadata.
 - If destination already disappeared, only the stale provenance row is pruned.
 
+Additional convergence guard:
+- In directories that already contain tracked projected outputs, unmanaged shadow
+  video leftovers are **soft-deleted** to `shadow_root/.deletedByLibrariarr/...`
+  (moved, not unlinked) so startup/manual/full reconcile converges warning state
+  without risking managed-root data loss.
+
 Scoping:
 - Full reconcile: evaluates matched IDs from that cycle.
 - Incremental reconcile: additionally constrained by affected-path target mapping.

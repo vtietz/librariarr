@@ -10,6 +10,7 @@ from typing import Any
 
 from ..core.cleanup_policy import build_cleanup_tasks
 from ..projection.planner import classify_file
+from .shadow_soft_delete import soft_delete_unmanaged_shadow_video_files
 
 LOG = logging.getLogger(__name__)
 
@@ -107,44 +108,29 @@ def resolve_managed_root_for_folder(
     return None
 
 
-def current_reconcile_source(runtime_status_tracker) -> str:
-    if runtime_status_tracker is None:
-        return "direct"
-
-    try:
-        snapshot = runtime_status_tracker.snapshot()
-    except Exception:
-        return "direct"
-
-    if not isinstance(snapshot, dict):
-        return "direct"
-
-    current_task = snapshot.get("current_task")
-    if not isinstance(current_task, dict):
-        return "direct"
-
-    trigger_source = current_task.get("trigger_source")
-    if isinstance(trigger_source, str) and trigger_source.strip():
-        return trigger_source
-
-    return "direct"
-
-
 def managed_equivalent_path(path_raw: str, mappings: list[tuple[Path, Path]]) -> Path | None:
-    path = Path(path_raw)
-    for managed_root, library_root in mappings:
-        try:
-            relative = path.relative_to(managed_root)
-        except ValueError:
-            pass
-        else:
-            return managed_root / relative
+    if not path_raw.strip():
+        return None
+
+    path = Path(path_raw).resolve(strict=False)
+    sorted_mappings = sorted(mappings, key=lambda item: len(item[1].parts), reverse=True)
+    for managed_root, library_root in sorted_mappings:
+        managed_root = managed_root.resolve(strict=False)
+        library_root = library_root.resolve(strict=False)
 
         try:
             relative = path.relative_to(library_root)
         except ValueError:
+            relative = None
+        if relative is not None:
+            return (managed_root / relative).resolve(strict=False)
+
+        try:
+            path.relative_to(managed_root)
+        except ValueError:
             continue
-        return managed_root / relative
+        return path
+
     return None
 
 
@@ -153,19 +139,22 @@ def resolve_cleanup_targets(
     affected_paths: set[Path] | None,
     mappings: list[tuple[Path, Path]],
 ) -> set[Path]:
-    """Map affected managed/library paths to library-target cleanup scope."""
     if not affected_paths:
         return set()
 
     targets: set[Path] = set()
-    for affected in affected_paths:
-        resolved = affected.resolve(strict=False)
-        for managed_root, library_root in mappings:
+    resolved_affected = {path.resolve(strict=False) for path in affected_paths}
+    for managed_root, library_root in mappings:
+        managed_root = managed_root.resolve(strict=False)
+        library_root = library_root.resolve(strict=False)
+
+        for resolved in resolved_affected:
             try:
                 relative = resolved.relative_to(managed_root)
             except ValueError:
-                pass
-            else:
+                relative = None
+
+            if relative is not None:
                 targets.add((library_root / relative).resolve(strict=False))
                 targets.add(library_root.resolve(strict=False))
                 continue
@@ -188,6 +177,7 @@ def run_stale_shadow_cleanup(
     series_root_mappings: list[tuple[Path, Path]],
     movie_projection_metrics: dict[str, Any],
     series_projection_metrics: dict[str, Any],
+    video_exts: set[str],
     radarr_enabled: bool,
     sonarr_enabled: bool,
     movie_projection,
@@ -243,7 +233,48 @@ def run_stale_shadow_cleanup(
 
     if removed_orphans > 0:
         LOG.info("Stale shadow cleanup removed %s orphaned managed file(s)", removed_orphans)
+
+    soft_deleted_unmanaged = soft_delete_unmanaged_shadow_video_files(
+        movie_projection=movie_projection,
+        sonarr_projection=sonarr_projection,
+        movie_candidate_ids=matched_movie_ids,
+        series_candidate_ids=matched_series_ids,
+        video_exts=video_exts,
+    )
+    if soft_deleted_unmanaged > 0:
+        LOG.info(
+            "Stale shadow cleanup soft-deleted %s unmanaged shadow video file(s)",
+            soft_deleted_unmanaged,
+        )
+
+    removed_orphans += soft_deleted_unmanaged
     return removed_orphans
+
+
+def current_reconcile_source(runtime_status_tracker) -> str:
+    default_source = "manual"
+    if runtime_status_tracker is None:
+        return default_source
+
+    get_status = getattr(runtime_status_tracker, "get_status", None)
+    if not callable(get_status):
+        return default_source
+
+    try:
+        status = get_status()
+    except Exception:
+        return default_source
+
+    if not isinstance(status, dict):
+        return default_source
+    current_task = status.get("current_task")
+    if not isinstance(current_task, dict):
+        return default_source
+
+    trigger_source = current_task.get("trigger_source")
+    if isinstance(trigger_source, str) and trigger_source.strip():
+        return trigger_source
+    return default_source
 
 
 @dataclass(frozen=True)

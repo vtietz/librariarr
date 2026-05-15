@@ -39,6 +39,8 @@ On each reconcile cycle, LibrariArr performs:
 6. Run movie projection from Radarr movie inventory + movie root mappings.
 7. Run series projection from Sonarr series inventory + series root mappings.
 8. Run conservative stale-shadow cleanup for provenance-managed stale outputs.
+9. Soft-delete unmanaged shadow video leftovers in projected folders to
+  `.deletedByLibrariarr` (managed roots are never auto-deleted).
 9. Publish reconcile metrics/status.
 
 For detailed scenario-by-scenario outcomes (including manual/startup/full reconcile semantics),

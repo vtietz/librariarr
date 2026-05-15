@@ -192,6 +192,7 @@ class ServiceReconcileLifecycleMixin:
             series_root_mappings=self.series_root_mappings,
             movie_projection_metrics=movie_projection_metrics,
             series_projection_metrics=series_projection_metrics,
+            video_exts=self.video_exts,
             radarr_enabled=bool(self.radarr_enabled and self.movie_projection is not None),
             sonarr_enabled=bool(
                 self.sonarr_enabled

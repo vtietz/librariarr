@@ -15,6 +15,8 @@ One reconcile cycle does this in order:
 4. Project managed files to library/shadow roots via hardlinks.
 5. Run discovery/auto-add for unmatched managed folders.
 6. Run conservative stale-shadow cleanup for provenance-managed stale outputs.
+7. Soft-delete unmanaged shadow video leftovers in already-projected folders
+  (`.deletedByLibrariarr` quarantine), while never deleting managed-root files.
 
 Reconcile can be:
 
@@ -73,6 +75,7 @@ The scenarios below are intentionally ordered the same for Radarr and Sonarr.
 | 6 | Extras and unknown files policy | classify files -> apply allowlist -> project -> preserve/replace unknown by config | Video + allowlisted extras projected; unknown preserve/replace follows config | Video + allowlisted extras projected; non-allowlisted skipped | [x] Radarr, [x] Sonarr | No major gap |
 | 7 | Missing managed source folder | resolve IDs -> source existence check -> skip safely | Movie skipped; no invalid projection output | Series skipped; no invalid projection output | [x] Radarr, [x] Sonarr | No major gap |
 | 8 | Duplicate prevention / no back-ingest of projection output | reconcile cycle repetition -> ingest guardrails -> projection idempotency | Projection folders are not moved back into managed root as duplicates | Projected shadow output does not trigger duplicate folder moves; only new files are ingested into existing nested source | [x] Radarr, [x] Sonarr | No major gap |
+| 9 | Stale unmanaged shadow leftovers in projected folders | reconcile -> provenance cleanup -> shadow soft-delete cleanup | Untracked stale shadow videos in projected movie folders are moved to `.deletedByLibrariarr`; managed files remain untouched | Untracked stale shadow videos in projected series folders are moved to `.deletedByLibrariarr`; managed files remain untouched | [x] Unit | No major gap |
 
 Ingest replacement delete mode:
 
