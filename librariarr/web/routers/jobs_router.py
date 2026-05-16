@@ -40,4 +40,17 @@ def build_jobs_router(*, job_manager_or_http_fn: Callable[[Request], Any]) -> AP
             raise HTTPException(status_code=404, detail="Job not found")
         return result
 
+    @router.delete("/api/jobs/{job_id}")
+    def jobs_delete(job_id: str, request: Request) -> dict[str, Any]:
+        manager = job_manager_or_http_fn(request)
+        result = manager.delete(job_id)
+        if result is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return result
+
+    @router.post("/api/jobs/clear-completed")
+    def jobs_clear_completed(request: Request) -> dict[str, Any]:
+        manager = job_manager_or_http_fn(request)
+        return manager.clear_completed()
+
     return router

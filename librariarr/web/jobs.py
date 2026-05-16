@@ -165,6 +165,52 @@ class JobManager:
                 "message": "Cancellation requested for running job.",
             }
 
+    def delete(self, job_id: str) -> dict[str, Any] | None:
+        with self._lock:
+            self._sync_from_store_locked()
+            item = self._jobs.get(job_id)
+            if item is None:
+                return None
+
+            status = str(item.get("status") or "")
+            if status in {"queued", "running"}:
+                return {
+                    "ok": False,
+                    "job_id": job_id,
+                    "status": status,
+                    "message": "Active jobs cannot be deleted.",
+                }
+
+            self._jobs.pop(job_id, None)
+            self._order = [existing for existing in self._order if existing != job_id]
+            self._persist_locked()
+            return {
+                "ok": True,
+                "job_id": job_id,
+                "status": status,
+                "message": "Job deleted.",
+            }
+
+    def clear_completed(self) -> dict[str, Any]:
+        with self._lock:
+            self._sync_from_store_locked()
+            terminal_ids = [
+                job_id
+                for job_id in self._order
+                if str(self._jobs.get(job_id, {}).get("status") or "")
+                in {"succeeded", "failed", "canceled"}
+            ]
+            if terminal_ids:
+                terminal_lookup = set(terminal_ids)
+                for job_id in terminal_ids:
+                    self._jobs.pop(job_id, None)
+                self._order = [job_id for job_id in self._order if job_id not in terminal_lookup]
+                self._persist_locked()
+            return {
+                "ok": True,
+                "removed": len(terminal_ids),
+            }
+
     def list(self, *, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
         with self._lock:
             self._sync_from_store_locked()

@@ -406,6 +406,19 @@ export const cancelJob = async (jobId: string) => {
   }>(`/jobs/${jobId}/cancel`);
   return data;
 };
+export const clearCompletedJobs = async () => {
+  const { data } = await api.post<{ ok: boolean; removed: number }>("/jobs/clear-completed");
+  return data;
+};
+export const deleteJob = async (jobId: string) => {
+  const { data } = await api.delete<{
+    ok: boolean;
+    job_id: string;
+    status: string;
+    message: string;
+  }>(`/jobs/${jobId}`);
+  return data;
+};
 export const getRuntimeStatus = async () => {
   const { data } = await api.get<RuntimeStatusResponse>("/runtime/status");
   return data;

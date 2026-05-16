@@ -1,7 +1,7 @@
 import { Badge, Button, Card, Group, Loader, Stack, Text, ThemeIcon } from "@mantine/core";
 import { IconCheck, IconCircleDot, IconClock } from "@tabler/icons-react";
 import type { RuntimeStatusResponse } from "../../api/client";
-import { formatAge, formatElapsed } from "../dashboardFormatters";
+import { formatAge, formatDurationSeconds, formatElapsed } from "../dashboardFormatters";
 
 type Props = {
   hasUnsavedChanges: boolean;
@@ -251,7 +251,7 @@ function buildLastSyncText(
   const parts = [`Last sync ${formatAge(lastReconcile.finished_at)}`];
 
   if (typeof lastReconcile.duration_seconds === "number") {
-    parts.push(`${lastReconcile.duration_seconds.toFixed(1)}s`);
+    parts.push(formatDurationSeconds(lastReconcile.duration_seconds));
   }
 
   const createdLinks = lastReconcile.created_links ?? 0;
