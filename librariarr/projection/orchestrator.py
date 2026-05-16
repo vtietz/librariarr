@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -10,11 +11,32 @@ import requests
 
 from ..clients.radarr import RadarrClient
 from ..config import AppConfig
+from ..sync.naming import parse_movie_ref
 from .bootstrap import probe_movie_root_mappings
 from .executor import MovieProjectionExecutor
 from .models import MovieProjectionMapping, MovieProjectionPlan
 from .planner import build_movie_projection_plans, repair_unmatched_managed_folders
 from .provenance import ProjectionStateStore
+
+TITLE_TOKEN_RE = re.compile(r"[a-z0-9]+")
+TITLE_STOPWORDS = {
+    "a",
+    "an",
+    "the",
+    "der",
+    "die",
+    "das",
+    "ein",
+    "eine",
+    "le",
+    "la",
+    "les",
+    "el",
+    "los",
+    "las",
+    "un",
+    "une",
+}
 
 
 class MovieProjectionOrchestrator:
@@ -138,6 +160,19 @@ class MovieProjectionOrchestrator:
                 continue
             discovered_by_movie.setdefault(movie_id, set()).add(source_parent)
 
+        movies_by_id = {
+            int(movie_id): movie
+            for movie in movies
+            for movie_id in [movie.get("id")]
+            if isinstance(movie_id, int)
+        }
+
+        folders_in_use_by_other_movie = {
+            str(path): movie_id
+            for movie_id, path in existing.items()
+            if path.exists() and path.is_dir()
+        }
+
         repairs: list[tuple[int, Path]] = []
         for movie_id, candidates in discovered_by_movie.items():
             known = existing.get(movie_id)
@@ -150,7 +185,33 @@ class MovieProjectionOrchestrator:
                 continue
             if len(candidates) != 1:
                 continue
-            repairs.append((movie_id, next(iter(candidates))))
+
+            candidate = next(iter(candidates))
+            movie = movies_by_id.get(movie_id)
+            if movie is None:
+                continue
+            if _stored_folder_conflicts_with_movie(movie, candidate):
+                self.log.warning(
+                    "Skipping provenance backfill for movie_id=%s because candidate folder "
+                    "title/year conflicts with metadata: %s",
+                    movie_id,
+                    candidate,
+                )
+                continue
+
+            existing_owner = folders_in_use_by_other_movie.get(str(candidate))
+            if existing_owner is not None and existing_owner != movie_id:
+                self.log.warning(
+                    "Skipping provenance backfill for movie_id=%s because candidate folder "
+                    "is already mapped to movie_id=%s: %s",
+                    movie_id,
+                    existing_owner,
+                    candidate,
+                )
+                continue
+
+            repairs.append((movie_id, candidate))
+            folders_in_use_by_other_movie[str(candidate)] = movie_id
 
         if repairs:
             self.state_store.set_managed_folders_bulk(repairs)
@@ -495,3 +556,29 @@ def _is_under_any_target(path: Path, targets: set[Path]) -> bool:
 
 def _is_under_any_root(path: Path, roots: list[Path]) -> bool:
     return any(path == root or root in path.parents for root in roots)
+
+
+def _title_words(value: str) -> set[str]:
+    words = [token for token in TITLE_TOKEN_RE.findall(value.strip().lower()) if token]
+    if not words:
+        return set()
+    filtered = [token for token in words if token not in TITLE_STOPWORDS]
+    return set(filtered or words)
+
+
+def _stored_folder_conflicts_with_movie(item: dict[str, Any], stored_folder: Path) -> bool:
+    ref = parse_movie_ref(stored_folder.name)
+    movie_title = str(item.get("title") or "").strip().lower()
+    movie_year = item.get("year")
+
+    if isinstance(movie_year, int) and ref.year is not None and movie_year != ref.year:
+        return True
+
+    if not movie_title or not ref.title:
+        return False
+
+    movie_words = _title_words(movie_title)
+    folder_words = _title_words(ref.title)
+    if not movie_words or not folder_words:
+        return False
+    return movie_words.isdisjoint(folder_words)

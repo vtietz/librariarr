@@ -169,3 +169,82 @@ def test_backfill_skips_ambiguous_managed_folders(tmp_path: Path) -> None:
 
     assert repaired == 0
     assert 99 not in managed_map
+
+
+def test_backfill_skips_conflicting_managed_folder_title(tmp_path: Path) -> None:
+    orchestrator, _radarr, config = _make_orchestrator(tmp_path)
+    managed_root = Path(config.paths.movie_root_mappings[0].managed_root)
+    library_root = Path(config.paths.movie_root_mappings[0].library_root)
+
+    wrong_folder = managed_root / "Zwei Banditen (1969) FSK16"
+    wrong_folder.mkdir(parents=True)
+    (wrong_folder / "movie.mkv").write_text("x")
+
+    orchestrator.state_store.upsert_projected_files(
+        [
+            ProjectedFileState(
+                movie_id=3775,
+                dest_path=str(library_root / "Z (1969)" / "movie.mkv"),
+                source_path=str(wrong_folder / "movie.mkv"),
+                kind="video",
+                managed=True,
+                source_dev=None,
+                source_inode=None,
+                size=1,
+                mtime=1.0,
+                file_hash=None,
+            )
+        ]
+    )
+
+    repaired = orchestrator._backfill_managed_folder_mappings_from_provenance(
+        [{"id": 3775, "title": "Z", "year": 1969, "path": str(library_root / "Z (1969)")}]
+    )
+
+    managed_map = orchestrator.state_store.get_managed_folders_by_movie_ids()
+    assert repaired == 0
+    assert 3775 not in managed_map
+
+
+def test_backfill_skips_folder_already_mapped_to_other_movie(tmp_path: Path) -> None:
+    orchestrator, _radarr, config = _make_orchestrator(tmp_path)
+    managed_root = Path(config.paths.movie_root_mappings[0].managed_root)
+    library_root = Path(config.paths.movie_root_mappings[0].library_root)
+
+    shared_folder = managed_root / "Shared Folder (2001)"
+    shared_folder.mkdir(parents=True)
+    (shared_folder / "movie.mkv").write_text("x")
+    orchestrator.state_store.set_managed_folders_bulk([(1001, shared_folder)])
+
+    orchestrator.state_store.upsert_projected_files(
+        [
+            ProjectedFileState(
+                movie_id=1002,
+                dest_path=str(library_root / "Shared Folder (2001)" / "movie.mkv"),
+                source_path=str(shared_folder / "movie.mkv"),
+                kind="video",
+                managed=True,
+                source_dev=None,
+                source_inode=None,
+                size=1,
+                mtime=1.0,
+                file_hash=None,
+            )
+        ]
+    )
+
+    repaired = orchestrator._backfill_managed_folder_mappings_from_provenance(
+        [
+            {
+                "id": 1002,
+                "title": "Shared Folder",
+                "year": 2001,
+                "path": str(library_root / "Shared Folder (2001)"),
+            }
+        ]
+    )
+
+    managed_map = orchestrator.state_store.get_managed_folders_by_movie_ids()
+    assert repaired == 0
+    assert managed_map[1001] == shared_folder
+    assert 1002 not in managed_map
