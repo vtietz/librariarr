@@ -13,6 +13,9 @@ SSH into `$ARGUMENTS` and follow the two-phase playbook below.
 - Maintain two explicit shell contexts whenever possible:
 	- `LOCAL` shell: project workspace commands (tests, edits, git, wrappers).
 	- `REMOTE` shell: SSH host diagnostics and host-side actions.
+- Project wrapper CLI commands (`./run.sh ...`) are `LOCAL`-only.
+	- Do not run project test/quality/e2e commands on the remote host (especially DiskStation).
+	- If a remote incident needs a code fix, apply the fix locally, then run validation locally.
 - Reuse the same `REMOTE` terminal once authenticated; do not create multiple parallel SSH shells unless the user asks.
 - Never run `ssh ...` from inside an already remote prompt unless the user explicitly requests host hopping.
 - Never attempt to read remote command results from local temporary files or editor artifact paths.
@@ -57,6 +60,7 @@ After confirming the root cause with the user:
 2. **Read the code** before editing — never modify code you haven't read.
 3. **Apply a minimal, targeted fix** — change only what the diagnostic justifies.
 4. **Verify** — run `./run.sh test` and `./run.sh quality` after changes.
+	- This verification is local-only; never execute these project wrapper commands on DiskStation.
 5. **Summarise** — explain what was wrong and what was changed, referencing the specific log line or error.
 
 ## Interactive Prompt Discipline
@@ -80,6 +84,8 @@ After confirming the root cause with the user:
 - DO NOT make sweeping refactors; scope code changes to exactly what the diagnostic revealed.
 - DO NOT run nested SSH from a remote shell unless explicitly requested.
 - DO NOT use local editor artifact paths as a substitute for remote terminal output.
+- DO NOT run project wrapper test/quality commands on remote hosts (for example DiskStation);
+	use the local workspace wrapper flow for validation.
 
 ## Output Format
 
