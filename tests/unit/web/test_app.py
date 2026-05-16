@@ -462,6 +462,7 @@ def test_mapped_directories_lists_virtual_to_real_paths(tmp_path: Path) -> None:
     assert len(payload["items"]) == 1
     assert payload["items"][0]["virtual_path"] == str(shadow_link)
     assert payload["items"][0]["real_path"] == str(movie_dir)
+    assert payload["items"][0]["entry_type"] == "symlink"
     assert "cache" in payload
     assert payload["cache"]["version"] >= 1
     assert isinstance(payload["cache"]["ready"], bool)

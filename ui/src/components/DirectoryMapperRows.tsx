@@ -12,6 +12,7 @@ import {
 import { memo, useState } from "react";
 
 export type MappedDirectory = {
+  entry_type?: string;
   shadow_root: string;
   virtual_path: string;
   real_path: string;
@@ -183,6 +184,17 @@ function fallbackOutcomeColor(mapped: MappedDirectory): string {
   }
 }
 
+function entryTypeBadge(type: string | undefined): { label: string; color: string; code: string } {
+  switch (type) {
+    case "symlink":
+      return { label: "Symlink", color: "blue", code: "L" };
+    case "directory":
+      return { label: "Directory", color: "grape", code: "D" };
+    default:
+      return { label: "Entry", color: "gray", code: "E" };
+  }
+}
+
 const MappedRows = memo(function MappedRows({
   directories,
   cacheUpdatedAtMs,
@@ -211,6 +223,11 @@ const MappedRows = memo(function MappedRows({
         const arrCode = arrBadge.label[0];
         const arrTooltip = `${arrCode} → ${arrBadge.label}${mapped.arr_title ? ` · ${mapped.arr_title}` : ""}`;
         const hasStoredOutcome = Boolean(mapped.last_reconcile_status);
+        const typeBadge = entryTypeBadge(mapped.entry_type);
+        const pathPairLooksSame =
+          mapped.entry_type === "directory" &&
+          mapped.virtual_path.trim().length > 0 &&
+          mapped.virtual_path === mapped.real_path;
         const resultLabel = hasStoredOutcome
           ? lastOutcomeBadge(mapped.last_reconcile_status).label.replace("Last reconcile: ", "")
           : fallbackOutcomeText(mapped);
@@ -232,6 +249,11 @@ const MappedRows = memo(function MappedRows({
           <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Group gap="xs" wrap="nowrap" w="100%">
               <PathCell value={mapped.virtual_path} onCopy={onCopy} />
+              <Tooltip label={typeBadge.label}>
+                <ThemeIcon size="sm" radius="xl" variant="light" color={typeBadge.color}>
+                  <Text size="10px" fw={700}>{typeBadge.code}</Text>
+                </ThemeIcon>
+              </Tooltip>
               {mapped.virtual_path.trim().length > 0 && (
                 <Tooltip label="Remove shadow folder">
                   <ActionIcon
@@ -249,7 +271,14 @@ const MappedRows = memo(function MappedRows({
             </Group>
           </Table.Td>
           <Table.Td style={{ width: "33%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
-            <PathCell value={mapped.real_path} onCopy={onCopy} onOpen={onOpen} />
+            <Group gap={6} wrap="nowrap" w="100%">
+              <PathCell value={mapped.real_path} onCopy={onCopy} onOpen={onOpen} />
+              {pathPairLooksSame ? (
+                <Tooltip label="Expected for real directories (not a symlink)">
+                  <Text size="xs" c="dimmed">same</Text>
+                </Tooltip>
+              ) : null}
+            </Group>
           </Table.Td>
           <Table.Td style={{ width: "12%", minWidth: 0, paddingTop: 6, paddingBottom: 6 }}>
             <Tooltip

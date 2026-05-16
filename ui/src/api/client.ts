@@ -103,6 +103,7 @@ export const getMappedDirectories = async (params?: {
 }) => {
   const { data } = await api.get<{
     items: Array<{
+      entry_type?: string;
       shadow_root: string;
       virtual_path: string;
       real_path: string;

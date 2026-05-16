@@ -361,8 +361,8 @@ export default function DirectoryMapper() {
             full rescan of shadow roots.
           </Text>
           <Text size="xs" c="dimmed">
-            Virtual Path is the Arr-facing shadow path. Real Path is the source target and does not
-            need to match the virtual folder name.
+            Virtual Path is the Arr-facing shadow path. Real Path is the source target. Badge `L`
+            marks symlink entries; badge `D` marks real directories where equal paths are expected.
           </Text>
 
           {(discoveryWarnings?.summary.duplicate_movie_candidates ?? 0) > 0 && (

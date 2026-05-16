@@ -102,6 +102,7 @@ class MappedDirectoriesCache:
                     real_path = str(child.resolve(strict=False))
                     items.append(
                         {
+                            "entry_type": "symlink",
                             "shadow_root": str(root),
                             "virtual_path": virtual_path,
                             "real_path": real_path,
@@ -116,6 +117,7 @@ class MappedDirectoriesCache:
                     real_path = str(child.resolve(strict=False))
                     items.append(
                         {
+                            "entry_type": "directory",
                             "shadow_root": str(root),
                             "virtual_path": virtual_path,
                             "real_path": real_path,

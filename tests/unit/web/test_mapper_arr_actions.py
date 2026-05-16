@@ -111,6 +111,35 @@ def test_mapped_directories_include_arr_state_and_missing_virtual_path(
     assert ghost_movie["target_exists"] is False
 
 
+def test_mapped_directories_include_real_directory_entries_with_type(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    real_shadow_dir = shadow_root / "Directory Entry"
+    real_shadow_dir.mkdir()
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    refresh_response = client.post("/api/fs/mapped-directories/refresh")
+    assert refresh_response.status_code == 200
+    refresh_job = _wait_for_job(client, refresh_response.json()["job_id"])
+    assert refresh_job["status"] == "succeeded"
+
+    response = client.get("/api/fs/mapped-directories")
+
+    assert response.status_code == 200
+    payload = response.json()
+    entry = next(item for item in payload["items"] if item["virtual_path"] == str(real_shadow_dir))
+    assert entry["entry_type"] == "directory"
+    assert entry["real_path"] == str(real_shadow_dir)
+
+
 def test_refresh_radarr_movie_endpoint_forces_refresh(tmp_path: Path, monkeypatch) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
