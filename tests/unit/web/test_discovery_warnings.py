@@ -169,7 +169,9 @@ def test_orphaned_managed_candidates_respect_exclude_paths(tmp_path: Path, monke
     assert all("/@eaDir/" not in path for path in orphan_paths)
 
 
-def test_orphaned_managed_candidates_are_naming_agnostic(tmp_path: Path, monkeypatch) -> None:
+def test_orphaned_managed_candidates_require_movie_like_folder_name(
+    tmp_path: Path, monkeypatch
+) -> None:
     nested_root = tmp_path / "nested"
     shadow_root = tmp_path / "shadow"
     nested_root.mkdir()
@@ -192,7 +194,7 @@ def test_orphaned_managed_candidates_are_naming_agnostic(tmp_path: Path, monkeyp
     assert response.status_code == 200
     payload = response.json()
     orphan_paths = {item["path"] for item in payload["orphaned_managed_movie_candidates"]}
-    assert str(non_canonical_empty) in orphan_paths
+    assert str(non_canonical_empty) not in orphan_paths
 
 
 def test_unmatched_managed_candidates_include_video_folders_without_mapping(
@@ -283,3 +285,29 @@ def test_discovery_warnings_reports_mapping_collisions(tmp_path: Path, monkeypat
     collision_types = {item["type"] for item in payload["mapping_collision_candidates"]}
     assert "shared_managed_folder" in collision_types
     assert "shared_source_file" in collision_types
+
+
+def test_discovery_warnings_ignores_non_movie_proof_leaf_folders(tmp_path: Path) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    movie_folder = nested_root / "FSK12" / "Movie With Proof (2015)"
+    movie_folder.mkdir(parents=True)
+    (movie_folder / "movie.mkv").write_text("x", encoding="utf-8")
+    proof_leaf = nested_root / "FSK12" / "Collection Parent" / "Proof"
+    proof_leaf.mkdir(parents=True)
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    orphaned_paths = {item["path"] for item in payload["orphaned_managed_movie_candidates"]}
+    assert str(proof_leaf) not in orphaned_paths

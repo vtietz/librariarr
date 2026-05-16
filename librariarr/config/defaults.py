@@ -13,6 +13,7 @@ DEFAULT_SCAN_VIDEO_EXTENSIONS = [
 
 DEFAULT_EXCLUDE_PATH_PATTERNS = [
     ".deletedByLibrariarr/",
+    "proof/",
     "sample/",
     "samples/",
     "*-sample.*",

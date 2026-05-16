@@ -17,6 +17,9 @@ SSH into `$ARGUMENTS` and follow the two-phase playbook below.
 	- Do not run project test/quality/e2e commands on the remote host (especially DiskStation).
 	- If a remote incident needs a code fix, apply the fix locally, then run validation locally.
 - Reuse the same `REMOTE` terminal once authenticated; do not create multiple parallel SSH shells unless the user asks.
+- Keep the `REMOTE` session open for the full remote task lifecycle.
+	- Do not exit and reconnect between related checks/actions unless the connection drops.
+	- Close the SSH session only after verification is complete or the user asks to stop.
 - Never run `ssh ...` from inside an already remote prompt unless the user explicitly requests host hopping.
 - Never attempt to read remote command results from local temporary files or editor artifact paths.
 	- Read output from the live terminal stream only.

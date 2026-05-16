@@ -307,6 +307,10 @@ def _discover_orphaned_managed_movie_folders(
                 continue
             if has_child_directories:
                 continue
+            # Keep orphan warnings focused on movie-like folders and skip
+            # utility/container leaf folders such as collection placeholders.
+            if parse_movie_ref(current_path.name).year is None:
+                continue
             if _contains_video_recursively(
                 current_path,
                 video_exts,

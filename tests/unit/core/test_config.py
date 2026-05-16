@@ -159,6 +159,7 @@ def test_load_config_reads_paths_exclude_paths(tmp_path: Path) -> None:
         ".deletedByTMM/",
         ".librariarr/**",
         ".deletedByLibrariarr/",
+        "proof/",
         "sample/",
         "samples/",
         "*-sample.*",
