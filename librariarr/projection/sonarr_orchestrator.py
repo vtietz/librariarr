@@ -85,6 +85,11 @@ class SonarrProjectionOrchestrator:
             metrics.unchanged_files,
             metrics.skipped_files,
         )
+        refresh_candidates = _refresh_candidate_series_ids(
+            scoped_series_ids=scoped_series_ids,
+            projected_series_ids=metrics.projected_movie_ids,
+        )
+        refreshed_series_count = self._refresh_series(refresh_candidates)
         return {
             "scoped_series_count": metrics.scoped_movie_count,
             "planned_series": metrics.planned_movies,
@@ -94,8 +99,32 @@ class SonarrProjectionOrchestrator:
             "skipped_files": metrics.skipped_files,
             "per_root": metrics.per_root_list(),
             "normalized_paths": normalized,
+            "refreshed_series": refreshed_series_count,
             "matched_series_ids": set(metrics.matched_movie_ids),
         }
+
+    def _refresh_series(self, series_ids: set[int]) -> int:
+        if not series_ids:
+            return 0
+        if not hasattr(self.sonarr, "refresh_series"):
+            self.log.warning("Sonarr client does not expose refresh_series; skipping refresh")
+            return 0
+
+        refreshed = 0
+        for series_id in sorted(series_ids):
+            try:
+                if self.sonarr.refresh_series(series_id):
+                    refreshed += 1
+            except Exception as exc:
+                self.log.warning(
+                    "Sonarr refresh queue failed for series_id=%s: %s",
+                    series_id,
+                    exc,
+                )
+
+        if refreshed > 0:
+            self.log.info("Queued Sonarr refresh for %s series after projection", refreshed)
+        return refreshed
 
     def cleanup_stale_shadow(
         self,
@@ -322,3 +351,13 @@ def _is_under_any_managed_root(path: Path, mappings: list[MovieProjectionMapping
 
 def _is_under_any_target(path: Path, targets: set[Path]) -> bool:
     return any(path == target or target in path.parents for target in targets)
+
+
+def _refresh_candidate_series_ids(
+    *,
+    scoped_series_ids: set[int] | None,
+    projected_series_ids: set[int],
+) -> set[int]:
+    if scoped_series_ids is not None:
+        return set(scoped_series_ids)
+    return set(projected_series_ids)

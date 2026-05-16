@@ -94,7 +94,11 @@ class MovieProjectionOrchestrator:
             metrics.unchanged_files,
             metrics.skipped_files,
         )
-        refreshed_movie_count = self._refresh_projected_movies(metrics.projected_movie_ids)
+        refresh_candidates = _refresh_candidate_movie_ids(
+            scoped_movie_ids=scoped_movie_ids,
+            projected_movie_ids=metrics.projected_movie_ids,
+        )
+        refreshed_movie_count = self._refresh_projected_movies(refresh_candidates)
         result = metrics.as_dict()
         result["per_root"] = metrics.per_root_list()
         result["normalized_paths"] = normalized
@@ -301,11 +305,14 @@ class MovieProjectionOrchestrator:
         try:
             if hasattr(self.radarr, "refresh_movies"):
                 refreshed = int(self.radarr.refresh_movies(movie_ids))
-            else:
+            elif hasattr(self.radarr, "refresh_movie"):
                 refreshed = 0
                 for movie_id in sorted(movie_ids):
                     if self.radarr.refresh_movie(movie_id):
                         refreshed += 1
+            else:
+                self.log.warning("Radarr client does not expose refresh methods; skipping refresh")
+                return 0
         except requests.RequestException as exc:
             self.log.warning(
                 "Radarr refresh queue failed after projection for %s movie(s): %s",
@@ -421,6 +428,16 @@ def _projection_state_db_path() -> Path:
         return cwd / "librariarr-state.db"
 
     return Path("/tmp") / "librariarr-state.db"
+
+
+def _refresh_candidate_movie_ids(
+    *,
+    scoped_movie_ids: set[int] | None,
+    projected_movie_ids: set[int],
+) -> set[int]:
+    if scoped_movie_ids is not None:
+        return set(scoped_movie_ids)
+    return set(projected_movie_ids)
 
 
 def _temporary_normalization_path(expected_path: str, movie_id: int) -> str:
