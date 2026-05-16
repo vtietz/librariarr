@@ -286,6 +286,7 @@ def test_discovery_warnings_reports_mapping_collisions(tmp_path: Path, monkeypat
     assert "shared_managed_folder" in collision_types
     assert "shared_source_file" in collision_types
 
+
 def test_discovery_warnings_include_all_returns_all_duplicate_groups(
     tmp_path: Path,
     monkeypatch,
