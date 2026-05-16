@@ -105,6 +105,7 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
         config=config,
         video_exts=video_exts,
     )
+    mapping_collision_candidates = _discover_mapping_collision_candidates()
 
     return {
         "summary": {
@@ -114,6 +115,7 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
             "orphaned_managed_movie_candidates": len(orphaned_managed_movie_paths),
             "unmatched_managed_movie_candidates": len(unmatched_managed_movie_paths),
             "unmanaged_shadow_video_files": len(unmanaged_shadow_video_files),
+            "mapping_collision_candidates": len(mapping_collision_candidates),
         },
         "exclude_paths": exclude_paths,
         "excluded_movie_candidates": [
@@ -147,7 +149,61 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
             }
             for path in unmanaged_shadow_video_files[:limit]
         ],
+        "mapping_collision_candidates": mapping_collision_candidates[:limit],
     }
+
+
+def _discover_mapping_collision_candidates() -> list[dict[str, Any]]:
+    folder_to_movie_ids: dict[str, set[int]] = {}
+    source_to_movie_ids: dict[str, set[int]] = {}
+
+    for db_path_fn in (_projection_state_db_path,):
+        db_path = db_path_fn()
+        if not db_path.exists():
+            continue
+
+        store = ProjectionStateStore(db_path)
+        for movie_id, folder in store.get_managed_folders_by_movie_ids().items():
+            folder_key = str(folder.resolve(strict=False))
+            folder_to_movie_ids.setdefault(folder_key, set()).add(movie_id)
+
+        for movie_id, _dest_path, source_path, _dev, _inode in store.list_managed_projected_rows():
+            source_key = str(Path(source_path).resolve(strict=False))
+            source_to_movie_ids.setdefault(source_key, set()).add(movie_id)
+
+    collisions: list[dict[str, Any]] = []
+    for folder, movie_ids in sorted(folder_to_movie_ids.items()):
+        if len(movie_ids) < 2:
+            continue
+        collisions.append(
+            {
+                "type": "shared_managed_folder",
+                "path": folder,
+                "movie_ids": sorted(movie_ids),
+                "reason": "multiple movie ids map to one managed folder",
+            }
+        )
+
+    for source_path, movie_ids in sorted(source_to_movie_ids.items()):
+        if len(movie_ids) < 2:
+            continue
+        collisions.append(
+            {
+                "type": "shared_source_file",
+                "path": source_path,
+                "movie_ids": sorted(movie_ids),
+                "reason": "one managed source file is projected to multiple movie ids",
+            }
+        )
+
+    collisions.sort(
+        key=lambda item: (
+            -len(item.get("movie_ids") or []),
+            str(item.get("type") or ""),
+            str(item.get("path") or ""),
+        )
+    )
+    return collisions
 
 
 def _tracked_projection_destination_paths() -> set[Path]:
@@ -304,6 +360,7 @@ class DiscoveryWarningsCache:
                 "orphaned_managed_movie_candidates": 0,
                 "unmatched_managed_movie_candidates": 0,
                 "unmanaged_shadow_video_files": 0,
+                "mapping_collision_candidates": 0,
             },
             "exclude_paths": [],
             "excluded_movie_candidates": [],
@@ -311,6 +368,7 @@ class DiscoveryWarningsCache:
             "orphaned_managed_movie_candidates": [],
             "unmatched_managed_movie_candidates": [],
             "unmanaged_shadow_video_files": [],
+            "mapping_collision_candidates": [],
         }
         self._updated_at_ms: int | None = None
         self._last_error: str | None = None
@@ -336,6 +394,7 @@ class DiscoveryWarningsCache:
                     "orphaned_managed_movie_candidates": 0,
                     "unmatched_managed_movie_candidates": 0,
                     "unmanaged_shadow_video_files": 0,
+                    "mapping_collision_candidates": 0,
                 },
                 "exclude_paths": [],
                 "excluded_movie_candidates": [],
@@ -343,6 +402,7 @@ class DiscoveryWarningsCache:
                 "orphaned_managed_movie_candidates": [],
                 "unmatched_managed_movie_candidates": [],
                 "unmanaged_shadow_video_files": [],
+                "mapping_collision_candidates": [],
             }
             self._updated_at_ms = None
             self._last_error = None
@@ -431,6 +491,9 @@ class DiscoveryWarningsCache:
                         "unmanaged_shadow_video_files": payload["summary"][
                             "unmanaged_shadow_video_files"
                         ],
+                        "mapping_collision_candidates": payload["summary"][
+                            "mapping_collision_candidates"
+                        ],
                         "duration_ms": duration_ms,
                     },
                 )
@@ -514,6 +577,9 @@ class DiscoveryWarningsCache:
                 ),
                 "unmanaged_shadow_video_files": list(
                     (self._payload.get("unmanaged_shadow_video_files") or [])[:limit]
+                ),
+                "mapping_collision_candidates": list(
+                    (self._payload.get("mapping_collision_candidates") or [])[:limit]
                 ),
                 "cache": {
                     "ready": self._updated_at_ms is not None,

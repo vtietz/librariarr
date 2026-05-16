@@ -3,6 +3,8 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+from librariarr.projection.models import ProjectedFileState
+from librariarr.projection.provenance import ProjectionStateStore
 from librariarr.web import create_app
 
 
@@ -220,3 +222,64 @@ def test_unmatched_managed_candidates_include_video_folders_without_mapping(
     assert payload["summary"]["unmatched_managed_movie_candidates"] >= 1
     unmatched_paths = {item["path"] for item in payload["unmatched_managed_movie_candidates"]}
     assert str(unmatched_movie) in unmatched_paths
+
+
+def test_discovery_warnings_reports_mapping_collisions(tmp_path: Path, monkeypatch) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    shared_folder = nested_root / "Shared Movie Folder"
+    shared_folder.mkdir(parents=True)
+    shared_source = shared_folder / "shared-file.mkv"
+    shared_source.write_text("x", encoding="utf-8")
+
+    state_db = tmp_path / "movie-state.db"
+    store = ProjectionStateStore(state_db)
+    store.set_managed_folders_bulk([(1001, shared_folder), (1002, shared_folder)])
+    store.upsert_projected_files(
+        [
+            ProjectedFileState(
+                movie_id=1001,
+                dest_path=str(shadow_root / "A" / "shared-file.mkv"),
+                source_path=str(shared_source),
+                kind="video",
+                managed=True,
+                source_dev=None,
+                source_inode=None,
+                size=1,
+                mtime=1.0,
+                file_hash=None,
+            ),
+            ProjectedFileState(
+                movie_id=1002,
+                dest_path=str(shadow_root / "B" / "shared-file.mkv"),
+                source_path=str(shared_source),
+                kind="video",
+                managed=True,
+                source_dev=None,
+                source_inode=None,
+                size=1,
+                mtime=1.0,
+                file_hash=None,
+            ),
+        ]
+    )
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(state_db))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series.db"))
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["summary"]["mapping_collision_candidates"] >= 2
+    collision_types = {item["type"] for item in payload["mapping_collision_candidates"]}
+    assert "shared_managed_folder" in collision_types
+    assert "shared_source_file" in collision_types
