@@ -40,7 +40,7 @@ class RadarrSyncHelper:
         self.log = logger
         self._get_radarr_client = get_radarr_client
         self._profile_resolver = AutoAddProfileResolver(config, logger, get_radarr_client)
-        self._auto_add_no_safe_lookup_signature_cache: dict[str, int | None] = {}
+        self._auto_add_no_safe_lookup_signature_cache: dict[str, object] = {}
         self._cached_radarr_client_id: int | None = None
 
     def _radarr(self) -> RadarrClient:
@@ -55,9 +55,24 @@ class RadarrSyncHelper:
     def _auto_add_cache_key_for_folder(self, folder: Path) -> str:
         return str(folder.resolve(strict=False))
 
-    def _auto_add_signature_for_folder(self, folder: Path) -> int | None:
+    def _auto_add_signature_for_folder(self, folder: Path) -> object:
         try:
-            return folder.stat().st_mtime_ns
+            folder_stat = folder.stat()
+            child_signature: list[tuple[str, int | None, int | None, bool | None]] = []
+            for child in sorted(folder.iterdir(), key=lambda item: item.name):
+                try:
+                    child_stat = child.stat()
+                    child_signature.append(
+                        (
+                            child.name,
+                            child_stat.st_mtime_ns,
+                            child_stat.st_size,
+                            child.is_dir(),
+                        )
+                    )
+                except OSError:
+                    child_signature.append((child.name, None, None, None))
+            return folder_stat.st_mtime_ns, tuple(child_signature)
         except OSError:
             return None
 
