@@ -31,7 +31,7 @@ def _duplicate_group_ref(path: Path) -> tuple[str, int | None]:
     return fallback.title, fallback.year
 
 
-def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> dict[str, Any]:
+def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
     video_exts = set(config.runtime.scan_video_extensions or VIDEO_EXTENSIONS)
     exclude_paths = list(config.paths.exclude_paths)
 
@@ -123,22 +123,22 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
                 "path": str(path),
                 "reason": "matches paths.exclude_paths",
             }
-            for path in excluded_movie_paths[:limit]
+            for path in excluded_movie_paths
         ],
-        "duplicate_movie_candidates": duplicate_movie_candidates[:limit],
+        "duplicate_movie_candidates": duplicate_movie_candidates,
         "orphaned_managed_movie_candidates": [
             {
                 "path": str(path),
                 "reason": "managed folder has no video files",
             }
-            for path in orphaned_managed_movie_paths[:limit]
+            for path in orphaned_managed_movie_paths
         ],
         "unmatched_managed_movie_candidates": [
             {
                 "path": str(path),
                 "reason": "managed folder has video files but is not mapped in Arr/provenance",
             }
-            for path in unmatched_managed_movie_paths[:limit]
+            for path in unmatched_managed_movie_paths
         ],
         "unmanaged_shadow_video_files": [
             {
@@ -147,9 +147,9 @@ def _build_discovery_warnings_payload(config: AppConfig, limit: int = 200) -> di
                     "video file exists in shadow/library root but is not tracked by projection"
                 ),
             }
-            for path in unmanaged_shadow_video_files[:limit]
+            for path in unmanaged_shadow_video_files
         ],
-        "mapping_collision_candidates": mapping_collision_candidates[:limit],
+        "mapping_collision_candidates": mapping_collision_candidates,
     }
 
 
@@ -562,29 +562,42 @@ class DiscoveryWarningsCache:
     def wait_for_build(self, timeout: float) -> bool:
         return self._build_event.wait(timeout=timeout)
 
-    def snapshot(self, *, limit: int = 200) -> dict[str, Any]:
+    def snapshot(self, *, limit: int | None = 200) -> dict[str, Any]:
+        def _limited(items: list[Any]) -> list[Any]:
+            if limit is None:
+                return list(items)
+            return list(items[:limit])
+
         with self._lock:
+            excluded_items = list(self._payload.get("excluded_movie_candidates") or [])
+            duplicate_items = list(self._payload.get("duplicate_movie_candidates") or [])
+            orphaned_items = list(self._payload.get("orphaned_managed_movie_candidates") or [])
+            unmatched_items = list(self._payload.get("unmatched_managed_movie_candidates") or [])
+            unmanaged_shadow_items = list(self._payload.get("unmanaged_shadow_video_files") or [])
+            mapping_collision_items = list(self._payload.get("mapping_collision_candidates") or [])
+
             payload = {
                 "summary": dict(self._payload.get("summary") or {}),
                 "exclude_paths": list(self._payload.get("exclude_paths") or []),
-                "excluded_movie_candidates": list(
-                    (self._payload.get("excluded_movie_candidates") or [])[:limit]
-                ),
-                "duplicate_movie_candidates": list(
-                    (self._payload.get("duplicate_movie_candidates") or [])[:limit]
-                ),
-                "orphaned_managed_movie_candidates": list(
-                    (self._payload.get("orphaned_managed_movie_candidates") or [])[:limit]
-                ),
-                "unmatched_managed_movie_candidates": list(
-                    (self._payload.get("unmatched_managed_movie_candidates") or [])[:limit]
-                ),
-                "unmanaged_shadow_video_files": list(
-                    (self._payload.get("unmanaged_shadow_video_files") or [])[:limit]
-                ),
-                "mapping_collision_candidates": list(
-                    (self._payload.get("mapping_collision_candidates") or [])[:limit]
-                ),
+                "excluded_movie_candidates": _limited(excluded_items),
+                "duplicate_movie_candidates": _limited(duplicate_items),
+                "orphaned_managed_movie_candidates": _limited(orphaned_items),
+                "unmatched_managed_movie_candidates": _limited(unmatched_items),
+                "unmanaged_shadow_video_files": _limited(unmanaged_shadow_items),
+                "mapping_collision_candidates": _limited(mapping_collision_items),
+                "truncated": {
+                    "excluded_movie_candidates": limit is not None and len(excluded_items) > limit,
+                    "duplicate_movie_candidates": limit is not None
+                    and len(duplicate_items) > limit,
+                    "orphaned_managed_movie_candidates": limit is not None
+                    and len(orphaned_items) > limit,
+                    "unmatched_managed_movie_candidates": limit is not None
+                    and len(unmatched_items) > limit,
+                    "unmanaged_shadow_video_files": limit is not None
+                    and len(unmanaged_shadow_items) > limit,
+                    "mapping_collision_candidates": limit is not None
+                    and len(mapping_collision_items) > limit,
+                },
                 "cache": {
                     "ready": self._updated_at_ms is not None,
                     "building": self._building,

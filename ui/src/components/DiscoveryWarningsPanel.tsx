@@ -9,7 +9,7 @@ export default function DiscoveryWarningsPanel() {
   const [discoveryWarnings, setDiscoveryWarnings] = useState<DiscoveryWarnings | null>(null);
 
   const refreshDiscoveryWarnings = useCallback(async () => {
-    const payload = await getDiscoveryWarnings();
+    const payload = await getDiscoveryWarnings({ includeAll: true });
     setDiscoveryWarnings(payload);
   }, []);
 
@@ -23,7 +23,7 @@ export default function DiscoveryWarningsPanel() {
       }
       inFlight = true;
       try {
-        const payload = await getDiscoveryWarnings();
+        const payload = await getDiscoveryWarnings({ includeAll: true });
         if (active) {
           setDiscoveryWarnings(payload);
         }

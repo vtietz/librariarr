@@ -134,13 +134,14 @@ def build_fs_router(  # noqa: C901
     def discovery_warnings(
         request: Request,
         limit: int = Query(default=200, ge=1, le=2000),
+        include_all: bool = Query(default=False),
     ) -> dict[str, Any]:
         config = load_config_or_http_fn(read_config_path_fn(request))
         discovery_cache.request_refresh(config)
-        snapshot = discovery_cache.snapshot(limit=limit)
+        snapshot = discovery_cache.snapshot(limit=None if include_all else limit)
         if snapshot["cache"]["building"]:
             discovery_cache.wait_for_build(timeout=2.0)
-            snapshot = discovery_cache.snapshot(limit=limit)
+            snapshot = discovery_cache.snapshot(limit=None if include_all else limit)
         return snapshot
 
     @router.post("/api/fs/mapped-directories/refresh")

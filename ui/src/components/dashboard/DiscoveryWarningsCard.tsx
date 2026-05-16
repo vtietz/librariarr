@@ -10,15 +10,24 @@ import {
   Text,
   Tooltip,
 } from "@mantine/core";
-import { IconAlertCircle, IconFolderOpen, IconTrash, IconUpload } from "@tabler/icons-react";
+import {
+  IconBan,
+  IconFolderOpen,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import {
+  getConfig,
   getDiscoveryWarnings,
   getFsRoots,
   recycleOrphanedManagedFolder,
   runMaintenanceReconcile,
+  saveConfig,
   waitForJobCompletion,
 } from "../../api/client";
+import DuplicateWarningGroup from "./DuplicateWarningGroup";
+import UnmatchedWarningsSection from "./UnmatchedWarningsSection";
+import WarningPathRow from "./WarningPathRow";
 import DirectoryPickerModal from "../DirectoryPickerModal";
 
 type DiscoveryWarnings = Awaited<ReturnType<typeof getDiscoveryWarnings>>;
@@ -59,6 +68,10 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
   >({});
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [importErrorsByPath, setImportErrorsByPath] = useState<Record<string, string>>({});
+  const [busyIgnorePath, setBusyIgnorePath] = useState<string | null>(null);
+  const [ignoreStatusByPath, setIgnoreStatusByPath] = useState<
+    Record<string, { color: string; message: string }>
+  >({});
   const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
   const [importErrorDialogPath, setImportErrorDialogPath] = useState<string | null>(null);
 
@@ -90,6 +103,10 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
     }
     return browsePath ? [browsePath] : [];
   }, [browsePath, fsRoots]);
+
+  const excludePathSet = useMemo(() => {
+    return new Set((discoveryWarnings?.exclude_paths ?? []).map((item) => item.toLowerCase()));
+  }, [discoveryWarnings?.exclude_paths]);
 
   const ensureFsRoots = async () => {
     if (fsRoots.length > 0 || loadingRoots) {
@@ -205,8 +222,74 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
     }
   };
 
+  const handleIgnorePath = async (path: string) => {
+    setBusyIgnorePath(path);
+    setIgnoreStatusByPath((current) => ({
+      ...current,
+      [path]: { color: "blue", message: "Saving ignore path..." },
+    }));
+
+    try {
+      const payload = await getConfig("disk");
+      const existing = payload.config.paths.exclude_paths ?? [];
+      const normalizedExisting = existing
+        .map((item) => item.trim())
+        .filter((item) => item.length > 0);
+      const alreadyIgnored = normalizedExisting.some(
+        (item) => item.toLowerCase() === path.toLowerCase()
+      );
+
+      if (!alreadyIgnored) {
+        await saveConfig({
+          ...payload.config,
+          paths: {
+            ...payload.config.paths,
+            exclude_paths: [...normalizedExisting, path],
+          },
+        });
+      }
+
+      setIgnoreStatusByPath((current) => ({
+        ...current,
+        [path]: {
+          color: alreadyIgnored ? "yellow" : "green",
+          message: alreadyIgnored
+            ? "Path already present in paths.exclude_paths."
+            : "Path added to paths.exclude_paths.",
+        },
+      }));
+
+      await onRefreshWarnings();
+    } catch (error) {
+      setIgnoreStatusByPath((current) => ({
+        ...current,
+        [path]: {
+          color: "red",
+          message: parseApiErrorMessage(error, "Failed to save ignore path."),
+        },
+      }));
+    } finally {
+      setBusyIgnorePath((current) => (current === path ? null : current));
+    }
+  };
+
   const importDialogError =
     importErrorDialogPath !== null ? importErrorsByPath[importErrorDialogPath] ?? "" : "";
+
+  const renderIgnoreAction = (path: string, label: string) => (
+    <Tooltip label={label} withArrow>
+      <ActionIcon
+        size="sm"
+        color={excludePathSet.has(path.toLowerCase()) ? "yellow" : "gray"}
+        variant="light"
+        onClick={() => void handleIgnorePath(path)}
+        disabled={busyIgnorePath === path}
+        aria-label="Ignore folder path"
+      >
+        <IconBan size={14} />
+      </ActionIcon>
+    </Tooltip>
+  );
 
   return (
     <Card withBorder>
@@ -222,24 +305,31 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         {unmatchedManagedCandidates} unmatched managed folders ·{" "}
         {unmanagedShadowVideoFiles} unmanaged shadow video files
       </Text>
+      {duplicateCandidates > 0 ? (
+        <Text size="xs" c="dimmed" mt={4}>
+          Duplicate groups below include every detected path so you can choose exactly what to keep.
+        </Text>
+      ) : null}
       {hasDiscoveryWarnings && (
         <Stack gap="sm" mt="xs">
             {excludedCandidates > 0 && (
               <Stack gap={2}>
                 <Text size="xs" fw={600}>Excluded Candidates ({excludedCandidates})</Text>
                 {excludedItems.map((item) => (
-                  <Group
+                  <WarningPathRow
                     key={`excluded-${item.path}`}
-                    gap="xs"
-                    wrap="nowrap"
-                    onMouseEnter={() => setHoveredRowKey(`excluded-${item.path}`)}
-                    onMouseLeave={() => setHoveredRowKey(null)}
-                    style={warningRowStyle(`excluded-${item.path}`)}
-                  >
-                    <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
-                      ⚠ {item.path}
-                    </Text>
-                  </Group>
+                    rowKey={`excluded-${item.path}`}
+                    label={`⚠ ${item.path}`}
+                    onHover={setHoveredRowKey}
+                    rowStyle={warningRowStyle}
+                    actions={
+                      <>
+                        {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
+                        {renderIgnoreAction(item.path, "Keep ignored (add to paths.exclude_paths)")}
+                      </>
+                    }
+                    status={ignoreStatusByPath[item.path]}
+                  />
                 ))}
               </Stack>
             )}
@@ -247,18 +337,19 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
               <Stack gap={2}>
                 <Text size="xs" fw={600}>Potential Duplicates ({duplicateCandidates})</Text>
                 {duplicateItems.map((item) => (
-                  <Group
+                  <DuplicateWarningGroup
                     key={`duplicate-${item.primary_path}`}
-                    gap="xs"
-                    wrap="nowrap"
-                    onMouseEnter={() => setHoveredRowKey(`duplicate-${item.primary_path}`)}
-                    onMouseLeave={() => setHoveredRowKey(null)}
-                    style={warningRowStyle(`duplicate-${item.primary_path}`)}
-                  >
-                    <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
-                      ⚠ {item.movie_ref}: {item.primary_path}
-                    </Text>
-                  </Group>
+                    item={item}
+                    onHover={setHoveredRowKey}
+                    rowStyle={warningRowStyle}
+                    makeActions={(path) => (
+                      <>
+                        {busyIgnorePath === path ? <Loader size="xs" /> : null}
+                        {renderIgnoreAction(path, "Ignore this folder path")}
+                      </>
+                    )}
+                    statusByPath={ignoreStatusByPath}
+                  />
                 ))}
               </Stack>
             )}
@@ -268,43 +359,44 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
                   Orphaned Managed Folders (no video files) ({orphanedManagedCandidates})
                 </Text>
                 {orphanedItems.map((item) => (
-                  <Group
+                  <WarningPathRow
                     key={`orphaned-${item.path}`}
-                    gap="xs"
-                    wrap="nowrap"
-                    align="flex-start"
-                    onMouseEnter={() => setHoveredRowKey(`orphaned-${item.path}`)}
-                    onMouseLeave={() => setHoveredRowKey(null)}
-                    style={warningRowStyle(`orphaned-${item.path}`)}
-                  >
-                    <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
-                      ⚠ {item.path}
-                    </Text>
-                    {busyOrphanPath === item.path ? <Loader size="xs" /> : null}
-                    <Tooltip label="Browse folder" withArrow>
-                      <ActionIcon
-                        size="sm"
-                        variant="light"
-                        onClick={() => void handleOpenFolder(item.path)}
-                        disabled={busyOrphanPath === item.path}
-                        aria-label="Browse orphaned folder"
-                      >
-                        <IconFolderOpen size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                    <Tooltip label="Recycle orphaned folder" withArrow>
-                      <ActionIcon
-                        size="sm"
-                        color="red"
-                        variant="light"
-                        onClick={() => void handleRecycleOrphan(item.path)}
-                        disabled={busyOrphanPath === item.path}
-                        aria-label="Recycle orphaned folder"
-                      >
-                        <IconTrash size={14} />
-                      </ActionIcon>
-                    </Tooltip>
-                  </Group>
+                    rowKey={`orphaned-${item.path}`}
+                    label={`⚠ ${item.path}`}
+                    onHover={setHoveredRowKey}
+                    rowStyle={warningRowStyle}
+                    actions={
+                      <>
+                        {busyOrphanPath === item.path ? <Loader size="xs" /> : null}
+                        {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
+                        {renderIgnoreAction(item.path, "Ignore this folder path")}
+                        <Tooltip label="Browse folder" withArrow>
+                          <ActionIcon
+                            size="sm"
+                            variant="light"
+                            onClick={() => void handleOpenFolder(item.path)}
+                            disabled={busyOrphanPath === item.path}
+                            aria-label="Browse orphaned folder"
+                          >
+                            <IconFolderOpen size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                        <Tooltip label="Recycle orphaned folder" withArrow>
+                          <ActionIcon
+                            size="sm"
+                            color="red"
+                            variant="light"
+                            onClick={() => void handleRecycleOrphan(item.path)}
+                            disabled={busyOrphanPath === item.path}
+                            aria-label="Recycle orphaned folder"
+                          >
+                            <IconTrash size={14} />
+                          </ActionIcon>
+                        </Tooltip>
+                      </>
+                    }
+                    status={ignoreStatusByPath[item.path]}
+                  />
                 ))}
                 {orphanedItems.map((item) => {
                   const rowError = rowErrors[item.path];
@@ -325,85 +417,38 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
                   Unmanaged Shadow Video Files ({unmanagedShadowVideoFiles})
                 </Text>
                 {unmanagedShadowItems.map((item) => (
-                  <Group
+                  <WarningPathRow
                     key={`shadow-unmanaged-${item.path}`}
-                    gap="xs"
-                    wrap="nowrap"
-                    onMouseEnter={() => setHoveredRowKey(`shadow-unmanaged-${item.path}`)}
-                    onMouseLeave={() => setHoveredRowKey(null)}
-                    style={warningRowStyle(`shadow-unmanaged-${item.path}`)}
-                  >
-                    <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
-                      ⚠ {item.path}
-                    </Text>
-                  </Group>
+                    rowKey={`shadow-unmanaged-${item.path}`}
+                    label={`⚠ ${item.path}`}
+                    onHover={setHoveredRowKey}
+                    rowStyle={warningRowStyle}
+                    actions={
+                      <>
+                        {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
+                        {renderIgnoreAction(item.path, "Ignore this file path")}
+                      </>
+                    }
+                    status={ignoreStatusByPath[item.path]}
+                  />
                 ))}
               </Stack>
             )}
-            {unmatchedManagedCandidates > 0 && (
-              <Stack gap={2}>
-                <Text size="xs" fw={600}>
-                  Unmatched Managed Folders ({unmatchedManagedCandidates})
-                </Text>
-                <Text size="xs" c="dimmed">
-                  Usually this means the folder is not imported in Radarr yet.
-                </Text>
-                {unmatchedItems.map((item) => (
-                  <Stack key={`unmatched-${item.path}`} gap={0}>
-                    <Group
-                      gap="xs"
-                      wrap="nowrap"
-                      align="flex-start"
-                      onMouseEnter={() => setHoveredRowKey(`unmatched-${item.path}`)}
-                      onMouseLeave={() => setHoveredRowKey(null)}
-                      style={warningRowStyle(`unmatched-${item.path}`)}
-                    >
-                      <Text size="xs" c="dimmed" style={{ flex: 1, minWidth: 0 }}>
-                        ⚠ {item.path}
-                      </Text>
-                      {busyImportPath === item.path || importInFlightByPath[item.path] ? (
-                        <Loader size="xs" />
-                      ) : null}
-                      {importErrorsByPath[item.path] ? (
-                        <Tooltip
-                          label="Import failed. Click for details and retry."
-                          withArrow
-                        >
-                          <ActionIcon
-                            size="sm"
-                            color="red"
-                            variant="light"
-                            onClick={() => setImportErrorDialogPath(item.path)}
-                            disabled={busyImportPath === item.path}
-                            aria-label="Show import error details"
-                          >
-                            <IconAlertCircle size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      ) : (
-                        <Tooltip label="Trigger import to Radarr" withArrow>
-                          <ActionIcon
-                            size="sm"
-                            color="blue"
-                            variant="light"
-                            onClick={() => void handleImportUnmatched(item.path)}
-                            disabled={busyImportPath === item.path}
-                            aria-label="Import unmatched folder"
-                          >
-                            <IconUpload size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      )}
-                    </Group>
-                    {importStatusByPath[item.path] ? (
-                      <Text size="xs" c={importStatusByPath[item.path].color}>
-                        {importStatusByPath[item.path].message}
-                      </Text>
-                    ) : null}
-                  </Stack>
-                ))}
-              </Stack>
-            )}
+            <UnmatchedWarningsSection
+              unmatchedManagedCandidates={unmatchedManagedCandidates}
+              unmatchedItems={unmatchedItems}
+              busyIgnorePath={busyIgnorePath}
+              busyImportPath={busyImportPath}
+              importInFlightByPath={importInFlightByPath}
+              importErrorsByPath={importErrorsByPath}
+              importStatusByPath={importStatusByPath}
+              ignoreStatusByPath={ignoreStatusByPath}
+              setImportErrorDialogPath={(path) => setImportErrorDialogPath(path)}
+              handleImportUnmatched={handleImportUnmatched}
+              renderIgnoreAction={renderIgnoreAction}
+              onHover={setHoveredRowKey}
+              rowStyle={warningRowStyle}
+            />
           </Stack>
       )}
       <Modal

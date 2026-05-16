@@ -286,6 +286,48 @@ def test_discovery_warnings_reports_mapping_collisions(tmp_path: Path, monkeypat
     assert "shared_managed_folder" in collision_types
     assert "shared_source_file" in collision_types
 
+def test_discovery_warnings_include_all_returns_all_duplicate_groups(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    nested_root = tmp_path / "nested"
+    shadow_root = tmp_path / "shadow"
+    nested_root.mkdir()
+    shadow_root.mkdir()
+
+    for index in range(3):
+        group_root = nested_root / f"group-{index}"
+        first = group_root / f"Example Movie {index} (2020)"
+        second = group_root / ".deletedByTMM" / f"Example Movie {index} (2020)"
+        first.mkdir(parents=True)
+        second.mkdir(parents=True)
+        (first / "movie.mkv").write_text("x", encoding="utf-8")
+        (second / "movie.mkv").write_text("x", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_trailer_excludes(config_path, nested_root, shadow_root)
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(tmp_path / "movie-state.db"))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series-state.db"))
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    limited = client.get("/api/fs/discovery-warnings", params={"limit": 1})
+    assert limited.status_code == 200
+    limited_payload = limited.json()
+    assert len(limited_payload["duplicate_movie_candidates"]) == 1
+    assert limited_payload["truncated"]["duplicate_movie_candidates"] is True
+
+    include_all = client.get(
+        "/api/fs/discovery-warnings",
+        params={"limit": 1, "include_all": "true"},
+    )
+    assert include_all.status_code == 200
+    include_all_payload = include_all.json()
+    assert include_all_payload["summary"]["duplicate_movie_candidates"] == 3
+    assert len(include_all_payload["duplicate_movie_candidates"]) == 3
+    assert include_all_payload["truncated"]["duplicate_movie_candidates"] is False
+
 
 def test_discovery_warnings_ignores_non_movie_proof_leaf_folders(tmp_path: Path) -> None:
     nested_root = tmp_path / "nested"

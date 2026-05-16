@@ -160,10 +160,11 @@ export const getMappedDirectoriesStreamUrl = (params?: { intervalMs?: number }) 
     : "/api/fs/mapped-directories/stream";
 };
 
-export const getDiscoveryWarnings = async (params?: { limit?: number }) => {
+export const getDiscoveryWarnings = async (params?: { limit?: number; includeAll?: boolean }) => {
   const { data } = await api.get<DiscoveryWarningsResponse>("/fs/discovery-warnings", {
     params: {
-      limit: params?.limit
+      limit: params?.limit,
+      include_all: params?.includeAll,
     }
   });
   return data;

@@ -25,6 +25,7 @@ export type DiscoveryWarningsResponse = {
     orphaned_managed_movie_candidates: number;
     unmatched_managed_movie_candidates: number;
     unmanaged_shadow_video_files: number;
+    mapping_collision_candidates?: number;
   };
   exclude_paths: string[];
   excluded_movie_candidates: Array<{
@@ -49,6 +50,20 @@ export type DiscoveryWarningsResponse = {
     path: string;
     reason: string;
   }>;
+  mapping_collision_candidates?: Array<{
+    type: string;
+    path: string;
+    movie_ids?: number[];
+    reason: string;
+  }>;
+  truncated?: {
+    excluded_movie_candidates: boolean;
+    duplicate_movie_candidates: boolean;
+    orphaned_managed_movie_candidates: boolean;
+    unmatched_managed_movie_candidates: boolean;
+    unmanaged_shadow_video_files: boolean;
+    mapping_collision_candidates: boolean;
+  };
 };
 
 export type DeletedFileEntry = {
