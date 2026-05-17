@@ -97,6 +97,7 @@ class ServiceReconcileProjectionMixin:
             metrics = self.movie_projection.reconcile(
                 scope["scoped_movie_ids"],
                 inventory=movies_inventory,
+                repair_managed_folders=(reconcile_ctx.get("trigger_source") == "startup"),
                 progress_callback=_movie_progress,
                 planning_progress_callback=_movie_planning_progress,
             )

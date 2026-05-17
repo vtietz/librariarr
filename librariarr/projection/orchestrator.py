@@ -61,6 +61,7 @@ class MovieProjectionOrchestrator:
         self,
         scoped_movie_ids: set[int] | None,
         inventory: list[dict[str, Any]] | None = None,
+        repair_managed_folders: bool = False,
         progress_callback: Callable[[int, int], None] | None = None,
         planning_progress_callback: Callable[[int, int], None] | None = None,
     ) -> dict[str, Any]:
@@ -73,8 +74,10 @@ class MovieProjectionOrchestrator:
         else:
             movies = self.radarr.get_movies_by_ids(scoped_movie_ids)
 
-        # On full reconcile, repair unmatched managed folder mappings
-        if scoped_movie_ids is None:
+        # Full reconciles should always repair managed-folder mappings.
+        # Startup-triggered scoped reconciles can opt in to the same repair pass
+        # to heal stale mappings after restarts without forcing full projection.
+        if scoped_movie_ids is None or repair_managed_folders:
             backfilled = self._backfill_managed_folder_mappings_from_provenance(movies)
             if backfilled:
                 self.log.info(
