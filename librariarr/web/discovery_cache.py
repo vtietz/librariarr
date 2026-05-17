@@ -36,7 +36,9 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
     exclude_paths = list(config.paths.exclude_paths)
 
     all_movie_paths: set[Path] = set()
+    all_series_paths: set[Path] = set()
     excluded_movie_paths: list[Path] = []
+    excluded_series_paths: list[Path] = []
 
     for mapping in config.paths.movie_root_mappings:
         managed_root = Path(mapping.managed_root)
@@ -49,13 +51,15 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
     for mapping in config.paths.series_root_mappings:
         nested_root = Path(mapping.nested_root)
         all_folders = discover_movie_folders(nested_root, video_exts, [])
-        all_movie_paths.update(all_folders)
+        all_series_paths.update(all_folders)
         if exclude_paths:
             included = discover_movie_folders(nested_root, video_exts, exclude_paths)
-            excluded_movie_paths.extend(sorted(all_folders - included, key=lambda path: str(path)))
+            excluded_series_paths.extend(sorted(all_folders - included, key=lambda path: str(path)))
 
     included_movie_paths = all_movie_paths - set(excluded_movie_paths)
+    included_series_paths = all_series_paths - set(excluded_series_paths)
     excluded_movie_paths.sort(key=lambda path: str(path))
+    excluded_series_paths.sort(key=lambda path: str(path))
 
     grouped: dict[tuple[str, int | None], list[Path]] = {}
     for movie_path in included_movie_paths:
@@ -91,12 +95,21 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
         video_exts=video_exts,
         exclude_patterns=exclude_paths,
     )
-    tracked_managed_folders = _tracked_managed_folder_paths()
+    tracked_movie_managed_folders = _tracked_movie_managed_folder_paths()
+    tracked_series_managed_folders = _tracked_series_managed_folder_paths()
     unmatched_managed_movie_paths = sorted(
         [
             path
             for path in included_movie_paths
-            if path.resolve(strict=False) not in tracked_managed_folders
+            if path.resolve(strict=False) not in tracked_movie_managed_folders
+        ],
+        key=lambda path: str(path),
+    )
+    unmatched_managed_series_paths = sorted(
+        [
+            path
+            for path in included_series_paths
+            if path.resolve(strict=False) not in tracked_series_managed_folders
         ],
         key=lambda path: str(path),
     )
@@ -110,9 +123,11 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
         "summary": {
             "exclude_patterns_count": len(exclude_paths),
             "excluded_movie_candidates": len(excluded_movie_paths),
+            "excluded_series_candidates": len(excluded_series_paths),
             "duplicate_movie_candidates": len(duplicate_movie_candidates),
             "orphaned_managed_movie_candidates": len(orphaned_managed_movie_paths),
             "unmatched_managed_movie_candidates": len(unmatched_managed_movie_paths),
+            "unmatched_managed_series_candidates": len(unmatched_managed_series_paths),
             "unmanaged_shadow_video_files": len(unmanaged_shadow_video_files),
             "mapping_collision_candidates": len(mapping_collision_candidates),
         },
@@ -138,6 +153,13 @@ def _build_discovery_warnings_payload(config: AppConfig) -> dict[str, Any]:
                 "reason": "managed folder has video files but is not mapped in Arr/provenance",
             }
             for path in unmatched_managed_movie_paths
+        ],
+        "unmatched_managed_series_candidates": [
+            {
+                "path": str(path),
+                "reason": "series folder has video files but is not mapped in Arr/provenance",
+            }
+            for path in unmatched_managed_series_paths
         ],
         "unmanaged_shadow_video_files": [
             {
@@ -217,22 +239,25 @@ def _tracked_projection_destination_paths() -> set[Path]:
     return tracked
 
 
-def _tracked_managed_folder_paths() -> set[Path]:
-    tracked: set[Path] = set()
-    for db_path_fn in (_projection_state_db_path, _sonarr_projection_state_db_path):
-        db_path = db_path_fn()
-        if not db_path.exists():
-            continue
-        store = ProjectionStateStore(db_path)
-        tracked.update(
-            folder.resolve(strict=False)
-            for folder in store.get_managed_folders_by_movie_ids().values()
-        )
-        tracked.update(
-            folder.resolve(strict=False)
-            for folder in store.get_managed_folders_by_series_ids().values()
-        )
-    return tracked
+def _tracked_movie_managed_folder_paths() -> set[Path]:
+    db_path = _projection_state_db_path()
+    if not db_path.exists():
+        return set()
+    store = ProjectionStateStore(db_path)
+    return {
+        folder.resolve(strict=False) for folder in store.get_managed_folders_by_movie_ids().values()
+    }
+
+
+def _tracked_series_managed_folder_paths() -> set[Path]:
+    db_path = _sonarr_projection_state_db_path()
+    if not db_path.exists():
+        return set()
+    store = ProjectionStateStore(db_path)
+    return {
+        folder.resolve(strict=False)
+        for folder in store.get_managed_folders_by_series_ids().values()
+    }
 
 
 def _shadow_roots(config: AppConfig) -> list[Path]:
@@ -359,9 +384,11 @@ class DiscoveryWarningsCache:
             "summary": {
                 "exclude_patterns_count": 0,
                 "excluded_movie_candidates": 0,
+                "excluded_series_candidates": 0,
                 "duplicate_movie_candidates": 0,
                 "orphaned_managed_movie_candidates": 0,
                 "unmatched_managed_movie_candidates": 0,
+                "unmatched_managed_series_candidates": 0,
                 "unmanaged_shadow_video_files": 0,
                 "mapping_collision_candidates": 0,
             },
@@ -370,6 +397,7 @@ class DiscoveryWarningsCache:
             "duplicate_movie_candidates": [],
             "orphaned_managed_movie_candidates": [],
             "unmatched_managed_movie_candidates": [],
+            "unmatched_managed_series_candidates": [],
             "unmanaged_shadow_video_files": [],
             "mapping_collision_candidates": [],
         }
@@ -393,9 +421,11 @@ class DiscoveryWarningsCache:
                 "summary": {
                     "exclude_patterns_count": 0,
                     "excluded_movie_candidates": 0,
+                    "excluded_series_candidates": 0,
                     "duplicate_movie_candidates": 0,
                     "orphaned_managed_movie_candidates": 0,
                     "unmatched_managed_movie_candidates": 0,
+                    "unmatched_managed_series_candidates": 0,
                     "unmanaged_shadow_video_files": 0,
                     "mapping_collision_candidates": 0,
                 },
@@ -404,6 +434,7 @@ class DiscoveryWarningsCache:
                 "duplicate_movie_candidates": [],
                 "orphaned_managed_movie_candidates": [],
                 "unmatched_managed_movie_candidates": [],
+                "unmatched_managed_series_candidates": [],
                 "unmanaged_shadow_video_files": [],
                 "mapping_collision_candidates": [],
             }
@@ -491,6 +522,9 @@ class DiscoveryWarningsCache:
                         "unmatched_managed_movie_candidates": payload["summary"][
                             "unmatched_managed_movie_candidates"
                         ],
+                        "unmatched_managed_series_candidates": payload["summary"][
+                            "unmatched_managed_series_candidates"
+                        ],
                         "unmanaged_shadow_video_files": payload["summary"][
                             "unmanaged_shadow_video_files"
                         ],
@@ -572,6 +606,9 @@ class DiscoveryWarningsCache:
             duplicate_items = list(self._payload.get("duplicate_movie_candidates") or [])
             orphaned_items = list(self._payload.get("orphaned_managed_movie_candidates") or [])
             unmatched_items = list(self._payload.get("unmatched_managed_movie_candidates") or [])
+            unmatched_series_items = list(
+                self._payload.get("unmatched_managed_series_candidates") or []
+            )
             unmanaged_shadow_items = list(self._payload.get("unmanaged_shadow_video_files") or [])
             mapping_collision_items = list(self._payload.get("mapping_collision_candidates") or [])
 
@@ -582,6 +619,7 @@ class DiscoveryWarningsCache:
                 "duplicate_movie_candidates": _limited(duplicate_items),
                 "orphaned_managed_movie_candidates": _limited(orphaned_items),
                 "unmatched_managed_movie_candidates": _limited(unmatched_items),
+                "unmatched_managed_series_candidates": _limited(unmatched_series_items),
                 "unmanaged_shadow_video_files": _limited(unmanaged_shadow_items),
                 "mapping_collision_candidates": _limited(mapping_collision_items),
                 "truncated": {
@@ -592,6 +630,8 @@ class DiscoveryWarningsCache:
                     and len(orphaned_items) > limit,
                     "unmatched_managed_movie_candidates": limit is not None
                     and len(unmatched_items) > limit,
+                    "unmatched_managed_series_candidates": limit is not None
+                    and len(unmatched_series_items) > limit,
                     "unmanaged_shadow_video_files": limit is not None
                     and len(unmanaged_shadow_items) > limit,
                     "mapping_collision_candidates": limit is not None

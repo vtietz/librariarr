@@ -74,6 +74,40 @@ def _write_config_with_excludes(
     )
 
 
+def _write_config_with_separate_movie_series_roots(
+    path: Path,
+    movie_root: Path,
+    series_root: Path,
+    shadow_root: Path,
+) -> None:
+    path.write_text(
+        (
+            "paths:\n"
+            "  series_root_mappings:\n"
+            f"    - nested_root: {series_root}\n"
+            f"      shadow_root: {shadow_root}\n"
+            "  movie_root_mappings:\n"
+            f"    - managed_root: {movie_root}\n"
+            f"      library_root: {shadow_root}\n"
+            "  exclude_paths:\n"
+            "    - '*-trailer.*'\n"
+            "radarr:\n"
+            "  enabled: true\n"
+            "  url: http://radarr:7878\n"
+            "  api_key: test-key\n"
+            "  sync_enabled: false\n"
+            "sonarr:\n"
+            "  enabled: true\n"
+            "  url: http://sonarr:8989\n"
+            "  api_key: test-key\n"
+            "  sync_enabled: false\n"
+            "cleanup: {}\n"
+            "runtime: {}\n"
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_discovery_warnings_does_not_exclude_folder_with_valid_m4v_and_trailer(
     tmp_path: Path,
     monkeypatch,
@@ -225,6 +259,46 @@ def test_unmatched_managed_candidates_include_video_folders_without_mapping(
     assert payload["summary"]["unmatched_managed_movie_candidates"] >= 1
     unmatched_paths = {item["path"] for item in payload["unmatched_managed_movie_candidates"]}
     assert str(unmatched_movie) in unmatched_paths
+
+
+def test_series_unmatched_candidates_do_not_pollute_movie_unmatched(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    movie_root = tmp_path / "movie-root"
+    series_root = tmp_path / "series-root"
+    shadow_root = tmp_path / "shadow"
+    movie_root.mkdir()
+    series_root.mkdir()
+    shadow_root.mkdir()
+
+    unmatched_series = series_root / "Series Unmatched"
+    unmatched_series.mkdir(parents=True)
+    (unmatched_series / "Series.Unmatched.S01E01.1080p.mkv").write_text("x", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config_with_separate_movie_series_roots(
+        config_path,
+        movie_root=movie_root,
+        series_root=series_root,
+        shadow_root=shadow_root,
+    )
+    monkeypatch.setenv("LIBRARIARR_PROJECTION_STATE_PATH", str(tmp_path / "movie-state.db"))
+    monkeypatch.setenv("LIBRARIARR_SONARR_PROJECTION_STATE_PATH", str(tmp_path / "series-state.db"))
+
+    app = create_app(config_path=config_path)
+    client = TestClient(app)
+
+    response = client.get("/api/fs/discovery-warnings")
+
+    assert response.status_code == 200
+    payload = response.json()
+    movie_unmatched_paths = {item["path"] for item in payload["unmatched_managed_movie_candidates"]}
+    series_unmatched_paths = {
+        item["path"] for item in payload["unmatched_managed_series_candidates"]
+    }
+    assert str(unmatched_series) not in movie_unmatched_paths
+    assert str(unmatched_series) in series_unmatched_paths
 
 
 def test_discovery_warnings_reports_mapping_collisions(tmp_path: Path, monkeypatch) -> None:
