@@ -153,10 +153,58 @@ class ProjectionStateStore:
                 )
                 return {int(row[0]): Path(row[1]) for row in cursor.fetchall() if row[1]}
 
-    def set_managed_folder(self, movie_id: int, managed_folder: Path) -> None:
-        """Store the managed folder for a movie."""
+    def get_movie_id_for_managed_folder(self, managed_folder: Path) -> int | None:
+        """Return the owning movie_id for a managed folder, if any."""
         with self._lock:
             with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT movie_id FROM movie_managed_folders WHERE managed_folder = ?",
+                    (str(managed_folder),),
+                )
+                row = cursor.fetchone()
+                return int(row[0]) if row else None
+
+    def set_managed_folder(
+        self,
+        movie_id: int,
+        managed_folder: Path,
+        *,
+        force_takeover: bool = False,
+    ) -> bool:
+        """Store the managed folder for a movie.
+
+        Returns True when mapping was written, False when rejected due to ownership conflict.
+        """
+        with self._lock:
+            with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT movie_id FROM movie_managed_folders WHERE managed_folder = ?",
+                    (str(managed_folder),),
+                )
+                owner_row = cursor.fetchone()
+                if owner_row is not None:
+                    existing_owner = int(owner_row[0])
+                    if existing_owner != movie_id:
+                        if not force_takeover:
+                            LOG.warning(
+                                "Skipping managed-folder mapping collision: movie_id=%s "
+                                "managed_folder=%s existing_owner=%s",
+                                movie_id,
+                                managed_folder,
+                                existing_owner,
+                            )
+                            return False
+                        connection.execute(
+                            "DELETE FROM movie_managed_folders WHERE movie_id = ?",
+                            (existing_owner,),
+                        )
+                        LOG.warning(
+                            "Force-took managed-folder mapping ownership: movie_id=%s "
+                            "managed_folder=%s previous_owner=%s",
+                            movie_id,
+                            managed_folder,
+                            existing_owner,
+                        )
                 connection.execute(
                     """
                     INSERT INTO movie_managed_folders (movie_id, managed_folder, updated_at)
@@ -167,13 +215,45 @@ class ProjectionStateStore:
                     """,
                     (movie_id, str(managed_folder)),
                 )
+                return True
 
-    def set_managed_folders_bulk(self, mappings: list[tuple[int, Path]]) -> None:
+    def set_managed_folders_bulk(self, mappings: list[tuple[int, Path]]) -> int:
         """Store managed folders for multiple movies."""
         if not mappings:
-            return
+            return 0
         with self._lock:
             with self._connect() as connection:
+                cursor = connection.execute(
+                    "SELECT movie_id, managed_folder FROM movie_managed_folders"
+                )
+                existing_by_movie_id = {
+                    int(row[0]): str(row[1]) for row in cursor.fetchall() if row[1]
+                }
+                folder_owner: dict[str, int] = {
+                    folder: movie_id for movie_id, folder in existing_by_movie_id.items()
+                }
+
+                pending_rows: list[tuple[int, str]] = []
+                local_folder_owner = dict(folder_owner)
+
+                for movie_id, folder in mappings:
+                    folder_str = str(folder)
+                    existing_owner = local_folder_owner.get(folder_str)
+                    if existing_owner is not None and existing_owner != movie_id:
+                        LOG.warning(
+                            "Skipping managed-folder mapping collision in bulk update: "
+                            "movie_id=%s managed_folder=%s existing_owner=%s",
+                            movie_id,
+                            folder,
+                            existing_owner,
+                        )
+                        continue
+                    local_folder_owner[folder_str] = movie_id
+                    pending_rows.append((movie_id, folder_str))
+
+                if not pending_rows:
+                    return 0
+
                 connection.executemany(
                     """
                     INSERT INTO movie_managed_folders (movie_id, managed_folder, updated_at)
@@ -182,8 +262,9 @@ class ProjectionStateStore:
                         managed_folder = excluded.managed_folder,
                         updated_at = excluded.updated_at
                     """,
-                    [(movie_id, str(folder)) for movie_id, folder in mappings],
+                    pending_rows,
                 )
+                return len(pending_rows)
 
     def remove_managed_folder(self, movie_id: int) -> None:
         """Remove the managed folder mapping for a movie."""

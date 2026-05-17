@@ -12,6 +12,7 @@ from .logs_router import build_logs_router
 from .maintenance_router import build_maintenance_router
 from .metadata_router import build_metadata_router
 from .runtime_router import build_runtime_router
+from .unmatched_movie_router import build_unmatched_movie_router
 
 __all__ = [
     "ArrConnectionRequest",
@@ -32,4 +33,5 @@ __all__ = [
     "build_maintenance_router",
     "build_metadata_router",
     "build_runtime_router",
+    "build_unmatched_movie_router",
 ]

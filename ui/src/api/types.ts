@@ -219,6 +219,34 @@ export type HistoryEvent = {
   message: string;
 };
 
+export type UnmatchedMovieCandidate = {
+  movie_id: number;
+  title: string;
+  year: number | null;
+  path: string;
+  tmdb_id: number | null;
+  imdb_id: string | null;
+  score: number;
+  confidence: "low" | "medium" | "high";
+  reasons: string[];
+  mapped_folder: string | null;
+  mapping_conflict: boolean;
+};
+
+export type UnmatchedMovieCandidatesResponse = {
+  path: string;
+  managed_root: string;
+  folder: {
+    title: string;
+    year: number | null;
+  };
+  nfo_ids: {
+    tmdb_id?: string;
+    imdb_id?: string;
+  };
+  candidates: UnmatchedMovieCandidate[];
+};
+
 export type HistoryResponse = {
   items: HistoryEvent[];
   total: number;

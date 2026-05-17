@@ -1,3 +1,4 @@
+import sqlite3
 import time
 from pathlib import Path
 
@@ -239,7 +240,15 @@ def test_discovery_warnings_reports_mapping_collisions(tmp_path: Path, monkeypat
 
     state_db = tmp_path / "movie-state.db"
     store = ProjectionStateStore(state_db)
-    store.set_managed_folders_bulk([(1001, shared_folder), (1002, shared_folder)])
+    store.set_managed_folder(1001, shared_folder)
+    # Simulate pre-guard legacy corruption where two movie IDs share one folder.
+    with sqlite3.connect(state_db) as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO movie_managed_folders "
+            "(movie_id, managed_folder, updated_at) "
+            "VALUES (?, ?, strftime('%s', 'now'))",
+            (1002, str(shared_folder)),
+        )
     store.upsert_projected_files(
         [
             ProjectedFileState(

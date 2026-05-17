@@ -7,7 +7,8 @@ import type {
   JobRecord,
   JobsSummary,
   LogItem,
-  RuntimeStatusResponse
+  RuntimeStatusResponse,
+  UnmatchedMovieCandidatesResponse
 } from "./types";
 export type {
   DeletedFilesResponse,
@@ -17,7 +18,9 @@ export type {
   JobRecord,
   JobsSummary,
   LogItem,
-  RuntimeStatusResponse
+  RuntimeStatusResponse,
+  UnmatchedMovieCandidate,
+  UnmatchedMovieCandidatesResponse
 } from "./types";
 
 const api = axios.create({
@@ -346,6 +349,32 @@ export const runMaintenanceReconcile = async (params?: { path?: string }) => {
       }
     }
   );
+  return data;
+};
+
+export const getUnmatchedMovieCandidates = async (path: string) => {
+  const { data } = await api.get<UnmatchedMovieCandidatesResponse>(
+    "/fs/unmatched-movie-candidates",
+    { params: { path } }
+  );
+  return data;
+};
+
+export const resolveUnmatchedMovieMapping = async (params: {
+  path: string;
+  movieId: number;
+  forceTakeover?: boolean;
+}) => {
+  const { data } = await api.post<{
+    ok: boolean;
+    path: string;
+    movie_id: number;
+    force_takeover: boolean;
+  }>("/fs/unmatched-movie-resolve", {
+    path: params.path,
+    movie_id: params.movieId,
+    force_takeover: params.forceTakeover ?? false,
+  });
   return data;
 };
 

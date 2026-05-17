@@ -1,34 +1,31 @@
 import {
   ActionIcon,
   Badge,
-  Button,
   Card,
   Group,
-  Loader,
-  Modal,
-  Stack,
   Text,
   Tooltip,
 } from "@mantine/core";
 import {
   IconBan,
-  IconFolderOpen,
-  IconTrash,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import {
   getConfig,
   getDiscoveryWarnings,
   getFsRoots,
+  getUnmatchedMovieCandidates,
   recycleOrphanedManagedFolder,
+  resolveUnmatchedMovieMapping,
   runMaintenanceReconcile,
   saveConfig,
   waitForJobCompletion,
 } from "../../api/client";
-import DuplicateWarningGroup from "./DuplicateWarningGroup";
-import UnmatchedWarningsSection from "./UnmatchedWarningsSection";
-import WarningPathRow from "./WarningPathRow";
+import type { UnmatchedMovieCandidatesResponse } from "../../api/client";
+import ImportErrorModal from "./ImportErrorModal";
+import UnmatchedResolveModal from "./UnmatchedResolveModal";
 import DirectoryPickerModal from "../DirectoryPickerModal";
+import DiscoveryWarningsSections from "./DiscoveryWarningsSections";
 
 type DiscoveryWarnings = Awaited<ReturnType<typeof getDiscoveryWarnings>>;
 
@@ -74,6 +71,13 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
   >({});
   const [hoveredRowKey, setHoveredRowKey] = useState<string | null>(null);
   const [importErrorDialogPath, setImportErrorDialogPath] = useState<string | null>(null);
+  const [resolveDialogPath, setResolveDialogPath] = useState<string | null>(null);
+  const [resolveCandidates, setResolveCandidates] =
+    useState<UnmatchedMovieCandidatesResponse | null>(null);
+  const [resolveLoading, setResolveLoading] = useState(false);
+  const [resolveError, setResolveError] = useState<string>("");
+  const [selectedResolveMovieId, setSelectedResolveMovieId] = useState<string>("");
+  const [resolveForceTakeover, setResolveForceTakeover] = useState(false);
 
   const warningRowStyle = (rowKey: string) => ({
     flex: 1,
@@ -164,40 +168,91 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
   };
 
   const handleImportUnmatched = async (path: string) => {
-    setBusyImportPath(path);
-    setImportInFlightByPath((current) => ({ ...current, [path]: true }));
+    setResolveDialogPath(path);
+    setResolveCandidates(null);
+    setResolveError("");
+    setSelectedResolveMovieId("");
+    setResolveForceTakeover(false);
+    setResolveLoading(true);
+    try {
+      const payload = await getUnmatchedMovieCandidates(path);
+      setResolveCandidates(payload);
+      if (payload.candidates.length > 0) {
+        setSelectedResolveMovieId(String(payload.candidates[0].movie_id));
+      }
+    } catch (error) {
+      setResolveError(parseApiErrorMessage(error, "Failed to load candidate movies."));
+    } finally {
+      setResolveLoading(false);
+    }
+  };
+
+  const handleResolveAndImportUnmatched = async () => {
+    if (!resolveDialogPath) {
+      return;
+    }
+    const targetPath = resolveDialogPath;
+
+    if (!selectedResolveMovieId) {
+      setResolveError("Select a movie before applying this mapping.");
+      return;
+    }
+
+    const selectedMovieId = Number.parseInt(selectedResolveMovieId, 10);
+    if (!Number.isFinite(selectedMovieId)) {
+      setResolveError("Selected movie is invalid.");
+      return;
+    }
+
+    setBusyImportPath(targetPath);
+    setImportInFlightByPath((current) => ({ ...current, [targetPath]: true }));
     setImportStatusByPath((current) => ({
       ...current,
-      [path]: { color: "blue", message: "Queueing import in Radarr..." },
+      [targetPath]: { color: "blue", message: "Queueing import in Radarr..." },
     }));
-    setImportErrorsByPath((current) => ({ ...current, [path]: "" }));
+    setImportErrorsByPath((current) => ({ ...current, [targetPath]: "" }));
     try {
-      const queued = await runMaintenanceReconcile({ path });
+      await resolveUnmatchedMovieMapping({
+        path: targetPath,
+        movieId: selectedMovieId,
+        forceTakeover: resolveForceTakeover,
+      });
+
       setImportStatusByPath((current) => ({
         ...current,
-        [path]: { color: "blue", message: `Import queued (job ${queued.job_id.slice(0, 8)}...)` },
+        [targetPath]: { color: "blue", message: "Mapping saved. Queueing reconcile..." },
       }));
-      setImportErrorDialogPath((current) => (current === path ? null : current));
+
+      const queued = await runMaintenanceReconcile({ path: targetPath });
+      setImportStatusByPath((current) => ({
+        ...current,
+        [targetPath]: {
+          color: "blue",
+          message: `Import queued (job ${queued.job_id.slice(0, 8)}...)`,
+        },
+      }));
+      setImportErrorDialogPath((current) => (current === targetPath ? null : current));
+      setResolveDialogPath(null);
 
       void (async () => {
         try {
           await waitForJobCompletion(queued.job_id, { timeoutMs: 180000, pollIntervalMs: 1500 });
           setImportStatusByPath((current) => ({
             ...current,
-            [path]: { color: "green", message: "Import finished successfully." },
+            [targetPath]: { color: "green", message: "Import finished successfully." },
           }));
-          setImportErrorsByPath((current) => ({ ...current, [path]: "" }));
+          setImportErrorsByPath((current) => ({ ...current, [targetPath]: "" }));
           await onRefreshWarnings();
         } catch (error) {
           const message = parseApiErrorMessage(error, "Import failed after being queued.");
-          setImportErrorsByPath((current) => ({ ...current, [path]: message }));
+          setImportErrorsByPath((current) => ({ ...current, [targetPath]: message }));
           setImportStatusByPath((current) => ({
             ...current,
-            [path]: { color: "red", message },
+            [targetPath]: { color: "red", message },
           }));
-          setImportErrorDialogPath(path);
+          setImportErrorDialogPath(targetPath);
         } finally {
-          setImportInFlightByPath((current) => ({ ...current, [path]: false }));
+          setImportInFlightByPath((current) => ({ ...current, [targetPath]: false }));
         }
       })();
 
@@ -211,14 +266,15 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         error,
         "Import trigger failed. Open details and retry."
       );
-      setImportErrorsByPath((current) => ({ ...current, [path]: message }));
+      setImportErrorsByPath((current) => ({ ...current, [targetPath]: message }));
       setImportStatusByPath((current) => ({
         ...current,
-        [path]: { color: "red", message },
+        [targetPath]: { color: "red", message },
       }));
-      setImportErrorDialogPath(path);
+      setImportErrorDialogPath(targetPath);
+      setResolveError(message);
     } finally {
-      setBusyImportPath((current) => (current === path ? null : current));
+      setBusyImportPath((current) => (current === targetPath ? null : current));
     }
   };
 
@@ -311,177 +367,60 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         </Text>
       ) : null}
       {hasDiscoveryWarnings && (
-        <Stack gap="sm" mt="xs">
-            {excludedCandidates > 0 && (
-              <Stack gap={2}>
-                <Text size="xs" fw={600}>Excluded Candidates ({excludedCandidates})</Text>
-                {excludedItems.map((item) => (
-                  <WarningPathRow
-                    key={`excluded-${item.path}`}
-                    rowKey={`excluded-${item.path}`}
-                    label={`⚠ ${item.path}`}
-                    onHover={setHoveredRowKey}
-                    rowStyle={warningRowStyle}
-                    actions={
-                      <>
-                        {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
-                        {renderIgnoreAction(item.path, "Keep ignored (add to paths.exclude_paths)")}
-                      </>
-                    }
-                    status={ignoreStatusByPath[item.path]}
-                  />
-                ))}
-              </Stack>
-            )}
-            {duplicateCandidates > 0 && (
-              <Stack gap={2}>
-                <Text size="xs" fw={600}>Potential Duplicates ({duplicateCandidates})</Text>
-                {duplicateItems.map((item) => (
-                  <DuplicateWarningGroup
-                    key={`duplicate-${item.primary_path}`}
-                    item={item}
-                    onHover={setHoveredRowKey}
-                    rowStyle={warningRowStyle}
-                    makeActions={(path) => (
-                      <>
-                        {busyIgnorePath === path ? <Loader size="xs" /> : null}
-                        {renderIgnoreAction(path, "Ignore this folder path")}
-                      </>
-                    )}
-                    statusByPath={ignoreStatusByPath}
-                  />
-                ))}
-              </Stack>
-            )}
-            {orphanedManagedCandidates > 0 && (
-              <Stack gap={2}>
-                <Text size="xs" fw={600}>
-                  Orphaned Managed Folders (no video files) ({orphanedManagedCandidates})
-                </Text>
-                {orphanedItems.map((item) => (
-                  <WarningPathRow
-                    key={`orphaned-${item.path}`}
-                    rowKey={`orphaned-${item.path}`}
-                    label={`⚠ ${item.path}`}
-                    onHover={setHoveredRowKey}
-                    rowStyle={warningRowStyle}
-                    actions={
-                      <>
-                        {busyOrphanPath === item.path ? <Loader size="xs" /> : null}
-                        {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
-                        {renderIgnoreAction(item.path, "Ignore this folder path")}
-                        <Tooltip label="Browse folder" withArrow>
-                          <ActionIcon
-                            size="sm"
-                            variant="light"
-                            onClick={() => void handleOpenFolder(item.path)}
-                            disabled={busyOrphanPath === item.path}
-                            aria-label="Browse orphaned folder"
-                          >
-                            <IconFolderOpen size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                        <Tooltip label="Recycle orphaned folder" withArrow>
-                          <ActionIcon
-                            size="sm"
-                            color="red"
-                            variant="light"
-                            onClick={() => void handleRecycleOrphan(item.path)}
-                            disabled={busyOrphanPath === item.path}
-                            aria-label="Recycle orphaned folder"
-                          >
-                            <IconTrash size={14} />
-                          </ActionIcon>
-                        </Tooltip>
-                      </>
-                    }
-                    status={ignoreStatusByPath[item.path]}
-                  />
-                ))}
-                {orphanedItems.map((item) => {
-                  const rowError = rowErrors[item.path];
-                  if (!rowError) {
-                    return null;
-                  }
-                  return (
-                    <Text key={`orphaned-error-${item.path}`} size="xs" c="red">
-                      {rowError}
-                    </Text>
-                  );
-                })}
-              </Stack>
-            )}
-            {unmanagedShadowVideoFiles > 0 && (
-              <Stack gap={2}>
-                <Text size="xs" fw={600}>
-                  Unmanaged Shadow Video Files ({unmanagedShadowVideoFiles})
-                </Text>
-                {unmanagedShadowItems.map((item) => (
-                  <WarningPathRow
-                    key={`shadow-unmanaged-${item.path}`}
-                    rowKey={`shadow-unmanaged-${item.path}`}
-                    label={`⚠ ${item.path}`}
-                    onHover={setHoveredRowKey}
-                    rowStyle={warningRowStyle}
-                    actions={
-                      <>
-                        {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
-                        {renderIgnoreAction(item.path, "Ignore this file path")}
-                      </>
-                    }
-                    status={ignoreStatusByPath[item.path]}
-                  />
-                ))}
-              </Stack>
-            )}
-            <UnmatchedWarningsSection
-              unmatchedManagedCandidates={unmatchedManagedCandidates}
-              unmatchedItems={unmatchedItems}
-              busyIgnorePath={busyIgnorePath}
-              busyImportPath={busyImportPath}
-              importInFlightByPath={importInFlightByPath}
-              importErrorsByPath={importErrorsByPath}
-              importStatusByPath={importStatusByPath}
-              ignoreStatusByPath={ignoreStatusByPath}
-              setImportErrorDialogPath={(path) => setImportErrorDialogPath(path)}
-              handleImportUnmatched={handleImportUnmatched}
-              renderIgnoreAction={renderIgnoreAction}
-              onHover={setHoveredRowKey}
-              rowStyle={warningRowStyle}
-            />
-          </Stack>
+        <DiscoveryWarningsSections
+          excludedCandidates={excludedCandidates}
+          duplicateCandidates={duplicateCandidates}
+          orphanedManagedCandidates={orphanedManagedCandidates}
+          unmatchedManagedCandidates={unmatchedManagedCandidates}
+          unmanagedShadowVideoFiles={unmanagedShadowVideoFiles}
+          excludedItems={excludedItems}
+          duplicateItems={duplicateItems}
+          orphanedItems={orphanedItems}
+          unmatchedItems={unmatchedItems}
+          unmanagedShadowItems={unmanagedShadowItems}
+          busyIgnorePath={busyIgnorePath}
+          busyOrphanPath={busyOrphanPath}
+          busyImportPath={busyImportPath}
+          importInFlightByPath={importInFlightByPath}
+          importErrorsByPath={importErrorsByPath}
+          importStatusByPath={importStatusByPath}
+          ignoreStatusByPath={ignoreStatusByPath}
+          rowErrors={rowErrors}
+          renderIgnoreAction={renderIgnoreAction}
+          handleOpenFolder={handleOpenFolder}
+          handleRecycleOrphan={handleRecycleOrphan}
+          handleImportUnmatched={handleImportUnmatched}
+          setImportErrorDialogPath={(path) => setImportErrorDialogPath(path)}
+          setHoveredRowKey={setHoveredRowKey}
+          warningRowStyle={warningRowStyle}
+        />
       )}
-      <Modal
+      <ImportErrorModal
         opened={importErrorDialogPath !== null}
+        path={importErrorDialogPath}
+        errorMessage={importDialogError}
+        busyImportPath={busyImportPath}
         onClose={() => setImportErrorDialogPath(null)}
-        title="Import Error"
-        centered
-      >
-        <Stack gap="sm">
-          <Text size="sm" c="dimmed">
-            {importErrorDialogPath}
-          </Text>
-          <Text size="sm">{importDialogError || "Import failed."}</Text>
-          <Group justify="flex-end">
-            <Button variant="default" onClick={() => setImportErrorDialogPath(null)}>
-              Close
-            </Button>
-            <Button
-              color="red"
-              loading={
-                importErrorDialogPath !== null && busyImportPath === importErrorDialogPath
-              }
-              onClick={() => {
-                if (importErrorDialogPath) {
-                  void handleImportUnmatched(importErrorDialogPath);
-                }
-              }}
-            >
-              Retry
-            </Button>
-          </Group>
-        </Stack>
-      </Modal>
+        onRetry={() => {
+          if (importErrorDialogPath) {
+            void handleImportUnmatched(importErrorDialogPath);
+          }
+        }}
+      />
+      <UnmatchedResolveModal
+        opened={resolveDialogPath !== null}
+        path={resolveDialogPath}
+        loading={resolveLoading}
+        busyImportPath={busyImportPath}
+        candidatesPayload={resolveCandidates}
+        selectedMovieId={selectedResolveMovieId}
+        onChangeSelectedMovieId={setSelectedResolveMovieId}
+        forceTakeover={resolveForceTakeover}
+        onChangeForceTakeover={setResolveForceTakeover}
+        error={resolveError}
+        onCancel={() => setResolveDialogPath(null)}
+        onConfirm={() => void handleResolveAndImportUnmatched()}
+      />
       <DirectoryPickerModal
         opened={browsePath !== null}
         title="Browse orphaned managed folder"

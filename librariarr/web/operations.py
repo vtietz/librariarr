@@ -32,6 +32,7 @@ from .routers import (
     build_logs_router,
     build_maintenance_router,
     build_runtime_router,
+    build_unmatched_movie_router,
 )
 
 LOG = logging.getLogger(__name__)
@@ -389,6 +390,12 @@ def build_operations_router() -> APIRouter:
             shadow_roots_fn=_library_roots,
             enrich_mapped_directories_with_radarr_state_fn=_enrich_with_snapshot,
             apply_path_mapping_outcomes_fn=apply_path_mapping_outcomes,
+        )
+    )
+    router.include_router(
+        build_unmatched_movie_router(
+            load_config_or_http_fn=load_config_or_http,
+            read_config_path_fn=read_config_path,
         )
     )
 
