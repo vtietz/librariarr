@@ -65,7 +65,7 @@ export default function ActivityPanel() {
     try {
       const [summaryData, items] = await Promise.all([
         getJobsSummary(),
-        getJobs({ limit: 500 }),
+        getJobs({ limit: 200 }),
       ]);
       setSummary(summaryData);
       setJobs(items);
