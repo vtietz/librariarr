@@ -15,6 +15,7 @@ from ...projection.provenance import ProjectionStateStore
 from ...service.external_id_parsing import extract_external_ids_from_nfo
 from ...sync.naming import parse_movie_ref
 from ..history_events import append_history_event
+from .unmatched_folder_comparison import build_folder_comparison_info
 
 
 def build_unmatched_movie_router(
@@ -78,6 +79,7 @@ def _handle_unmatched_movie_candidates(
     )
 
     state_store = ProjectionStateStore(_projection_state_db_path())
+    incoming_folder_info = build_folder_comparison_info(target_path)
     enriched_candidates = _enrich_candidates_with_mapping_state(
         state_store=state_store,
         target_path=target_path,
@@ -92,6 +94,7 @@ def _handle_unmatched_movie_candidates(
             "year": folder_ref.year,
         },
         "nfo_ids": nfo_ids,
+        "incoming_folder_info": incoming_folder_info,
         "candidates": enriched_candidates,
     }
 
@@ -649,15 +652,25 @@ def _enrich_candidates_with_mapping_state(
     candidates: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     owner_by_movie = state_store.get_managed_folders_by_movie_ids()
+    comparison_cache: dict[str, dict[str, Any]] = {}
     for item in candidates:
         movie_id = item.get("movie_id")
         if not isinstance(movie_id, int):
             item["mapped_folder"] = None
+            item["mapped_folder_info"] = None
             item["mapping_conflict"] = False
             continue
         mapped_folder = owner_by_movie.get(movie_id)
         mapped_folder_str = str(mapped_folder) if mapped_folder is not None else None
         item["mapped_folder"] = mapped_folder_str
+        if mapped_folder_str is None:
+            item["mapped_folder_info"] = None
+        else:
+            info = comparison_cache.get(mapped_folder_str)
+            if info is None:
+                info = build_folder_comparison_info(Path(mapped_folder_str))
+                comparison_cache[mapped_folder_str] = info
+            item["mapped_folder_info"] = info
         item["mapping_conflict"] = mapped_folder_str is not None and Path(
             mapped_folder_str
         ).resolve(strict=False) != target_path.resolve(strict=False)

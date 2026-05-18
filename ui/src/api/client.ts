@@ -23,6 +23,7 @@ export type {
   ResolveUnmatchedMovieMappingRequest,
   ResolveUnmatchedMovieMappingResponse,
   RuntimeStatusResponse,
+  UnmatchedFolderComparisonInfo,
   UnmatchedMovieCandidate,
   UnmatchedMovieWinnerStrategy,
   UnmatchedMovieCandidatesResponse

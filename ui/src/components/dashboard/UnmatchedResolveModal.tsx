@@ -1,5 +1,16 @@
-import { Button, Checkbox, Group, Loader, Modal, Radio, Stack, Text } from "@mantine/core";
+import {
+  Button,
+  Checkbox,
+  Group,
+  Loader,
+  Modal,
+  Radio,
+  Stack,
+  Table,
+  Text,
+} from "@mantine/core";
 import type {
+  UnmatchedFolderComparisonInfo,
   UnmatchedMovieCandidatesResponse,
   UnmatchedMovieWinnerStrategy,
 } from "../../api/client";
@@ -48,6 +59,35 @@ export default function UnmatchedResolveModal({
     (candidate) => String(candidate.movie_id) === selectedMovieId
   );
   const selectedHasMappingConflict = Boolean(selectedCandidate?.mapping_conflict);
+  const incomingFolderInfo = candidatesPayload?.incoming_folder_info ?? null;
+  const mappedFolderInfo = selectedCandidate?.mapped_folder_info ?? null;
+
+  const formatTimestamp = (value: number | null | undefined) => {
+    if (typeof value !== "number") {
+      return "-";
+    }
+    return new Date(value * 1000).toLocaleString();
+  };
+
+  const formatBytes = (value: number) => {
+    if (value <= 0) {
+      return "0 B";
+    }
+    const units = ["B", "KB", "MB", "GB", "TB"];
+    const unitIndex = Math.min(Math.floor(Math.log(value) / Math.log(1024)), units.length - 1);
+    const scaled = value / 1024 ** unitIndex;
+    return `${scaled.toFixed(unitIndex === 0 ? 0 : 1)} ${units[unitIndex]}`;
+  };
+
+  const folderFileSummary = (info: UnmatchedFolderComparisonInfo | null) => {
+    if (!info) {
+      return "-";
+    }
+    if (info.sample_video_files.length === 0) {
+      return "No video files found";
+    }
+    return info.sample_video_files.join(", ");
+  };
 
   return (
     <Modal opened={opened} onClose={onCancel} title="Resolve Unmatched Folder" centered size="lg">
@@ -129,6 +169,72 @@ export default function UnmatchedResolveModal({
             </Radio.Group>
             {selectedHasMappingConflict ? (
               <>
+                {incomingFolderInfo && mappedFolderInfo ? (
+                  <Stack gap={4}>
+                    <Text size="sm" fw={500}>
+                      Folder comparison
+                    </Text>
+                    <Table withTableBorder withColumnBorders striped highlightOnHover>
+                      <Table.Thead>
+                        <Table.Tr>
+                          <Table.Th>Field</Table.Th>
+                          <Table.Th>Incoming folder</Table.Th>
+                          <Table.Th>Existing mapped folder</Table.Th>
+                        </Table.Tr>
+                      </Table.Thead>
+                      <Table.Tbody>
+                        <Table.Tr>
+                          <Table.Td>Path</Table.Td>
+                          <Table.Td>{incomingFolderInfo.path}</Table.Td>
+                          <Table.Td>{mappedFolderInfo.path}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Video files</Table.Td>
+                          <Table.Td>{incomingFolderInfo.video_count}</Table.Td>
+                          <Table.Td>{mappedFolderInfo.video_count}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Example filenames</Table.Td>
+                          <Table.Td>{folderFileSummary(incomingFolderInfo)}</Table.Td>
+                          <Table.Td>{folderFileSummary(mappedFolderInfo)}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Latest video file</Table.Td>
+                          <Table.Td>{incomingFolderInfo.latest_video_file ?? "-"}</Table.Td>
+                          <Table.Td>{mappedFolderInfo.latest_video_file ?? "-"}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Latest video modified</Table.Td>
+                          <Table.Td>{formatTimestamp(incomingFolderInfo.latest_video_mtime)}</Table.Td>
+                          <Table.Td>{formatTimestamp(mappedFolderInfo.latest_video_mtime)}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Folder created</Table.Td>
+                          <Table.Td>{formatTimestamp(incomingFolderInfo.folder_created_at)}</Table.Td>
+                          <Table.Td>{formatTimestamp(mappedFolderInfo.folder_created_at)}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Folder changed</Table.Td>
+                          <Table.Td>{formatTimestamp(incomingFolderInfo.folder_changed_at)}</Table.Td>
+                          <Table.Td>{formatTimestamp(mappedFolderInfo.folder_changed_at)}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Folder modified</Table.Td>
+                          <Table.Td>{formatTimestamp(incomingFolderInfo.folder_modified_at)}</Table.Td>
+                          <Table.Td>{formatTimestamp(mappedFolderInfo.folder_modified_at)}</Table.Td>
+                        </Table.Tr>
+                        <Table.Tr>
+                          <Table.Td>Total video size</Table.Td>
+                          <Table.Td>{formatBytes(incomingFolderInfo.video_size_bytes)}</Table.Td>
+                          <Table.Td>{formatBytes(mappedFolderInfo.video_size_bytes)}</Table.Td>
+                        </Table.Tr>
+                      </Table.Tbody>
+                    </Table>
+                    <Text size="xs" c="dimmed">
+                      Folder created is only shown when the filesystem exposes a birth timestamp.
+                    </Text>
+                  </Stack>
+                ) : null}
                 <Radio.Group
                   value={winnerStrategy}
                   onChange={(value) =>

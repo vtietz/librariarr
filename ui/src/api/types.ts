@@ -230,7 +230,22 @@ export type UnmatchedMovieCandidate = {
   confidence: "low" | "medium" | "high";
   reasons: string[];
   mapped_folder: string | null;
+  mapped_folder_info: UnmatchedFolderComparisonInfo | null;
   mapping_conflict: boolean;
+};
+
+export type UnmatchedFolderComparisonInfo = {
+  path: string;
+  exists: boolean;
+  is_dir: boolean;
+  video_count: number;
+  video_size_bytes: number;
+  sample_video_files: string[];
+  latest_video_file: string | null;
+  latest_video_mtime: number | null;
+  folder_created_at: number | null;
+  folder_changed_at: number | null;
+  folder_modified_at: number | null;
 };
 
 export type UnmatchedMovieCandidatesResponse = {
@@ -244,6 +259,7 @@ export type UnmatchedMovieCandidatesResponse = {
     tmdb_id?: string;
     imdb_id?: string;
   };
+  incoming_folder_info: UnmatchedFolderComparisonInfo;
   candidates: UnmatchedMovieCandidate[];
 };
 

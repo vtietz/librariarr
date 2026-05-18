@@ -97,6 +97,7 @@ def test_unmatched_movie_candidates_includes_mapping_conflict(
     folder = managed_root / "Z (1969) FSK16"
     folder.mkdir()
     (folder / "movie.nfo").write_text("tmdbid=2721\n", encoding="utf-8")
+    (folder / "Z (1969).mkv").write_text("stub", encoding="utf-8")
 
     state_db = tmp_path / "projection-state.sqlite"
     store = ProjectionStateStore(state_db)
@@ -120,8 +121,12 @@ def test_unmatched_movie_candidates_includes_mapping_conflict(
     assert response.status_code == 200
     payload = response.json()
     assert payload["nfo_ids"]["tmdb_id"] == "2721"
+    assert payload["incoming_folder_info"]["path"] == str(folder)
+    assert payload["incoming_folder_info"]["video_count"] == 1
+    assert payload["incoming_folder_info"]["sample_video_files"] == ["Z (1969).mkv"]
     by_id = {item["movie_id"]: item for item in payload["candidates"]}
     assert by_id[1]["mapping_conflict"] is True
+    assert by_id[1]["mapped_folder_info"]["path"] == str(conflicting_folder)
 
 
 def test_unmatched_movie_resolve_requires_force_for_conflict(
