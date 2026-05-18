@@ -69,6 +69,13 @@ use `docs/reconciliation_scenarios.md` as the canonical reference.
 - `POST /api/maintenance/reconcile`
   - without `path`: full reconcile,
   - with absolute `path`: incremental/scoped reconcile.
+- `POST /api/fs/unmatched-movie-resolve`
+  - legacy-compatible payload: `path`, `movie_id`, optional `force_takeover`,
+  - optional winner selection: `winner_strategy=incoming|existing` (default `incoming`),
+  - optional loser soft-delete: `quarantine_loser=true|false` (default `false`).
+  - conservative ownership conflict default is preserved:
+    - active valid owner conflict returns `409` unless `force_takeover=true`,
+    - stale/invalid owner can be reassigned without force.
 
 ## Movie Projection Behavior
 

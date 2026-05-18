@@ -21,7 +21,10 @@ import {
   saveConfig,
   waitForJobCompletion,
 } from "../../api/client";
-import type { UnmatchedMovieCandidatesResponse } from "../../api/client";
+import type {
+  UnmatchedMovieCandidatesResponse,
+  UnmatchedMovieWinnerStrategy,
+} from "../../api/client";
 import ImportErrorModal from "./ImportErrorModal";
 import UnmatchedResolveModal from "./UnmatchedResolveModal";
 import DirectoryPickerModal from "../DirectoryPickerModal";
@@ -78,6 +81,9 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
   const [resolveError, setResolveError] = useState<string>("");
   const [selectedResolveMovieId, setSelectedResolveMovieId] = useState<string>("");
   const [resolveForceTakeover, setResolveForceTakeover] = useState(false);
+  const [resolveWinnerStrategy, setResolveWinnerStrategy] =
+    useState<UnmatchedMovieWinnerStrategy>("incoming");
+  const [resolveQuarantineLoser, setResolveQuarantineLoser] = useState(false);
 
   const warningRowStyle = (rowKey: string) => ({
     flex: 1,
@@ -173,6 +179,8 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
     setResolveError("");
     setSelectedResolveMovieId("");
     setResolveForceTakeover(false);
+    setResolveWinnerStrategy("incoming");
+    setResolveQuarantineLoser(false);
     setResolveLoading(true);
     try {
       const payload = await getUnmatchedMovieCandidates(path);
@@ -204,6 +212,11 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
       return;
     }
 
+    const selectedCandidate = resolveCandidates?.candidates.find(
+      (candidate) => candidate.movie_id === selectedMovieId
+    );
+    const includeConflictOptions = Boolean(selectedCandidate?.mapping_conflict);
+
     setBusyImportPath(targetPath);
     setImportInFlightByPath((current) => ({ ...current, [targetPath]: true }));
     setImportStatusByPath((current) => ({
@@ -216,6 +229,8 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         path: targetPath,
         movieId: selectedMovieId,
         forceTakeover: resolveForceTakeover,
+        winnerStrategy: includeConflictOptions ? resolveWinnerStrategy : "incoming",
+        quarantineLoser: includeConflictOptions ? resolveQuarantineLoser : false,
       });
 
       setImportStatusByPath((current) => ({
@@ -417,6 +432,10 @@ export default function DiscoveryWarningsCard({ discoveryWarnings, onRefreshWarn
         onChangeSelectedMovieId={setSelectedResolveMovieId}
         forceTakeover={resolveForceTakeover}
         onChangeForceTakeover={setResolveForceTakeover}
+        winnerStrategy={resolveWinnerStrategy}
+        onChangeWinnerStrategy={setResolveWinnerStrategy}
+        quarantineLoser={resolveQuarantineLoser}
+        onChangeQuarantineLoser={setResolveQuarantineLoser}
         error={resolveError}
         onCancel={() => setResolveDialogPath(null)}
         onConfirm={() => void handleResolveAndImportUnmatched()}

@@ -76,6 +76,7 @@ The scenarios below are intentionally ordered the same for Radarr and Sonarr.
 | 7 | Missing managed source folder | resolve IDs -> source existence check -> skip safely | Movie skipped; no invalid projection output | Series skipped; no invalid projection output | [x] Radarr, [x] Sonarr | No major gap |
 | 8 | Duplicate prevention / no back-ingest of projection output | reconcile cycle repetition -> ingest guardrails -> projection idempotency | Projection folders are not moved back into managed root as duplicates | Projected shadow output does not trigger duplicate folder moves; only new files are ingested into existing nested source | [x] Radarr, [x] Sonarr | No major gap |
 | 9 | Stale unmanaged shadow leftovers in projected folders | reconcile -> provenance cleanup -> shadow soft-delete cleanup | Untracked stale shadow videos in projected movie folders are moved to `.deletedByLibrariarr`; managed files remain untouched | Untracked stale shadow videos in projected series folders are moved to `.deletedByLibrariarr`; managed files remain untouched | [x] Unit | No major gap |
+| 10 | Manual unmatched movie resolution with duplicate safety | API resolve -> winner selection -> ownership checks -> optional loser quarantine | Default remains conservative: active valid owner conflict returns 409 unless `force_takeover=true`; stale/invalid owner may be reassigned without force; optional loser path can be moved to `.deletedByLibrariarr` | n/a | [x] Unit | No major gap |
 
 Ingest replacement delete mode:
 
@@ -91,6 +92,22 @@ Manual/full/startup reconcile note:
 - Manual full reconcile explicitly uses `reconcile_full()` via maintenance operations.
 - Startup reconcile can run full or targeted reconcile depending on `runtime.startup_reconcile_mode` (`full`/`smart`), and in `smart` mode it may skip when no baseline drift is detected.
 - Therefore, startup mode affects *when/how much* work runs, but not the target converged state once a reconcile cycle executes.
+
+Manual unmatched resolve policy:
+
+- `POST /api/fs/unmatched-movie-resolve` accepts legacy payloads (`path`, `movie_id`, optional `force_takeover`) and remains backward compatible.
+- Optional additive fields:
+  - `winner_strategy`: `incoming` (default) or `existing`.
+  - `quarantine_loser`: `false` (default) or `true`.
+- Winner/loser behavior:
+  - `incoming`: winner is request `path`; loser is selected movie's previously mapped folder when different.
+  - `existing`: winner is selected movie's current mapped folder; loser is request `path` when different.
+- Conflict policy remains conservative by default:
+  - If winner path is owned by another active valid movie, return `409` unless `force_takeover=true`.
+  - Reassignment without force is allowed when current owner is stale/invalid (owner missing in Radarr, mapped folder missing/not a directory, or mapped folder outside configured managed roots).
+- Optional loser quarantine is soft-delete only:
+  - When enabled and safe, loser is moved into `managed_root/.deletedByLibrariarr/...` with unique naming.
+  - No hard delete is performed.
 
 ## Implementation Gaps (Current)
 

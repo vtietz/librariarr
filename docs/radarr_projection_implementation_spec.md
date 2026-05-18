@@ -212,6 +212,20 @@ Behavior is mapping-first and API-first:
 3. On successful resolution, store `movie_id -> managed_folder` in projection provenance state.
 4. Projection uses stored mapping to hardlink from the real managed folder to canonical `library_root / "Title (Year)"`.
 
+Manual unmatched resolution (`POST /api/fs/unmatched-movie-resolve`):
+- Backward compatible with existing payloads (`path`, `movie_id`, optional `force_takeover`).
+- Supports winner selection for duplicate scenarios:
+  - `winner_strategy=incoming` (default): request `path` wins.
+  - `winner_strategy=existing`: currently mapped folder for `movie_id` wins.
+- Conflict handling remains conservative by default:
+  - Active valid owner conflict is blocked (`409`) unless `force_takeover=true`.
+  - Force-free reassignment is allowed only when existing owner is stale/invalid:
+    - owner movie id missing in Radarr, or
+    - owner mapped folder missing/not a directory, or
+    - owner mapped folder outside configured managed roots.
+- Optional loser quarantine (`quarantine_loser=true`) moves the losing folder into
+  `managed_root/.deletedByLibrariarr/...` using unique target naming. No hard delete is performed.
+
 There is no local canonical-name fallback matcher in discovery or planner resolution.
 
 Implementation: `librariarr/service/reconcile_helpers.py` — `discover_unmatched_folders()`, `librariarr/service/reconcile_autoadd.py` — mapping persistence, `librariarr/projection/provenance.py` — `movie_managed_folders`, `librariarr/projection/planner.py` — `provenance_folders` consumption.

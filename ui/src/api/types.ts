@@ -247,6 +247,29 @@ export type UnmatchedMovieCandidatesResponse = {
   candidates: UnmatchedMovieCandidate[];
 };
 
+export type UnmatchedMovieWinnerStrategy = "incoming" | "existing";
+
+export type ResolveUnmatchedMovieMappingRequest = {
+  path: string;
+  movieId: number;
+  forceTakeover?: boolean;
+  winnerStrategy?: UnmatchedMovieWinnerStrategy;
+  quarantineLoser?: boolean;
+};
+
+export type ResolveUnmatchedMovieMappingResponse = {
+  ok: boolean;
+  path: string;
+  movie_id: number;
+  force_takeover: boolean;
+  winner_strategy?: UnmatchedMovieWinnerStrategy;
+  winner_path?: string;
+  loser_path?: string | null;
+  loser_quarantined?: boolean;
+  loser_quarantine_path?: string | null;
+  conflict_owner_was_stale?: boolean;
+};
+
 export type HistoryResponse = {
   items: HistoryEvent[];
   total: number;

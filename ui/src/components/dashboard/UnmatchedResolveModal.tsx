@@ -1,5 +1,8 @@
-import { Button, Group, Loader, Modal, Radio, Stack, Text } from "@mantine/core";
-import type { UnmatchedMovieCandidatesResponse } from "../../api/client";
+import { Button, Checkbox, Group, Loader, Modal, Radio, Stack, Text } from "@mantine/core";
+import type {
+  UnmatchedMovieCandidatesResponse,
+  UnmatchedMovieWinnerStrategy,
+} from "../../api/client";
 
 type Props = {
   opened: boolean;
@@ -11,6 +14,10 @@ type Props = {
   onChangeSelectedMovieId: (value: string) => void;
   forceTakeover: boolean;
   onChangeForceTakeover: (value: boolean) => void;
+  winnerStrategy: UnmatchedMovieWinnerStrategy;
+  onChangeWinnerStrategy: (value: UnmatchedMovieWinnerStrategy) => void;
+  quarantineLoser: boolean;
+  onChangeQuarantineLoser: (value: boolean) => void;
   error: string;
   onCancel: () => void;
   onConfirm: () => void;
@@ -26,6 +33,10 @@ export default function UnmatchedResolveModal({
   onChangeSelectedMovieId,
   forceTakeover,
   onChangeForceTakeover,
+  winnerStrategy,
+  onChangeWinnerStrategy,
+  quarantineLoser,
+  onChangeQuarantineLoser,
   error,
   onCancel,
   onConfirm,
@@ -33,6 +44,10 @@ export default function UnmatchedResolveModal({
   const conflictingCandidates = (candidatesPayload?.candidates ?? []).filter(
     (candidate) => candidate.mapping_conflict
   );
+  const selectedCandidate = (candidatesPayload?.candidates ?? []).find(
+    (candidate) => String(candidate.movie_id) === selectedMovieId
+  );
+  const selectedHasMappingConflict = Boolean(selectedCandidate?.mapping_conflict);
 
   return (
     <Modal opened={opened} onClose={onCancel} title="Resolve Unmatched Folder" centered size="lg">
@@ -106,9 +121,36 @@ export default function UnmatchedResolveModal({
             >
               <Stack gap={4} mt="xs">
                 <Radio value="safe" label="Safe (default): block if folder belongs to another movie" />
-                <Radio value="force" label="Force takeover: reassign folder ownership to selected movie" />
+                <Radio
+                  value="force"
+                  label="Force takeover: override an active ownership conflict for the winner path"
+                />
               </Stack>
             </Radio.Group>
+            {selectedHasMappingConflict ? (
+              <>
+                <Radio.Group
+                  value={winnerStrategy}
+                  onChange={(value) =>
+                    onChangeWinnerStrategy(value as UnmatchedMovieWinnerStrategy)
+                  }
+                  label="Choose winning folder"
+                >
+                  <Stack gap={4} mt="xs">
+                    <Radio value="incoming" label="Use unmatched folder (incoming)" />
+                    <Radio
+                      value="existing"
+                      label="Keep current mapped folder (existing)"
+                    />
+                  </Stack>
+                </Radio.Group>
+                <Checkbox
+                  checked={quarantineLoser}
+                  onChange={(event) => onChangeQuarantineLoser(event.currentTarget.checked)}
+                  label="Quarantine loser folder into .deletedByLibrariarr"
+                />
+              </>
+            ) : null}
           </>
         ) : null}
         {error ? <Text size="sm" c="red">{error}</Text> : null}

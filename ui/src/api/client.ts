@@ -7,6 +7,8 @@ import type {
   JobRecord,
   JobsSummary,
   LogItem,
+  ResolveUnmatchedMovieMappingRequest,
+  ResolveUnmatchedMovieMappingResponse,
   RuntimeStatusResponse,
   UnmatchedMovieCandidatesResponse
 } from "./types";
@@ -18,8 +20,11 @@ export type {
   JobRecord,
   JobsSummary,
   LogItem,
+  ResolveUnmatchedMovieMappingRequest,
+  ResolveUnmatchedMovieMappingResponse,
   RuntimeStatusResponse,
   UnmatchedMovieCandidate,
+  UnmatchedMovieWinnerStrategy,
   UnmatchedMovieCandidatesResponse
 } from "./types";
 
@@ -360,21 +365,19 @@ export const getUnmatchedMovieCandidates = async (path: string) => {
   return data;
 };
 
-export const resolveUnmatchedMovieMapping = async (params: {
-  path: string;
-  movieId: number;
-  forceTakeover?: boolean;
-}) => {
-  const { data } = await api.post<{
-    ok: boolean;
-    path: string;
-    movie_id: number;
-    force_takeover: boolean;
-  }>("/fs/unmatched-movie-resolve", {
-    path: params.path,
-    movie_id: params.movieId,
-    force_takeover: params.forceTakeover ?? false,
-  });
+export const resolveUnmatchedMovieMapping = async (
+  params: ResolveUnmatchedMovieMappingRequest
+) => {
+  const { data } = await api.post<ResolveUnmatchedMovieMappingResponse>(
+    "/fs/unmatched-movie-resolve",
+    {
+      path: params.path,
+      movie_id: params.movieId,
+      force_takeover: params.forceTakeover ?? false,
+      winner_strategy: params.winnerStrategy,
+      quarantine_loser: params.quarantineLoser,
+    }
+  );
   return data;
 };
 
