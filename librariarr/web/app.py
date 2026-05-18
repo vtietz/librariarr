@@ -21,6 +21,8 @@ from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
+from ..cache.discovery_cache import get_discovery_warnings_cache, warmup_discovery_warnings_cache
+from ..cache.mapped_cache import get_mapped_directories_cache, warmup_mapped_directories_cache
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig, load_config
@@ -29,11 +31,9 @@ from ..runtime import get_runtime_status_tracker
 from ..service import LibrariArrService
 from ..sync.discovery import discover_movie_folders, discover_series_folders
 from .dashboard_read_model import DashboardReadModel
-from .discovery_cache import get_discovery_warnings_cache, warmup_discovery_warnings_cache
 from .history_events import install_history_event_handler
 from .jobs import JobManager
 from .log_buffer import install_log_buffer
-from .mapped_cache import get_mapped_directories_cache, warmup_mapped_directories_cache
 from .operations import build_operations_router, run_radarr_diagnostics, run_sonarr_diagnostics
 from .routers import (
     build_basic_fs_router,

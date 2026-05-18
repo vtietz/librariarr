@@ -4,10 +4,10 @@ import time
 from pathlib import Path
 from typing import Any
 
+from ..cache.mapped_cache import MappedDirectoriesCache
 from ..clients.radarr import RadarrClient
 from ..clients.sonarr import SonarrClient
 from ..config import AppConfig
-from .mapped_cache import MappedDirectoriesCache
 from .state_store import PersistentStateStore
 
 PATH_MAPPING_STATUS_SNAPSHOT = "path_mapping_status"
