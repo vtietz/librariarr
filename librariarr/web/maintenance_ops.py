@@ -10,6 +10,7 @@ from fastapi import HTTPException, Request
 from ..service import LibrariArrService
 from ..service.constants import RECONCILE_TASK_FULL_KEY, RECONCILE_TASK_INCREMENTAL_KEY
 from .path_mapping_status import build_path_mapping_outcome, record_path_mapping_outcome
+from .reconcile_guard import wait_for_reconcile_slot
 from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 
 LOG = logging.getLogger(__name__)
@@ -35,7 +36,20 @@ def queue_maintenance_reconcile(
             raise HTTPException(status_code=400, detail="path must be an absolute path")
         affected_paths = {candidate_path}
 
+    task_key = (
+        f"manual-{RECONCILE_TASK_INCREMENTAL_KEY}"
+        if affected_paths
+        else f"manual-{RECONCILE_TASK_FULL_KEY}"
+    )
+    job_id_holder: dict[str, str] = {}
+
     def action() -> dict[str, Any]:
+        wait_for_reconcile_slot(
+            manager=manager,
+            runtime_status=runtime_status,
+            ignore_job_id=job_id_holder.get("job_id"),
+            ignore_task_key=task_key,
+        )
         config = load_config_or_http(config_path)
         started = time.perf_counter()
         runtime_status.mark_reconcile_started(trigger_source="manual")
@@ -114,11 +128,6 @@ def queue_maintenance_reconcile(
             LOG.error("Manual reconcile failed: %s", exc)
             return {"ok": False, "message": str(exc)}
 
-    task_key = (
-        f"manual-{RECONCILE_TASK_INCREMENTAL_KEY}"
-        if affected_paths
-        else f"manual-{RECONCILE_TASK_FULL_KEY}"
-    )
     job_id = manager.submit(
         kind="reconcile-manual-scoped" if affected_paths else "reconcile-manual",
         name="Manual Reconcile (Scoped)" if affected_paths else "Manual Reconcile",
@@ -128,6 +137,7 @@ def queue_maintenance_reconcile(
         payload={"path": path_value} if path_value else None,
         task_key=task_key,
     )
+    job_id_holder["job_id"] = job_id
     return {
         "ok": True,
         "queued": True,

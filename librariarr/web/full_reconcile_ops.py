@@ -8,6 +8,7 @@ from fastapi import Request
 
 from ..service import LibrariArrService
 from ..service.constants import RECONCILE_TASK_FULL_MANUAL_KEY
+from .reconcile_guard import wait_for_reconcile_slot
 from .request_helpers import job_manager_or_http, load_config_or_http, read_config_path
 
 LOG = logging.getLogger(__name__)
@@ -23,8 +24,15 @@ def queue_full_reconcile(
     LOG.info("Full Reconcile queued via API")
     manager = job_manager_or_http(request)
     config_path = read_config_path(request)
+    job_id_holder: dict[str, str] = {}
 
     def action() -> dict[str, Any]:
+        wait_for_reconcile_slot(
+            manager=manager,
+            runtime_status=runtime_status,
+            ignore_job_id=job_id_holder.get("job_id"),
+            ignore_task_key=RECONCILE_TASK_FULL_MANUAL_KEY,
+        )
         config = load_config_or_http(config_path)
         started = time.perf_counter()
         runtime_status.mark_reconcile_started(trigger_source="manual", phase="full_reconcile")
@@ -63,6 +71,7 @@ def queue_full_reconcile(
         func=action,
         task_key=RECONCILE_TASK_FULL_MANUAL_KEY,
     )
+    job_id_holder["job_id"] = job_id
     return {
         "ok": True,
         "queued": True,

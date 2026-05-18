@@ -417,15 +417,22 @@ export const getJob = async (jobId: string) => {
   return data;
 };
 
-export const getJobsSummary = async () => {
-  const { data } = await api.get<JobsSummary>("/jobs/summary");
+export const getJobsSummary = async (params?: { includeHidden?: boolean }) => {
+  const { data } = await api.get<JobsSummary>("/jobs/summary", {
+    params: {
+      include_hidden: params?.includeHidden,
+    },
+  });
   return data;
 };
-export const getJobs = async (params?: { limit?: number; status?: string }) => {
+export const getJobs = async (
+  params?: { limit?: number; status?: string; includeHidden?: boolean }
+) => {
   const { data } = await api.get<{ items: JobRecord[] }>("/jobs", {
     params: {
       limit: params?.limit,
-      status: params?.status
+      status: params?.status,
+      include_hidden: params?.includeHidden,
     }
   });
   return data.items;

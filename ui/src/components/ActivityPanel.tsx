@@ -64,8 +64,8 @@ export default function ActivityPanel() {
     setError(null);
     try {
       const [summaryData, items] = await Promise.all([
-        getJobsSummary(),
-        getJobs({ limit: 200 }),
+        getJobsSummary({ includeHidden: true }),
+        getJobs({ limit: 200, includeHidden: true }),
       ]);
       setSummary(summaryData);
       setJobs(items);

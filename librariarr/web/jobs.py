@@ -211,7 +211,13 @@ class JobManager:
                 "removed": len(terminal_ids),
             }
 
-    def list(self, *, limit: int = 20, status: str | None = None) -> list[dict[str, Any]]:
+    def list(
+        self,
+        *,
+        limit: int = 20,
+        status: str | None = None,
+        include_hidden: bool = False,
+    ) -> list[dict[str, Any]]:
         with self._lock:
             self._sync_from_store_locked()
             ordered = [
@@ -219,6 +225,10 @@ class JobManager:
                 for job_id in reversed(self._order)
                 if job_id in self._jobs and bool(self._jobs[job_id].get("history_visible", True))
             ]
+            if include_hidden:
+                ordered = [
+                    self._jobs[job_id] for job_id in reversed(self._order) if job_id in self._jobs
+                ]
             if status is not None:
                 ordered = [item for item in ordered if item.get("status") == status]
             return [dict(item) for item in ordered[: max(1, int(limit))]]
@@ -234,7 +244,7 @@ class JobManager:
             ]
             return [dict(item) for item in ordered[: max(1, int(limit))]]
 
-    def summary(self) -> dict[str, Any]:
+    def summary(self, *, include_hidden: bool = False) -> dict[str, Any]:
         with self._lock:
             self._sync_from_store_locked()
             queued = 0
@@ -245,7 +255,7 @@ class JobManager:
             latest_finished: dict[str, Any] | None = None
 
             for item in self._jobs.values():
-                if not bool(item.get("history_visible", True)):
+                if not include_hidden and not bool(item.get("history_visible", True)):
                     continue
                 state = item.get("status")
                 if state == "queued":

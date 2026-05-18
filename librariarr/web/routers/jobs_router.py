@@ -10,18 +10,22 @@ def build_jobs_router(*, job_manager_or_http_fn: Callable[[Request], Any]) -> AP
     router = APIRouter()
 
     @router.get("/api/jobs/summary")
-    def jobs_summary(request: Request) -> dict[str, Any]:
+    def jobs_summary(
+        request: Request,
+        include_hidden: bool = Query(default=False),
+    ) -> dict[str, Any]:
         manager = job_manager_or_http_fn(request)
-        return manager.summary()
+        return manager.summary(include_hidden=include_hidden)
 
     @router.get("/api/jobs")
     def jobs_list(
         request: Request,
         limit: int = Query(default=20, ge=1, le=200),
         status: str | None = Query(default=None),
+        include_hidden: bool = Query(default=False),
     ) -> dict[str, Any]:
         manager = job_manager_or_http_fn(request)
-        items = manager.list(limit=limit, status=status)
+        items = manager.list(limit=limit, status=status, include_hidden=include_hidden)
         return {"items": items}
 
     @router.get("/api/jobs/{job_id}")

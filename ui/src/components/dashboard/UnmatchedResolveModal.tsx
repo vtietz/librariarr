@@ -90,7 +90,13 @@ export default function UnmatchedResolveModal({
   };
 
   return (
-    <Modal opened={opened} onClose={onCancel} title="Resolve Unmatched Folder" centered size="lg">
+    <Modal
+      opened={opened}
+      onClose={onCancel}
+      title="Resolve Unmatched Folder"
+      centered
+      size="80rem"
+    >
       <Stack gap="sm">
         <Text size="sm" c="dimmed">
           {path}
@@ -160,13 +166,21 @@ export default function UnmatchedResolveModal({
               label="Ownership mode"
             >
               <Stack gap={4} mt="xs">
-                <Radio value="safe" label="Safe (default): block if folder belongs to another movie" />
+                <Radio
+                  value="safe"
+                  label="Safe (default): block only when the selected winner folder is actively owned by another movie"
+                />
                 <Radio
                   value="force"
-                  label="Force takeover: override an active ownership conflict for the winner path"
+                  label="Force takeover: override that active winner-folder ownership conflict"
                 />
               </Stack>
             </Radio.Group>
+            <Text size="xs" c="dimmed">
+              Force takeover is usually only needed when your chosen winner folder is already mapped
+              to another active movie. If the conflict owner is stale/invalid, safe mode can still
+              reassign automatically.
+            </Text>
             {selectedHasMappingConflict ? (
               <>
                 {incomingFolderInfo && mappedFolderInfo ? (
