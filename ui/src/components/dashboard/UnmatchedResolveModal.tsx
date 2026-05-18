@@ -30,6 +30,10 @@ export default function UnmatchedResolveModal({
   onCancel,
   onConfirm,
 }: Props) {
+  const conflictingCandidates = (candidatesPayload?.candidates ?? []).filter(
+    (candidate) => candidate.mapping_conflict
+  );
+
   return (
     <Modal opened={opened} onClose={onCancel} title="Resolve Unmatched Folder" centered size="lg">
       <Stack gap="sm">
@@ -52,6 +56,23 @@ export default function UnmatchedResolveModal({
                   candidatesPayload.nfo_ids.imdb_id ?? "-"
                 }
               </Text>
+            ) : null}
+            {conflictingCandidates.length > 0 ? (
+              <Stack gap={2}>
+                <Text size="sm" c="yellow">
+                  Possible duplicates detected ({conflictingCandidates.length})
+                </Text>
+                {conflictingCandidates.map((candidate) => (
+                  <Text key={`conflict-${candidate.movie_id}`} size="xs" c="dimmed">
+                    {candidate.title}
+                    {candidate.year ? ` (${candidate.year})` : ""} is currently mapped to{" "}
+                    {candidate.mapped_folder ?? "another managed folder"}
+                  </Text>
+                ))}
+                <Text size="xs" c="dimmed">
+                  Use Force takeover only when this folder should become the canonical ownership.
+                </Text>
+              </Stack>
             ) : null}
             <Radio.Group
               value={selectedMovieId}
