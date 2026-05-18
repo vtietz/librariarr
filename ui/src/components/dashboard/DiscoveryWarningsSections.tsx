@@ -69,27 +69,21 @@ export default function DiscoveryWarningsSections({
 }: Props) {
   return (
     <Stack gap="sm" mt="xs">
-      {excludedCandidates > 0 && (
-        <Stack gap={2}>
-          <Text size="xs" fw={600}>Excluded Candidates ({excludedCandidates})</Text>
-          {excludedItems.map((item) => (
-            <WarningPathRow
-              key={`excluded-${item.path}`}
-              rowKey={`excluded-${item.path}`}
-              label={`⚠ ${item.path}`}
-              onHover={setHoveredRowKey}
-              rowStyle={warningRowStyle}
-              actions={
-                <>
-                  {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
-                  {renderIgnoreAction(item.path, "Keep ignored (add to paths.exclude_paths)")}
-                </>
-              }
-              status={ignoreStatusByPath[item.path]}
-            />
-          ))}
-        </Stack>
-      )}
+      <UnmatchedWarningsSection
+        unmatchedManagedCandidates={unmatchedManagedCandidates}
+        unmatchedItems={unmatchedItems}
+        busyIgnorePath={busyIgnorePath}
+        busyImportPath={busyImportPath}
+        importInFlightByPath={importInFlightByPath}
+        importErrorsByPath={importErrorsByPath}
+        importStatusByPath={importStatusByPath}
+        ignoreStatusByPath={ignoreStatusByPath}
+        setImportErrorDialogPath={(path) => setImportErrorDialogPath(path)}
+        handleImportUnmatched={handleImportUnmatched}
+        renderIgnoreAction={renderIgnoreAction}
+        onHover={setHoveredRowKey}
+        rowStyle={warningRowStyle}
+      />
       {duplicateCandidates > 0 && (
         <Stack gap={2}>
           <Text size="xs" fw={600}>Potential Duplicates ({duplicateCandidates})</Text>
@@ -168,6 +162,27 @@ export default function DiscoveryWarningsSections({
           })}
         </Stack>
       )}
+      {excludedCandidates > 0 && (
+        <Stack gap={2}>
+          <Text size="xs" fw={600}>Excluded Candidates ({excludedCandidates})</Text>
+          {excludedItems.map((item) => (
+            <WarningPathRow
+              key={`excluded-${item.path}`}
+              rowKey={`excluded-${item.path}`}
+              label={`⚠ ${item.path}`}
+              onHover={setHoveredRowKey}
+              rowStyle={warningRowStyle}
+              actions={
+                <>
+                  {busyIgnorePath === item.path ? <Loader size="xs" /> : null}
+                  {renderIgnoreAction(item.path, "Keep ignored (add to paths.exclude_paths)")}
+                </>
+              }
+              status={ignoreStatusByPath[item.path]}
+            />
+          ))}
+        </Stack>
+      )}
       {unmanagedShadowVideoFiles > 0 && (
         <Stack gap={2}>
           <Text size="xs" fw={600}>
@@ -191,21 +206,6 @@ export default function DiscoveryWarningsSections({
           ))}
         </Stack>
       )}
-      <UnmatchedWarningsSection
-        unmatchedManagedCandidates={unmatchedManagedCandidates}
-        unmatchedItems={unmatchedItems}
-        busyIgnorePath={busyIgnorePath}
-        busyImportPath={busyImportPath}
-        importInFlightByPath={importInFlightByPath}
-        importErrorsByPath={importErrorsByPath}
-        importStatusByPath={importStatusByPath}
-        ignoreStatusByPath={ignoreStatusByPath}
-        setImportErrorDialogPath={(path) => setImportErrorDialogPath(path)}
-        handleImportUnmatched={handleImportUnmatched}
-        renderIgnoreAction={renderIgnoreAction}
-        onHover={setHoveredRowKey}
-        rowStyle={warningRowStyle}
-      />
     </Stack>
   );
 }
