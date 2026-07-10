@@ -109,7 +109,7 @@ class MovieReconciler:
             return  # file-less movie; discovery may pair it with an unmatched folder
 
         library_inode = inode_of(library_file)
-        managed_folder = self._verified_managed_folder(movie_id)
+        managed_folder, had_stale_hint = self._verified_managed_folder(movie_id)
 
         if library_inode is not None:
             arr_inodes.add(library_inode)
@@ -132,6 +132,19 @@ class MovieReconciler:
         if managed_folder is not None:
             self._resolve_unknown_inode_with_known_folder(
                 movie, library_file, library_folder, managed_folder, report, dry_run
+            )
+            return
+
+        if had_stale_hint and index is None:
+            # This movie was previously located in the managed tree (likely
+            # moved/renamed), but its cached folder is gone and a consistency
+            # pass has no inode index to relocate it with. Assuming "new
+            # import" here would hardlink a duplicate at the default location
+            # instead of finding the real, moved file. Defer to the next full
+            # pass, which builds the index and resolves it correctly.
+            report.warn(
+                f"Managed folder for '{movie.get('title')}' could not be located "
+                "(likely moved); will resolve on the next full pass"
             )
             return
 
@@ -402,13 +415,22 @@ class MovieReconciler:
                 return Path(mapping.managed_root)
         return None
 
-    def _verified_managed_folder(self, movie_id: int) -> Path | None:
+    def _verified_managed_folder(self, movie_id: int) -> tuple[Path | None, bool]:
+        """Returns (folder, had_stale_hint).
+
+        had_stale_hint is True when the cache had an entry for this movie but
+        the folder it pointed to no longer exists — i.e. this item was known
+        before, not brand new. Distinguishing the two matters because without
+        an inode index (consistency scope) a moved folder cannot be
+        relocated; see _reconcile_movie.
+        """
         hint = self.cache.get_folder("radarr", movie_id)
         if hint is not None and hint.is_dir():
-            return hint
+            return hint, False
         if hint is not None:
             self.cache.drop("radarr", movie_id)
-        return None
+            return None, True
+        return None, False
 
     def _managed_source_for_inode(
         self,

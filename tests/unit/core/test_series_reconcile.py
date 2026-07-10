@@ -168,6 +168,34 @@ def test_series_folder_derived_from_index_after_user_move(config, cache, roots):
     assert cache.get_folder("sonarr", 1) == expected
 
 
+def test_stale_cache_during_consistency_pass_defers_instead_of_duplicating(config, cache, roots):
+    managed = write_file(
+        roots["managed_series"] / "new-bucket" / "Show (2020)" / "Season 01" / "Show.S01E01.mkv"
+    )
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_ep = hardlink(managed, shadow_folder / "Season 01" / "Show.S01E01.mkv")
+    # Stale hint: cache thinks the series is still at its old (now-renamed-away) location.
+    cache.set_folder("sonarr", 1, roots["managed_series"] / "old-bucket" / "Show (2020)")
+    sonarr = FakeSonarr(
+        [series_payload(1, "Show", 2020, shadow_folder)],
+        {1: [episode_file(shadow_ep, "Season 01/Show.S01E01.mkv")]},
+    )
+    engine = make_engine(config, cache, sonarr)
+
+    report = engine.run(scope=SCOPE_CONSISTENCY)
+
+    default_location = roots["managed_series"] / "Show (2020)" / "Season 01" / "Show.S01E01.mkv"
+    assert not default_location.exists(), "must not hardlink a duplicate at the default location"
+    assert not any(a.kind == "ingest_link" for a in report.actions)
+    assert report.warnings
+    assert managed.exists(), "the real, renamed episode must be untouched"
+
+    # A subsequent full pass (with the inode index) resolves it correctly.
+    second = engine.run(scope=SCOPE_FULL)
+    assert cache.get_folder("sonarr", 1) == managed.parent.parent
+    assert not any(a.kind == "ingest_link" for a in second.actions)
+
+
 def test_stale_shadow_folder_is_pruned(config, cache, roots):
     managed = write_file(roots["managed_series"] / "Gone (1999)" / "Season 01" / "Gone.S01E01.mkv")
     shadow_ep = hardlink(

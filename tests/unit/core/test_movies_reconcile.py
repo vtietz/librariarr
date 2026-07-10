@@ -109,6 +109,28 @@ def test_managed_rename_is_recovered_via_index(config, cache, roots):
     assert not any(a.kind in {"ingest_link", "trash"} for a in report.actions)
 
 
+def test_stale_cache_during_consistency_pass_defers_instead_of_duplicating(config, cache, roots):
+    managed = write_file(roots["managed_movies"] / "new-bucket" / "Foo (2020)" / "Foo.mkv")
+    lib_file = hardlink(managed, roots["library_movies"] / "Foo (2020)" / "Foo.mkv")
+    # Stale hint: cache thinks the movie is still at its old (now-renamed-away) location.
+    cache.set_folder("radarr", 1, roots["managed_movies"] / "old-bucket" / "Foo (2020)")
+    radarr = FakeRadarr([movie_payload(1, "Foo", 2020, lib_file.parent, lib_file)])
+    engine = make_engine(config, cache, radarr)
+
+    report = engine.run(scope=SCOPE_CONSISTENCY)
+
+    default_location = roots["managed_movies"] / "Foo (2020)" / "Foo.mkv"
+    assert not default_location.exists(), "must not hardlink a duplicate at the default location"
+    assert not any(a.kind == "ingest_link" for a in report.actions)
+    assert report.warnings
+    assert managed.exists(), "the real, renamed file must be untouched"
+
+    # A subsequent full pass (with the inode index) resolves it correctly.
+    second = engine.run(scope=SCOPE_FULL)
+    assert cache.get_folder("radarr", 1) == managed.parent
+    assert not any(a.kind == "ingest_link" for a in second.actions)
+
+
 def test_extras_are_projected_and_unknown_left_alone(config, cache, roots):
     managed_folder = roots["managed_movies"] / "Foo (2020)"
     managed = write_file(managed_folder / "Foo.mkv")

@@ -112,8 +112,20 @@ class SeriesReconciler:
         shadow_folder = Path(series["path"])
         episode_files = [ep for ep in self.sonarr.get_episode_files(series_id) if ep.get("path")]
 
-        managed_folder = self._locate_managed_folder(series_id, shadow_folder, episode_files, index)
+        managed_folder, had_stale_hint = self._locate_managed_folder(
+            series_id, shadow_folder, episode_files, index
+        )
         if managed_folder is None:
+            if had_stale_hint and index is None:
+                # Previously known, now cache-stale (likely moved/renamed), and
+                # no inode index available to relocate it: defer rather than
+                # risk hardlinking a duplicate at the default location. See
+                # MovieReconciler._reconcile_movie for the full rationale.
+                report.warn(
+                    f"Managed folder for '{series.get('title')}' could not be located "
+                    "(likely moved); will resolve on the next full pass"
+                )
+                return
             if episode_files:
                 self._ingest_new_series(
                     series, shadow_folder, episode_files, mapping, report, dry_run
@@ -417,14 +429,17 @@ class SeriesReconciler:
         shadow_folder: Path,
         episode_files: list[dict],
         index: InodeIndex | None,
-    ) -> Path | None:
+    ) -> tuple[Path | None, bool]:
+        """Returns (folder, had_stale_hint) — see MovieReconciler._verified_managed_folder
+        for why the distinction matters (avoids duplicating a moved series)."""
         hint = self.cache.get_folder("sonarr", series_id)
         if hint is not None and hint.is_dir():
-            return hint
-        if hint is not None:
+            return hint, False
+        had_stale_hint = hint is not None
+        if had_stale_hint:
             self.cache.drop("sonarr", series_id)
         if index is None:
-            return None
+            return None, had_stale_hint
         for episode_file in episode_files:
             inode = inode_of(Path(episode_file["path"]))
             if inode is None:
@@ -432,8 +447,10 @@ class SeriesReconciler:
             managed_path = index.lookup(inode)
             if managed_path is None:
                 continue
-            return self._derive_series_folder(managed_path, episode_file.get("relativePath") or "")
-        return None
+            relative_path = episode_file.get("relativePath") or ""
+            folder = self._derive_series_folder(managed_path, relative_path)
+            return folder, had_stale_hint
+        return None, had_stale_hint
 
     @staticmethod
     def _derive_series_folder(managed_episode: Path, relative_path: str) -> Path:
