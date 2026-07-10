@@ -50,6 +50,10 @@ class ReconcileRequest(BaseModel):
     dry_run: bool = False
 
 
+class ManualAddRequest(BaseModel):
+    path: str
+
+
 def _validate_yaml_text(yaml_text: str) -> str | None:
     temp_path: Path | None = None
     try:
@@ -147,9 +151,19 @@ def _add_status_routes(app: FastAPI, state: WebState) -> None:
 
     @app.get("/api/unmatched")
     def unmatched() -> dict[str, Any]:
+        # Discovery only runs during full passes; a consistency pass must not
+        # make previously-found unmatched folders disappear from the UI.
         snapshot = get_status_tracker().snapshot()
-        last_report = snapshot.get("last_report") or {}
-        return {"unmatched": last_report.get("unmatched", [])}
+        full_report = snapshot.get("last_full_report") or {}
+        return {
+            "unmatched": full_report.get("unmatched", []),
+            "as_of": snapshot.get("last_full_finished_at"),
+        }
+
+    @app.post("/api/unmatched/add")
+    def unmatched_add(payload: ManualAddRequest) -> dict[str, Any]:
+        service = _service_or_http(state)
+        return service.manual_add(payload.path)
 
     @app.get("/api/logs")
     def logs(limit: int = 200) -> dict[str, Any]:

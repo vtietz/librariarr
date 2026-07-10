@@ -56,12 +56,15 @@ class MovieReconciler:
         *,
         index: InodeIndex | None = None,
         dry_run: bool = False,
+        progress=None,
     ) -> tuple[list[dict], set[int]]:
         """Reconcile all movies. Returns (movies, arr_known_inodes) for discovery."""
         movies = self.radarr.get_movies()
         LOG.info("Radarr reconcile start: movies=%d", len(movies))
+        tick = progress or (lambda phase, current, total: None)
         arr_inodes: set[int] = set()
         for idx, movie in enumerate(movies, start=1):
+            tick("movies", idx, len(movies))
             if idx == 1 or idx % _PROGRESS_LOG_EVERY == 0 or idx == len(movies):
                 LOG.info(
                     "Radarr progress: %d/%d current='%s'",
@@ -73,6 +76,7 @@ class MovieReconciler:
             if mapping is None:
                 continue
             report.items_seen += 1
+            report.bump("movies_total")
             try:
                 self._reconcile_movie(movie, mapping, index, arr_inodes, report, dry_run)
             except OSError as exc:
@@ -101,6 +105,7 @@ class MovieReconciler:
         library_folder = Path(movie["path"])
 
         if library_file is None:
+            report.bump("movies_without_file")
             return  # file-less movie; discovery may pair it with an unmatched folder
 
         library_inode = inode_of(library_file)
@@ -117,6 +122,7 @@ class MovieReconciler:
 
         source = self._managed_source_for_inode(library_inode, managed_folder, index)
         if source is not None:
+            report.bump("movies_in_sync")
             self.cache.set_folder("radarr", movie_id, source.parent)
             self._project(source.parent, library_folder, library_inode, report, dry_run)
             arr_inodes.update(self._folder_video_inodes(source.parent))

@@ -146,24 +146,35 @@ class MovieDiscovery:
         arr_inodes: set[int],
         report: ReconcileReport,
         dry_run: bool,
+        progress=None,
     ) -> None:
+        tick = progress or (lambda phase, current, total: None)
         fileless = [m for m in movies if not (m.get("movieFile") or {}).get("path")]
-        for mapping in self.config.paths.movie_root_mappings:
-            managed_root = Path(mapping.managed_root)
+        candidates = [
+            (folder, mapping)
+            for mapping in self.config.paths.movie_root_mappings
             for folder in find_movie_folder_candidates(
-                managed_root, self.video_extensions, self.config
-            ):
-                inodes = {
-                    inode
-                    for f in iter_files(folder)
-                    if is_video_file(f, self.video_extensions)
-                    and (inode := inode_of(f)) is not None
-                }
-                if not inodes or inodes & arr_inodes:
-                    continue
-                self._handle_unmatched(
-                    folder, Path(mapping.library_root), fileless, report, dry_run
-                )
+                Path(mapping.managed_root), self.video_extensions, self.config
+            )
+        ]
+        for idx, (folder, mapping) in enumerate(candidates, start=1):
+            tick("discovery (movies)", idx, len(candidates))
+            inodes = {
+                inode
+                for f in iter_files(folder)
+                if is_video_file(f, self.video_extensions) and (inode := inode_of(f)) is not None
+            }
+            if not inodes or inodes & arr_inodes:
+                continue
+            self._handle_unmatched(folder, Path(mapping.library_root), fileless, report, dry_run)
+
+    def manual_add(self, folder: Path, library_root: Path, report: ReconcileReport) -> None:
+        """User-initiated add of one folder: bypasses the auto_add_unmatched gate."""
+        movies = self.radarr.get_movies()
+        fileless = [m for m in movies if not (m.get("movieFile") or {}).get("path")]
+        self._handle_unmatched(
+            folder, library_root, fileless, report, dry_run=False, force_add=True
+        )
 
     def _handle_unmatched(
         self,
@@ -172,6 +183,7 @@ class MovieDiscovery:
         fileless: list[dict],
         report: ReconcileReport,
         dry_run: bool,
+        force_add: bool = False,
     ) -> None:
         parsed = extract_title_year(folder.name)
         if parsed is None:
@@ -183,7 +195,7 @@ class MovieDiscovery:
         if adopted:
             return
 
-        if not self.config.radarr.auto_add_unmatched:
+        if not self.config.radarr.auto_add_unmatched and not force_add:
             report.unmatched.append(
                 UnmatchedFolder(str(folder), title, year, reason="auto_add_disabled")
             )
@@ -352,20 +364,36 @@ class SeriesDiscovery:
         arr_inodes: set[int],
         report: ReconcileReport,
         dry_run: bool,
+        progress=None,
     ) -> None:
+        tick = progress or (lambda phase, current, total: None)
         fileless = [
             s
             for s in series_list
             if int((s.get("statistics") or {}).get("episodeFileCount") or 0) == 0
         ]
-        for mapping in self.config.paths.series_root_mappings:
-            managed_root = Path(mapping.managed_root)
+        candidates = [
+            (folder, mapping)
+            for mapping in self.config.paths.series_root_mappings
             for folder in find_series_folder_candidates(
-                managed_root, self.video_extensions, arr_inodes, self.config
-            ):
-                self._handle_unmatched(
-                    folder, Path(mapping.library_root), fileless, report, dry_run
-                )
+                Path(mapping.managed_root), self.video_extensions, arr_inodes, self.config
+            )
+        ]
+        for idx, (folder, mapping) in enumerate(candidates, start=1):
+            tick("discovery (series)", idx, len(candidates))
+            self._handle_unmatched(folder, Path(mapping.library_root), fileless, report, dry_run)
+
+    def manual_add(self, folder: Path, library_root: Path, report: ReconcileReport) -> None:
+        """User-initiated add of one folder: bypasses the auto_add_unmatched gate."""
+        series_list = self.sonarr.get_series()
+        fileless = [
+            s
+            for s in series_list
+            if int((s.get("statistics") or {}).get("episodeFileCount") or 0) == 0
+        ]
+        self._handle_unmatched(
+            folder, library_root, fileless, report, dry_run=False, force_add=True
+        )
 
     def _handle_unmatched(
         self,
@@ -374,6 +402,7 @@ class SeriesDiscovery:
         fileless: list[dict],
         report: ReconcileReport,
         dry_run: bool,
+        force_add: bool = False,
     ) -> None:
         parsed = extract_title_year(folder.name)
         title = parsed[0] if parsed else folder.name.strip()
@@ -381,7 +410,7 @@ class SeriesDiscovery:
 
         if self._adopt_fileless_series(folder, title, year, fileless, report, dry_run):
             return
-        if not self.config.sonarr.auto_add_unmatched:
+        if not self.config.sonarr.auto_add_unmatched and not force_add:
             report.unmatched.append(
                 UnmatchedFolder(str(folder), title, year, reason="auto_add_disabled")
             )

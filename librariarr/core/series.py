@@ -66,11 +66,14 @@ class SeriesReconciler:
         *,
         index: InodeIndex | None = None,
         dry_run: bool = False,
+        progress=None,
     ) -> tuple[list[dict], set[int]]:
         series_list = self.sonarr.get_series()
         LOG.info("Sonarr reconcile start: series=%d", len(series_list))
+        tick = progress or (lambda phase, current, total: None)
         arr_inodes: set[int] = set()
         for idx, series in enumerate(series_list, start=1):
+            tick("series", idx, len(series_list))
             if idx == 1 or idx % _PROGRESS_LOG_EVERY == 0 or idx == len(series_list):
                 LOG.info(
                     "Sonarr progress: %d/%d current='%s'",
@@ -82,6 +85,7 @@ class SeriesReconciler:
             if mapping is None:
                 continue
             report.items_seen += 1
+            report.bump("series_total")
             try:
                 self._reconcile_series(series, mapping, index, arr_inodes, report, dry_run)
             except OSError as exc:
@@ -157,10 +161,12 @@ class SeriesReconciler:
         shadow_path = Path(episode_file["path"])
         relative = episode_file.get("relativePath") or shadow_path.name
         shadow_inode = inode_of(shadow_path)
+        report.bump("episodes_total")
 
         if shadow_inode is None:
             return self._restore_missing_episode(shadow_path, managed_folder, report, dry_run)
         if shadow_inode in managed_inodes:
+            report.bump("episodes_in_sync")
             return False  # identity holds
 
         key = episode_key(shadow_path.name)

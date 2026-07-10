@@ -126,6 +126,15 @@ def test_hooks_reject_bad_secret(client, monkeypatch):
 def test_unmatched_endpoint_shape(client):
     payload = client.get("/api/unmatched").json()
     assert "unmatched" in payload
+    assert "as_of" in payload
+
+
+def test_manual_add_endpoint_reports_reason(client):
+    response = client.post("/api/unmatched/add", json={"path": "/nowhere/at/all"})
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["ok"] is False
+    assert payload["reason"] in {"not_found", "outside_roots"}
 
 
 def test_logs_endpoint_shape(client):

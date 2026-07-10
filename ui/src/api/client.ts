@@ -18,6 +18,7 @@ export interface UnmatchedEntry {
 export interface ReconcileReport {
   dry_run: boolean;
   scope: string;
+  stats: Record<string, number>;
   items_seen: number;
   items_changed: number;
   duration_seconds: number;
@@ -25,6 +26,12 @@ export interface ReconcileReport {
   unmatched: UnmatchedEntry[];
   warnings: string[];
   errors: string[];
+}
+
+export interface ProgressInfo {
+  phase: string;
+  current: number;
+  total: number;
 }
 
 export interface RunSummary {
@@ -44,11 +51,22 @@ export interface StatusResponse {
   running: boolean;
   running_scope: string | null;
   started_at: number | null;
+  progress: ProgressInfo | null;
   last_finished_at: number | null;
   last_error: string | null;
   last_report: ReconcileReport | null;
+  last_full_report: ReconcileReport | null;
+  last_full_finished_at: number | null;
   history: RunSummary[];
   runtime_loop_active: boolean;
+}
+
+export interface ManualAddResult {
+  ok: boolean;
+  reason?: string;
+  detail?: string | null;
+  candidates?: string[];
+  actions?: string[];
 }
 
 export interface LogEntry {
@@ -61,8 +79,16 @@ const api = axios.create({ baseURL: "/api" });
 
 export const getStatus = () => api.get<StatusResponse>("/status").then((r) => r.data);
 
+export interface UnmatchedResponse {
+  unmatched: UnmatchedEntry[];
+  as_of: number | null;
+}
+
 export const getUnmatched = () =>
-  api.get<{ unmatched: UnmatchedEntry[] }>("/unmatched").then((r) => r.data.unmatched);
+  api.get<UnmatchedResponse>("/unmatched").then((r) => r.data);
+
+export const manualAdd = (path: string) =>
+  api.post<ManualAddResult>("/unmatched/add", { path }).then((r) => r.data);
 
 export const triggerReconcile = (scope: "full" | "consistency", dryRun = false) =>
   api

@@ -1,8 +1,8 @@
 import { AppShell, Badge, Group, Tabs, ThemeIcon, Title } from "@mantine/core";
 import { IconBooks } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
-import type { StatusResponse, UnmatchedEntry } from "./api/client";
-import { getStatus, getUnmatched } from "./api/client";
+import type { StatusResponse, UnmatchedResponse } from "./api/client";
+import { getStatus, getUnmatched, triggerReconcile } from "./api/client";
 import ConfigPanel from "./components/ConfigPanel";
 import LogsPanel from "./components/LogsPanel";
 import StatusPanel from "./components/StatusPanel";
@@ -10,12 +10,19 @@ import UnmatchedPanel from "./components/UnmatchedPanel";
 
 export default function App() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [unmatched, setUnmatched] = useState<UnmatchedEntry[]>([]);
+  const [unmatched, setUnmatched] = useState<UnmatchedResponse>({
+    unmatched: [],
+    as_of: null
+  });
 
   const refresh = useCallback(() => {
     getStatus().then(setStatus).catch(() => undefined);
     getUnmatched().then(setUnmatched).catch(() => undefined);
   }, []);
+
+  const runFullPass = useCallback(() => {
+    triggerReconcile("full").then(refresh).catch(() => undefined);
+  }, [refresh]);
 
   useEffect(() => {
     refresh();
@@ -45,7 +52,7 @@ export default function App() {
           <Tabs.List mb="md">
             <Tabs.Tab value="status">Status</Tabs.Tab>
             <Tabs.Tab value="unmatched">
-              Unmatched Folders{unmatched.length > 0 ? ` (${unmatched.length})` : ""}
+              Unmatched{unmatched.unmatched.length > 0 ? ` (${unmatched.unmatched.length})` : ""}
             </Tabs.Tab>
             <Tabs.Tab value="config">Config</Tabs.Tab>
             <Tabs.Tab value="logs">Logs</Tabs.Tab>
@@ -54,7 +61,12 @@ export default function App() {
             <StatusPanel status={status} onRefresh={refresh} />
           </Tabs.Panel>
           <Tabs.Panel value="unmatched">
-            <UnmatchedPanel unmatched={unmatched} />
+            <UnmatchedPanel
+              unmatched={unmatched.unmatched}
+              asOf={unmatched.as_of}
+              onRunFullPass={runFullPass}
+              onRefresh={refresh}
+            />
           </Tabs.Panel>
           <Tabs.Panel value="config">
             <ConfigPanel />

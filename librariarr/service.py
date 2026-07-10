@@ -32,12 +32,19 @@ class LibrariArrService:
         with self._reconcile_lock:
             self.status.begin(scope)
             try:
-                report = self.engine.run(scope=scope, dry_run=dry_run)
+                report = self.engine.run(
+                    scope=scope, dry_run=dry_run, progress=self.status.progress
+                )
             except Exception as exc:
                 self.status.fail(scope, str(exc))
                 raise
             self.status.finish(report)
             return report
+
+    def manual_add(self, path: str) -> dict:
+        """Add one managed folder to the matching Arr, serialized with reconciles."""
+        with self._reconcile_lock:
+            return self.engine.manual_add(path)
 
     def reconcile_consistency(self, *, dry_run: bool = False) -> ReconcileReport:
         return self.reconcile(scope=SCOPE_CONSISTENCY, dry_run=dry_run)

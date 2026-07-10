@@ -16,7 +16,10 @@ class StatusTracker:
         self._lock = threading.Lock()
         self._running_scope: str | None = None
         self._started_at: float | None = None
+        self._progress: dict[str, Any] | None = None
         self._last_report: dict[str, Any] | None = None
+        self._last_full_report: dict[str, Any] | None = None
+        self._last_full_finished_at: float | None = None
         self._last_finished_at: float | None = None
         self._last_error: str | None = None
         self._history: list[dict[str, Any]] = []
@@ -25,14 +28,24 @@ class StatusTracker:
         with self._lock:
             self._running_scope = scope
             self._started_at = time.time()
+            self._progress = None
+
+    def progress(self, phase: str, current: int, total: int) -> None:
+        """Report per-phase progress of the running pass (best effort)."""
+        with self._lock:
+            self._progress = {"phase": phase, "current": current, "total": total}
 
     def finish(self, report: ReconcileReport) -> None:
         with self._lock:
             self._running_scope = None
+            self._progress = None
             self._last_finished_at = time.time()
             self._last_error = report.errors[0] if report.errors else None
             payload = report.to_dict()
             self._last_report = payload
+            if payload["scope"] == "full" and not payload["dry_run"]:
+                self._last_full_report = payload
+                self._last_full_finished_at = self._last_finished_at
             self._history.insert(
                 0,
                 {
@@ -52,6 +65,7 @@ class StatusTracker:
     def fail(self, scope: str, error: str) -> None:
         with self._lock:
             self._running_scope = None
+            self._progress = None
             self._last_finished_at = time.time()
             self._last_error = error
             self._history.insert(
@@ -66,9 +80,12 @@ class StatusTracker:
                 "running": self._running_scope is not None,
                 "running_scope": self._running_scope,
                 "started_at": self._started_at,
+                "progress": dict(self._progress) if self._progress else None,
                 "last_finished_at": self._last_finished_at,
                 "last_error": self._last_error,
                 "last_report": self._last_report,
+                "last_full_report": self._last_full_report,
+                "last_full_finished_at": self._last_full_finished_at,
                 "history": list(self._history),
             }
 

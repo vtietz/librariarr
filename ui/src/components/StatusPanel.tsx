@@ -5,6 +5,8 @@ import {
   Card,
   Group,
   Loader,
+  Progress,
+  SimpleGrid,
   Stack,
   Table,
   Text,
@@ -19,6 +21,98 @@ const formatTime = (epochSeconds: number | null | undefined): string =>
   epochSeconds ? new Date(epochSeconds * 1000).toLocaleString() : "–";
 
 type PendingRun = { scope: string; since: number };
+
+function StatTile({
+  label,
+  value,
+  hint,
+  attention
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  attention?: boolean;
+}) {
+  return (
+    <Card withBorder padding="sm">
+      <Text size="xl" fw={700}>
+        {value}
+      </Text>
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+      {attention && (
+        <Badge color="yellow" size="xs" mt={4}>
+          needs attention
+        </Badge>
+      )}
+      {hint && !attention && (
+        <Text size="xs" c="dimmed" mt={4}>
+          {hint}
+        </Text>
+      )}
+    </Card>
+  );
+}
+
+function LibraryGauges({
+  report,
+  asOf
+}: {
+  report: ReconcileReport;
+  asOf: number | null;
+}) {
+  const stats = report.stats ?? {};
+  const moviesTotal = stats.movies_total ?? 0;
+  const seriesTotal = stats.series_total ?? 0;
+  const episodesTotal = stats.episodes_total ?? 0;
+  const unmatched = report.unmatched.length;
+  const tiles: { label: string; value: string; hint?: string; attention?: boolean }[] = [];
+
+  if (moviesTotal > 0) {
+    tiles.push({
+      label: "movies in sync",
+      value: `${stats.movies_in_sync ?? 0} / ${moviesTotal}`,
+      hint: stats.movies_without_file ? `${stats.movies_without_file} without file` : undefined
+    });
+  }
+  if (seriesTotal > 0) {
+    tiles.push({
+      label: "episodes in sync",
+      value: `${stats.episodes_in_sync ?? 0} / ${episodesTotal}`,
+      hint: `${seriesTotal} series`
+    });
+  }
+  if (stats.managed_video_files !== undefined) {
+    tiles.push({ label: "video files in managed tree", value: String(stats.managed_video_files) });
+  }
+  tiles.push({
+    label: "unmatched folders",
+    value: String(unmatched),
+    attention: unmatched > 0
+  });
+  tiles.push({
+    label: "warnings (last full pass)",
+    value: String(report.warnings.length),
+    attention: report.warnings.length > 0
+  });
+
+  return (
+    <Card withBorder>
+      <Group justify="space-between">
+        <Title order={5}>Library state</Title>
+        <Text size="xs" c="dimmed">
+          as of last full pass: {formatTime(asOf)}
+        </Text>
+      </Group>
+      <SimpleGrid cols={{ base: 2, sm: 3, md: 5 }} mt="sm">
+        {tiles.map((tile) => (
+          <StatTile key={tile.label} {...tile} />
+        ))}
+      </SimpleGrid>
+    </Card>
+  );
+}
 
 function ReportCard({ title, report }: { title: string; report: ReconcileReport }) {
   const fullScope = report.scope === "full";
@@ -216,13 +310,41 @@ export default function StatusPanel({
       )}
       {running && (
         <Alert color="yellow" icon={<Loader size="xs" />}>
-          {status.running_scope} pass is running… results appear below when it finishes.
+          <Stack gap={6}>
+            <Text size="sm">
+              {status.running_scope} pass is running
+              {status.progress
+                ? `: ${status.progress.phase}` +
+                  (status.progress.total > 0
+                    ? ` — ${status.progress.current} / ${status.progress.total}`
+                    : "…")
+                : "…"}
+            </Text>
+            <Progress
+              value={
+                status.progress && status.progress.total > 0
+                  ? (status.progress.current / status.progress.total) * 100
+                  : 100
+              }
+              animated={!status.progress || status.progress.total === 0}
+              size="sm"
+            />
+          </Stack>
         </Alert>
       )}
       {finishedNote && !busy && <Alert color="green">{finishedNote}</Alert>}
       {error && <Alert color="red">{error}</Alert>}
       {status.last_error && !finishedNote && (
         <Alert color="red">Last error: {status.last_error}</Alert>
+      )}
+
+      {status.last_full_report && (
+        <LibraryGauges report={status.last_full_report} asOf={status.last_full_finished_at} />
+      )}
+      {!status.last_full_report && !running && (
+        <Alert color="gray">
+          No full pass has run yet — library state gauges appear after the first one.
+        </Alert>
       )}
 
       {preview && <ReportCard title="Preview: what a full pass would do (dry-run)" report={preview} />}

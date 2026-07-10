@@ -29,6 +29,8 @@ def test_steady_state_produces_no_actions(config, cache, roots):
     assert report.actions == []
     assert report.errors == []
     assert report.items_seen == 1
+    assert report.stats["movies_total"] == 1
+    assert report.stats["movies_in_sync"] == 1
 
 
 def test_new_import_is_ingested_via_hardlink(config, cache, roots):
