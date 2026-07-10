@@ -45,7 +45,7 @@ export default function App() {
           <Tabs.List mb="md">
             <Tabs.Tab value="status">Status</Tabs.Tab>
             <Tabs.Tab value="unmatched">
-              Unmatched{unmatched.length > 0 ? ` (${unmatched.length})` : ""}
+              Unmatched Folders{unmatched.length > 0 ? ` (${unmatched.length})` : ""}
             </Tabs.Tab>
             <Tabs.Tab value="config">Config</Tabs.Tab>
             <Tabs.Tab value="logs">Logs</Tabs.Tab>

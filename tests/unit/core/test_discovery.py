@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from requests import HTTPError
+
 from librariarr.core.engine import SCOPE_FULL, ReconcileEngine
 
 from .conftest import FakeRadarr, movie_payload, write_file
@@ -77,6 +79,26 @@ def test_no_lookup_match_is_reported(config, cache, roots):
 
     assert not radarr.added
     assert [u.reason for u in report.unmatched] == ["no_match"]
+
+
+def test_auto_add_failure_is_reported_and_does_not_fail_reconcile(config, cache, roots):
+    config.radarr.auto_add_unmatched = True
+    config.radarr.auto_add_quality_profile_id = 4
+    write_file(roots["managed_movies"] / "Bad Add (2022)" / "Bad.mkv")
+    radarr = FakeRadarr([])
+    radarr.lookup_results = [{"title": "Bad Add", "year": 2022, "tmdbId": 77}]
+
+    def _fail_add(*_args, **_kwargs):
+        raise HTTPError("400 Client Error: Bad Request for url: http://radarr:7878/api/v3/movie")
+
+    radarr.add_movie_from_lookup = _fail_add
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert [u.reason for u in report.unmatched] == ["add_failed"]
+    assert report.errors == []
+    assert report.warnings
+    assert "radarr auto-add failed" in report.warnings[0]
 
 
 def test_fileless_arr_movie_is_adopted_by_matching_folder(config, cache, roots):

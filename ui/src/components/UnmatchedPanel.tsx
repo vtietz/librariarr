@@ -6,18 +6,30 @@ const REASON_HINTS: Record<string, string> = {
   ambiguous: "Multiple Arr matches. Add the title in the Radarr/Sonarr UI; it links on the next full pass.",
   no_match: "No Arr lookup match. Add the title manually in the Radarr/Sonarr UI.",
   lookup_failed: "Arr lookup failed; will retry on the next full pass.",
+  add_failed: "Arr rejected auto-add for this title; check Arr logs/details and retry.",
   unparseable: "Folder name could not be parsed as 'Title (Year)'."
 };
 
 export default function UnmatchedPanel({ unmatched }: { unmatched: UnmatchedEntry[] }) {
   if (unmatched.length === 0) {
-    return <Alert color="green">No unmatched folders. Everything is linked.</Alert>;
+    return (
+      <Stack gap="sm">
+        <Alert color="green">No unmatched folders in the latest full discovery pass.</Alert>
+        <Text size="sm" c="dimmed">
+          "Unmatched" only includes managed folders that LibrariArr could not map to Arr. It does
+          not mean every managed file exists in TMDb/IMDb, and it is refreshed by full passes.
+        </Text>
+      </Stack>
+    );
   }
   return (
     <Stack gap="sm">
       <Text size="sm" c="dimmed">
-        To resolve an entry, add the title in the Radarr/Sonarr UI (no paths needed) — the
-        next full pass links it to the managed folder automatically.
+        These are managed folders that currently cannot be linked or auto-added in Arr.
+      </Text>
+      <Text size="sm" c="dimmed">
+        To resolve an entry, add the title in the Radarr/Sonarr UI (no paths needed). The next
+        full pass links it to the managed folder automatically.
       </Text>
       <Table striped withTableBorder>
         <Table.Thead>

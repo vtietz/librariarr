@@ -21,17 +21,35 @@ const formatTime = (epochSeconds: number | null | undefined): string =>
 type PendingRun = { scope: string; since: number };
 
 function ReportCard({ title, report }: { title: string; report: ReconcileReport }) {
+  const fullScope = report.scope === "full";
+
   return (
     <Card withBorder>
       <Title order={5}>{title}</Title>
       <Group gap="xl" mt="xs">
-        <Text size="sm">items: {report.items_seen}</Text>
-        <Text size="sm">changed: {report.items_changed}</Text>
-        <Text size="sm">unmatched: {report.unmatched.length}</Text>
+        <Text size="sm">Arr items checked: {report.items_seen}</Text>
+        <Text size="sm">Items changed: {report.items_changed}</Text>
+        <Text size="sm">Unmatched folders: {report.unmatched.length}</Text>
         <Text size="sm">warnings: {report.warnings.length}</Text>
         <Text size="sm">errors: {report.errors.length}</Text>
         <Text size="sm">{report.duration_seconds.toFixed(2)}s</Text>
       </Group>
+      <Alert color="blue" mt="sm">
+        <Text size="sm">
+          "Unmatched" means managed folders that could not be linked or confidently auto-added in
+          Arr.
+        </Text>
+        <Text size="sm">
+          "Arr items checked" counts Arr movies/series scanned in this run, not total files in your
+          managed root.
+        </Text>
+      </Alert>
+      {!fullScope && (
+        <Alert color="gray" mt="sm">
+          Full discovery of unmatched folders happens during a full pass. Consistency passes focus on
+          already known Arr items.
+        </Alert>
+      )}
       {report.errors.length > 0 && (
         <Alert color="red" mt="sm">
           {report.errors.slice(0, 5).map((error) => (
@@ -223,8 +241,9 @@ export default function StatusPanel({
             <Table.Tr>
               <Table.Th>Finished</Table.Th>
               <Table.Th>Scope</Table.Th>
-              <Table.Th>Items</Table.Th>
+              <Table.Th>Arr items checked</Table.Th>
               <Table.Th>Changed</Table.Th>
+              <Table.Th>Unmatched folders</Table.Th>
               <Table.Th>Result</Table.Th>
             </Table.Tr>
           </Table.Thead>
@@ -238,6 +257,7 @@ export default function StatusPanel({
                 </Table.Td>
                 <Table.Td>{run.items_seen ?? "–"}</Table.Td>
                 <Table.Td>{run.items_changed ?? "–"}</Table.Td>
+                <Table.Td>{run.unmatched ?? "–"}</Table.Td>
                 <Table.Td>
                   {run.error ? <Badge color="red">error</Badge> : <Badge color="green">ok</Badge>}
                 </Table.Td>

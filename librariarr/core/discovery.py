@@ -275,14 +275,27 @@ class MovieDiscovery:
         )
         if dry_run:
             return
-        added = self.radarr.add_movie_from_lookup(
-            lookup,
-            path=str(target_path),
-            root_folder_path=str(library_root),
-            quality_profile_id=int(profile_id),
-            monitored=self.config.radarr.auto_add_monitored,
-            search_for_movie=self.config.radarr.auto_add_search_on_add,
-        )
+        try:
+            added = self.radarr.add_movie_from_lookup(
+                lookup,
+                path=str(target_path),
+                root_folder_path=str(library_root),
+                quality_profile_id=int(profile_id),
+                monitored=self.config.radarr.auto_add_monitored,
+                search_for_movie=self.config.radarr.auto_add_search_on_add,
+            )
+        except Exception as exc:  # noqa: BLE001 - add failures must not stop reconcile
+            report.unmatched.append(
+                UnmatchedFolder(
+                    str(folder),
+                    title,
+                    year,
+                    reason="add_failed",
+                    candidates=[str(exc)],
+                )
+            )
+            report.warn(f"radarr auto-add failed for '{title} ({year})': {exc}")
+            return
         movie_id = added.get("id")
         added_path = Path(added.get("path") or target_path)
         self._project_all(folder, added_path, report, dry_run)
