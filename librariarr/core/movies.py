@@ -28,6 +28,8 @@ from .model import Action, ReconcileReport
 
 LOG = logging.getLogger(__name__)
 
+_PROGRESS_LOG_EVERY = 100
+
 
 class MovieReconciler:
     def __init__(self, config: AppConfig, radarr, cache: AdvisoryCache) -> None:
@@ -57,8 +59,16 @@ class MovieReconciler:
     ) -> tuple[list[dict], set[int]]:
         """Reconcile all movies. Returns (movies, arr_known_inodes) for discovery."""
         movies = self.radarr.get_movies()
+        LOG.info("Radarr reconcile start: movies=%d", len(movies))
         arr_inodes: set[int] = set()
-        for movie in movies:
+        for idx, movie in enumerate(movies, start=1):
+            if idx == 1 or idx % _PROGRESS_LOG_EVERY == 0 or idx == len(movies):
+                LOG.info(
+                    "Radarr progress: %d/%d current='%s'",
+                    idx,
+                    len(movies),
+                    movie.get("title") or "<unknown>",
+                )
             mapping = self._mapping_for_library_path(movie.get("path") or "")
             if mapping is None:
                 continue

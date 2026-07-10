@@ -29,6 +29,8 @@ from .model import Action, ReconcileReport
 
 LOG = logging.getLogger(__name__)
 
+_PROGRESS_LOG_EVERY = 100
+
 EPISODE_KEY_RE = re.compile(r"[Ss](\d{1,2})[EeXx](\d{2,3})")
 SEASON_LIKE_RE = re.compile(r"^(season|staffel)[\s._-]*\d+$", re.IGNORECASE)
 
@@ -66,8 +68,16 @@ class SeriesReconciler:
         dry_run: bool = False,
     ) -> tuple[list[dict], set[int]]:
         series_list = self.sonarr.get_series()
+        LOG.info("Sonarr reconcile start: series=%d", len(series_list))
         arr_inodes: set[int] = set()
-        for series in series_list:
+        for idx, series in enumerate(series_list, start=1):
+            if idx == 1 or idx % _PROGRESS_LOG_EVERY == 0 or idx == len(series_list):
+                LOG.info(
+                    "Sonarr progress: %d/%d current='%s'",
+                    idx,
+                    len(series_list),
+                    series.get("title") or "<unknown>",
+                )
             mapping = self._mapping_for_shadow_path(series.get("path") or "")
             if mapping is None:
                 continue
