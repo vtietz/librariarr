@@ -41,7 +41,7 @@ What that gives you:
 - **You drop a new movie/series folder** → discovery parses the name once, auto-adds on an exact match, or lists it as unmatched. To resolve manually: just add the title in the Radarr/Sonarr UI — no paths, no dialogs.
 - **You remove an item from Arr** → the library projection is pruned; your files are untouched.
 
-Runtime model: webhooks trigger a cheap **consistency pass** (two `stat()` calls per item, seconds even on NAS disks, no tree walk). A scheduled **full pass** (default hourly) does the single tree walk for discovery and cleanup. No filesystem watchers to configure or tune.
+Runtime model: webhooks trigger a cheap **consistency pass** (two `stat()` calls per item, seconds even on NAS disks, no tree walk) — this is what makes Arr-driven downloads/upgrades show up in seconds, independent of any schedule. A scheduled **full pass** (default once daily) does the single tree walk for discovering manually-dropped folders and cleaning up stale projections; click **Run full pass now** in the Status panel for immediate convergence after reorganizing by hand. No filesystem watchers to configure or tune.
 
 ## Quick Start (Docker Compose)
 

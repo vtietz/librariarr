@@ -12,7 +12,7 @@ class RuntimeConfig:
 
     debounce_seconds: int = 8
     consistency_interval_seconds: int = 300
-    full_interval_minutes: int = 60
+    full_interval_minutes: int = 1440
     startup_scope: str = "full"  # full | consistency | off
 
 

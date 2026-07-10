@@ -32,7 +32,7 @@ def test_minimal_config_loads_with_defaults(tmp_path: Path) -> None:
     assert config.radarr.url == "http://radarr:7878"
     assert not config.sonarr.enabled
     assert config.runtime.consistency_interval_seconds == 300
-    assert config.runtime.full_interval_minutes == 60
+    assert config.runtime.full_interval_minutes == 1440
     assert config.runtime.startup_scope == "full"
     assert config.ingest.enabled
     assert config.ingest.replacement_delete_mode == "soft"
@@ -129,7 +129,7 @@ def test_unknown_legacy_keys_are_ignored(tmp_path: Path) -> None:
         "runtime:\n  maintenance_interval_minutes: 1440\n"
     )
     config = load_config(write(tmp_path, legacy))
-    assert config.runtime.full_interval_minutes == 60
+    assert config.runtime.full_interval_minutes == 1440
 
 
 def test_video_extensions_are_normalized(tmp_path: Path) -> None:

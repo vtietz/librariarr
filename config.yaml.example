@@ -93,8 +93,11 @@ runtime:
   # verification). Webhooks additionally trigger this pass instantly.
   consistency_interval_seconds: 300
   # Minutes between full passes (one managed-tree walk + discovery/auto-add
-  # + stale-projection prune). This is what picks up manual folder drops.
-  full_interval_minutes: 60
+  # + stale-projection prune). This is what picks up manual folder drops;
+  # Arr-side changes don't need it at all (webhooks + consistency pass cover
+  # those). Lower this if you frequently drop/reorganize folders by hand, or
+  # just click "Run full pass now" in the UI right after doing so.
+  full_interval_minutes: 1440
   # Reconcile scope at startup: full | consistency | off
   startup_scope: "full"
 

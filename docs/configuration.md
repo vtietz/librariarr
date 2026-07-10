@@ -36,7 +36,7 @@ Baseline: [config.yaml.example](../config.yaml.example). Env overrides:
 |---|---|---|
 | `debounce_seconds` | `8` | webhook burst debounce |
 | `consistency_interval_seconds` | `300` | cheap pass; no tree walk (min 30) |
-| `full_interval_minutes` | `60` | tree walk + discovery + prune (min 1) |
+| `full_interval_minutes` | `1440` | tree walk + discovery + prune (min 1). Only this pass costs anything meaningful; lower it if you drop/reorganize managed folders by hand often, or just trigger it on demand ("Run full pass now" in the UI, or `POST /api/reconcile {"scope": "full"}`) right after doing so |
 | `startup_scope` | `full` | `full` \| `consistency` \| `off` (quote `"off"` in YAML) |
 
 ## ingest

@@ -10,15 +10,20 @@ Canonical scenario semantics live in
 |---|---|---|
 | Radarr/Sonarr Connect webhook (`POST /api/hooks/{radarr,sonarr}`) | consistency | `runtime.debounce_seconds` (default 8s) |
 | Interval | consistency | every `runtime.consistency_interval_seconds` (default 300s) |
-| Interval | full | every `runtime.full_interval_minutes` (default 60m) |
+| Interval | full | every `runtime.full_interval_minutes` (default 1440m / daily) |
 | Startup | `runtime.startup_scope` (default full) | immediate |
 | API (`POST /api/reconcile`) | chosen scope | queued into the loop (or immediate with `dry_run`) |
 
 There are no filesystem watchers. Arr-side changes arrive via webhooks within
-seconds; user-side changes (manual folder drops, moves, renames) are picked up
-by the next full pass. If an hourly full pass is too slow for your workflow,
-lower `full_interval_minutes` or trigger a full pass from the UI/API after
-making changes.
+seconds — the full pass isn't involved at all for downloads/upgrades, so its
+interval can be long without affecting how fast Arr-driven changes show up.
+User-side changes (manual folder drops, moves, renames) are only picked up by
+the next full pass, since discovering them requires the one tree walk that
+pass does. If daily is too slow for how often you reorganize by hand, lower
+`full_interval_minutes`, or just click **Run full pass now** in the Status
+panel (or `POST /api/reconcile {"scope": "full"}`) right after making changes
+— that's the intended way to get immediate convergence without lowering the
+scheduled interval for everyone.
 
 ## Pass Contents
 
