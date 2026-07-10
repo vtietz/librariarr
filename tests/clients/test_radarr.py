@@ -288,6 +288,56 @@ def test_get_movies_by_ids_fetches_sorted_unique_ids(monkeypatch) -> None:
     assert calls == ["/movie/1", "/movie/2"]
 
 
+def test_add_movie_from_lookup_resolves_root_and_sends_strict_payload(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test")
+    calls: list[tuple[str, str, dict]] = []
+
+    def _fake_request(method: str, path: str, **kwargs):
+        calls.append((method, path, kwargs))
+        if method == "GET" and path == "/rootfolder":
+            return [
+                {"id": 1, "path": "/data/movies/.librariarr"},
+                {"id": 2, "path": "/data/movies"},
+            ]
+        if method == "POST" and path == "/movie":
+            return {"id": 1234, "path": kwargs["json"]["path"]}
+        return None
+
+    monkeypatch.setattr(client, "_request", _fake_request)
+
+    lookup = {
+        "title": "Movie Fixture",
+        "year": 2020,
+        "tmdbId": 123,
+        "imdbId": "tt0123456",
+        "minimumAvailability": "released",
+        "remotePoster": "should-not-be-posted",
+    }
+
+    added = client.add_movie_from_lookup(
+        lookup_movie=lookup,
+        path="/data/movies/.librariarr/FSK12/Movie Fixture (2020)",
+        root_folder_path="/data/movies/.librariarr/FSK12",
+        quality_profile_id=7,
+        monitored=True,
+        search_for_movie=False,
+    )
+
+    assert added["id"] == 1234
+    assert len(calls) == 2
+    assert calls[0][0] == "GET"
+    assert calls[0][1] == "/rootfolder"
+    assert calls[1][0] == "POST"
+    assert calls[1][1] == "/movie"
+
+    payload = calls[1][2]["json"]
+    assert payload["rootFolderPath"] == "/data/movies/.librariarr"
+    assert payload["path"] == "/data/movies/.librariarr/FSK12/Movie Fixture (2020)"
+    assert payload["qualityProfileId"] == 7
+    assert payload["minimumAvailability"] == "released"
+    assert "remotePoster" not in payload
+
+
 def test_get_movies_by_ids_skips_404(monkeypatch) -> None:
     client = RadarrClient(base_url="http://radarr:7878", api_key="test")
 

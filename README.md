@@ -130,7 +130,12 @@ Full reference: [docs/configuration.md](docs/configuration.md).
 
 ### 2. Configure Radarr / Sonarr
 
-- **Root folders**: add each `library_root` as a Radarr root folder, each `shadow_root` as a Sonarr root folder (Settings → Media Management → Root Folders). Don't add your managed trees.
+> [!WARNING]
+> **Radarr/Sonarr's Root Folder must be the flat `library_root`/`shadow_root` — never your managed tree.** This is the one misconfiguration that defeats the whole safety model: if Arr's root folder points at your curated tree, Arr will treat it as its own and rename/move/delete inside it directly. Double-check Settings → Media Management → Root Folders before going further.
+>
+> The example compose file mounts the whole `${MEDIA_ROOT}` into every container for simplicity, which means Radarr/Sonarr *can see* your managed folders on disk even though they must never write there. The Root Folder setting is what keeps them out — if you want a stronger, filesystem-level guarantee, bind-mount only the download-client folder + that Arr's own `library_root`/`shadow_root` into its container instead of the whole `/data` tree (Radarr/Sonarr never need to see the managed trees at all; only LibrariArr does).
+
+- **Root folders**: add each `library_root` as a Radarr root folder, each `shadow_root` as a Sonarr root folder.
 - **Hardlinks**: keep *"Use Hardlinks instead of Copy"* enabled (default) so imports from the download client are instant and space-free. Your download folder should be on the same `/data` mount.
 - **Renaming**: Radarr/Sonarr renaming settings only affect *their* side and are safe to use — your managed tree keeps its own names, identity is the inode.
 - **Recycle bin** (optional): if configured in Arr, upgrade-replaced library files land there; LibrariArr independently quarantines the managed-side old file to `.deletedByLibrariarr/`.
@@ -139,6 +144,13 @@ Full reference: [docs/configuration.md](docs/configuration.md).
 ### 3. Configure LibrariArr
 
 Copy `config.yaml.example`, set the root mappings and Arr URLs/API keys (Settings → General in Radarr/Sonarr). Leave `auto_add_unmatched: false` for the first runs.
+
+**About `auto_add_quality_profile_id`**: quality-profile selection has two entirely separate paths, and LibrariArr only touches one of them.
+
+- **Normal Radarr/Sonarr-initiated adds** (you add a title in the Arr UI, or via a list/Trakt import, then it searches and downloads) — LibrariArr is never involved. Radarr picks the profile exactly as configured there; nothing to set up here.
+- **LibrariArr's auto-add** (a folder you dropped into your managed tree, matched by exact title+year) — the video file **already exists** when this fires. `auto_add_quality_profile_id` doesn't change what's on disk; it only tags the item with a profile for Radarr's *future* upgrade-search behavior, and (only if `auto_add_search_on_add: true`, default `false`) triggers an immediate search.
+
+Because of that, **one default profile per Arr instance is enough for nearly everyone** — there's no per-bucket profile mapping, since your root-mapping buckets (age ratings, collections, ...) are a content classification, not a quality tier.
 
 ### 4. First run
 

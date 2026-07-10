@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Iterable
+from pathlib import PurePosixPath
 from typing import Any
 
 import requests
@@ -234,17 +235,56 @@ class RadarrClient:
         monitored: bool,
         search_for_movie: bool,
     ) -> dict[str, Any]:
-        payload = dict(lookup_movie)
-        payload["id"] = 0
-        payload["path"] = path
-        payload["rootFolderPath"] = root_folder_path
-        payload["qualityProfileId"] = quality_profile_id
-        payload["monitored"] = monitored
-        payload["addOptions"] = {
-            "searchForMovie": search_for_movie,
+        resolved_root_folder = self._resolve_root_folder_for_path(path, root_folder_path)
+
+        # Build a strict add payload instead of forwarding the whole lookup object,
+        # because lookup payloads may include read-only fields rejected by Radarr.
+        payload: dict[str, Any] = {
+            "title": lookup_movie.get("title"),
+            "year": lookup_movie.get("year"),
+            "tmdbId": lookup_movie.get("tmdbId"),
+            "imdbId": lookup_movie.get("imdbId"),
+            "path": path,
+            "rootFolderPath": resolved_root_folder,
+            "qualityProfileId": quality_profile_id,
+            "monitored": monitored,
+            "addOptions": {
+                "searchForMovie": search_for_movie,
+            },
         }
+        minimum_availability = lookup_movie.get("minimumAvailability")
+        if minimum_availability:
+            payload["minimumAvailability"] = minimum_availability
+        payload = {key: value for key, value in payload.items() if value is not None}
         added = self._request("POST", "/movie", json=payload)
         return added if isinstance(added, dict) else {}
+
+    def _resolve_root_folder_for_path(self, movie_path: str, fallback_root: str) -> str:
+        try:
+            roots = self.get_root_folders()
+        except Exception:  # noqa: BLE001 - fall back when root lookup fails
+            return fallback_root
+
+        try:
+            movie_posix = PurePosixPath(movie_path)
+        except Exception:  # noqa: BLE001 - keep fallback for non-posix-like paths
+            return fallback_root
+
+        candidate_roots: list[str] = []
+        for entry in roots:
+            root_path = str(entry.get("path") or "").strip()
+            if not root_path:
+                continue
+            try:
+                root_posix = PurePosixPath(root_path)
+            except Exception:  # noqa: BLE001 - ignore malformed root entries
+                continue
+            if movie_posix == root_posix or root_posix in movie_posix.parents:
+                candidate_roots.append(root_path)
+
+        if not candidate_roots:
+            return fallback_root
+        return max(candidate_roots, key=len)
 
     def update_movie_path(self, movie: dict[str, Any], new_path: str) -> bool:
         previous_path = movie.get("path")

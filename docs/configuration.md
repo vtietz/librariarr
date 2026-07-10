@@ -21,9 +21,9 @@ Baseline: [config.yaml.example](../config.yaml.example). Env overrides:
 | `sync_enabled` | `true` | disable to keep the client configured but inactive |
 | `refresh_debounce_seconds` | `15` | per-item Refresh command debounce |
 | `auto_add_unmatched` | `false` | conservative auto-add: single exact title+year lookup match only |
-| `auto_add_quality_profile_id` | unset | **required** for auto-add to act |
-| `auto_add_language_profile_id` | unset | Sonarr only |
-| `auto_add_search_on_add` | `false` | |
+| `auto_add_quality_profile_id` | unset | **required** for auto-add to act. Only affects LibrariArr's own auto-add path (a managed folder with no matching Arr entry) — normal Radarr/Sonarr-initiated adds pick their own profile and never consult this. The auto-added file already exists on disk, so the profile only governs *future* upgrade-search behavior, not what's already there. One value per Arr instance; no per-root-mapping override. |
+| `auto_add_language_profile_id` | unset | Sonarr only, same scope as above |
+| `auto_add_search_on_add` | `false` | if `true`, auto-add also triggers an immediate search (otherwise the existing file is just cataloged) |
 | `auto_add_monitored` | `true` | |
 | `auto_add_season_folder` | `true` | Sonarr only |
 | `request_timeout_seconds` / `request_retry_attempts` / `request_retry_backoff_seconds` | 120/1/1.0 (radarr), 30/2/0.5 (sonarr) | HTTP client behavior |

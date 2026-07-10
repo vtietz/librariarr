@@ -103,3 +103,111 @@ def test_adopt_projection_idempotency_and_prune(case):
     finally:
         if movie_id:
             _delete_movie(session, movie_id)
+
+
+def test_auto_add_unmatched_folder_and_projection(case):
+    session, _, engine, managed_root, library_root = case
+
+    profiles_resp = session.get(f"{RADARR_URL}/api/v3/qualityprofile", timeout=20)
+    profiles_resp.raise_for_status()
+    profiles = profiles_resp.json()
+    if not profiles:
+        pytest.skip("Radarr has no quality profiles available for auto-add")
+
+    root_folders_resp = session.get(f"{RADARR_URL}/api/v3/rootfolder", timeout=20)
+    root_folders_resp.raise_for_status()
+    root_folders = root_folders_resp.json()
+    library_root_str = str(library_root)
+    has_library_root = any(
+        str(item.get("path", "")).rstrip("/") == library_root_str.rstrip("/")
+        for item in root_folders
+    )
+    if not has_library_root:
+        create_root_resp = session.post(
+            f"{RADARR_URL}/api/v3/rootfolder",
+            json={"path": library_root_str},
+            timeout=20,
+        )
+        if create_root_resp.status_code >= 400:
+            pytest.skip(
+                f"Radarr root folder setup failed ({create_root_resp.status_code}): "
+                f"{create_root_resp.text[:200]}"
+            )
+
+    engine.config.radarr.auto_add_unmatched = True
+    engine.config.radarr.auto_add_quality_profile_id = int(profiles[0]["id"])
+    engine.config.radarr.auto_add_search_on_add = False
+    engine.config.radarr.auto_add_monitored = False
+
+    existing_movies_resp = session.get(f"{RADARR_URL}/api/v3/movie", timeout=20)
+    existing_movies_resp.raise_for_status()
+    existing_movies = existing_movies_resp.json()
+    existing_tmdb_ids = {
+        int(row.get("tmdbId") or 0)
+        for row in existing_movies
+        if isinstance(row, dict) and (row.get("tmdbId") is not None)
+    }
+    existing_ids = {
+        int(row.get("id") or 0)
+        for row in existing_movies
+        if isinstance(row, dict) and (row.get("id") is not None)
+    }
+
+    chosen: dict | None = None
+    for title, year in [
+        ("Coherence", 2013),
+        ("Primer", 2004),
+        ("Gattaca", 1997),
+        ("Moon", 2009),
+    ]:
+        lookup_resp = session.get(
+            f"{RADARR_URL}/api/v3/movie/lookup",
+            params={"term": f"{title} ({year})"},
+            timeout=20,
+        )
+        if lookup_resp.status_code >= 400:
+            continue
+        rows = lookup_resp.json() if isinstance(lookup_resp.json(), list) else []
+        exact = [
+            row
+            for row in rows
+            if (row.get("title") or "").lower() == title.lower()
+            and int(row.get("year") or 0) == year
+            and int(row.get("tmdbId") or 0) not in existing_tmdb_ids
+        ]
+        if len(exact) == 1:
+            chosen = exact[0]
+            break
+
+    if chosen is None:
+        pytest.skip("No unique lookup candidate available for Radarr auto-add smoke test")
+
+    target_folder = managed_root / f"{chosen['title']} ({chosen['year']})"
+    managed_file = target_folder / "auto-add.mkv"
+    managed_file.parent.mkdir(parents=True, exist_ok=True)
+    managed_file.write_text("fixture-video-content", encoding="utf-8")
+
+    added_id = 0
+    try:
+        report = engine.run(scope=SCOPE_FULL)
+        assert not report.errors, report.errors
+
+        refreshed_movies_resp = session.get(f"{RADARR_URL}/api/v3/movie", timeout=20)
+        refreshed_movies_resp.raise_for_status()
+        refreshed_movies = refreshed_movies_resp.json()
+        added = [
+            row
+            for row in refreshed_movies
+            if int(row.get("tmdbId") or 0) == int(chosen.get("tmdbId") or 0)
+            and int(row.get("id") or 0) not in existing_ids
+        ]
+        assert added, "auto-add did not create a new Radarr movie entry"
+
+        added_movie = added[0]
+        added_id = int(added_movie["id"])
+        projected = Path(added_movie["path"]) / "auto-add.mkv"
+        assert projected.exists(), "managed file must be projected into the Radarr folder"
+        assert projected.stat().st_ino == managed_file.stat().st_ino
+    finally:
+        if added_id:
+            _delete_movie(session, added_id)
