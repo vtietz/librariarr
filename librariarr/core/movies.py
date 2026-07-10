@@ -123,9 +123,10 @@ class MovieReconciler:
         source = self._managed_source_for_inode(library_inode, managed_folder, index)
         if source is not None:
             report.bump("movies_in_sync")
-            self.cache.set_folder("radarr", movie_id, source.parent)
-            self._project(source.parent, library_folder, library_inode, report, dry_run)
-            arr_inodes.update(self._folder_video_inodes(source.parent))
+            resolved_folder = self._reconcile_bucket(movie, source.parent, mapping, report, dry_run)
+            self.cache.set_folder("radarr", movie_id, resolved_folder)
+            self._project(resolved_folder, library_folder, library_inode, report, dry_run)
+            arr_inodes.update(self._folder_video_inodes(resolved_folder))
             return
 
         # Library inode unknown to the managed tree: ingest or user-replacement.
@@ -414,6 +415,57 @@ class MovieReconciler:
             if is_within(managed_folder, Path(mapping.managed_root)):
                 return Path(mapping.managed_root)
         return None
+
+    def _reconcile_bucket(
+        self,
+        movie: dict,
+        managed_folder: Path,
+        mapping: MovieRootMapping,
+        report: ReconcileReport,
+        dry_run: bool,
+    ) -> Path:
+        """Follow a Radarr root-folder reassignment: if the movie's managed
+        folder currently lives under a different bucket than the one Radarr's
+        root folder now maps to, treat that as a deliberate reclassification
+        and move the managed folder to match (same-filesystem rename; the
+        library-side hardlink is unaffected since rename preserves inode).
+
+        Refuses (warns) rather than overwrites if the destination already
+        has content there — never clobbers existing files.
+        """
+        target_root = Path(mapping.managed_root)
+        current_root = self._managed_root_of(managed_folder)
+        if current_root is None or current_root == target_root:
+            return managed_folder
+        try:
+            relative = managed_folder.relative_to(current_root)
+        except ValueError:
+            return managed_folder
+
+        new_folder = target_root / relative
+        if new_folder.exists():
+            report.warn(
+                f"'{movie.get('title')}' is in bucket '{current_root}' but Radarr now has "
+                f"it under '{target_root}'; cannot auto-relocate because {new_folder} "
+                "already exists"
+            )
+            return managed_folder
+
+        report.items_changed += 1
+        report.add(
+            Action(
+                "relocate",
+                f"moved to bucket matching Radarr's root folder for '{movie.get('title')}'",
+                str(managed_folder),
+                str(new_folder),
+            )
+        )
+        if dry_run:
+            return managed_folder
+        new_folder.parent.mkdir(parents=True, exist_ok=True)
+        managed_folder.rename(new_folder)
+        prune_empty_dirs(current_root, dry_run=False)
+        return new_folder
 
     def _verified_managed_folder(self, movie_id: int) -> tuple[Path | None, bool]:
         """Returns (folder, had_stale_hint).

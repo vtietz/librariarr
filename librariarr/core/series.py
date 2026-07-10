@@ -132,6 +132,7 @@ class SeriesReconciler:
                 )
             return
 
+        managed_folder = self._reconcile_bucket(series, managed_folder, mapping, report, dry_run)
         self.cache.set_folder("sonarr", series_id, managed_folder)
         managed_inodes = self._managed_inode_map(managed_folder)
         needs_rescan = False
@@ -422,6 +423,54 @@ class SeriesReconciler:
             if is_within(managed_folder, Path(mapping.managed_root)):
                 return Path(mapping.managed_root)
         return None
+
+    def _reconcile_bucket(
+        self,
+        series: dict,
+        managed_folder: Path,
+        mapping: RootMapping,
+        report: ReconcileReport,
+        dry_run: bool,
+    ) -> Path:
+        """Follow a Sonarr root-folder reassignment: if the series' managed
+        folder currently lives under a different bucket than the one Sonarr's
+        root folder now maps to, move it to match. See
+        MovieReconciler._reconcile_bucket for the full rationale; refuses
+        (warns) rather than overwrites if the destination already exists.
+        """
+        target_root = Path(mapping.managed_root)
+        current_root = self._managed_root_of(managed_folder)
+        if current_root is None or current_root == target_root:
+            return managed_folder
+        try:
+            relative = managed_folder.relative_to(current_root)
+        except ValueError:
+            return managed_folder
+
+        new_folder = target_root / relative
+        if new_folder.exists():
+            report.warn(
+                f"'{series.get('title')}' is in bucket '{current_root}' but Sonarr now has "
+                f"it under '{target_root}'; cannot auto-relocate because {new_folder} "
+                "already exists"
+            )
+            return managed_folder
+
+        report.items_changed += 1
+        report.add(
+            Action(
+                "relocate",
+                f"moved to bucket matching Sonarr's root folder for '{series.get('title')}'",
+                str(managed_folder),
+                str(new_folder),
+            )
+        )
+        if dry_run:
+            return managed_folder
+        new_folder.parent.mkdir(parents=True, exist_ok=True)
+        managed_folder.rename(new_folder)
+        prune_empty_dirs(current_root, dry_run=False)
+        return new_folder
 
     def _locate_managed_folder(
         self,

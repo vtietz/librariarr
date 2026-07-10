@@ -72,8 +72,17 @@ For each Radarr movie with a file (`movieFile.path` = the library file):
    warn and rescan so Radarr flags it file-less (self-heals via adopt on a
    later full pass).
 2. **Library inode found in managed tree** (cache hint or index) → identity
-   holds. Sync projection: hardlink managed extras/additional videos into the
-   library folder, remove stale projections.
+   holds. First, **bucket reconciliation**: if the movie's current Arr root
+   folder maps to a *different* `movie_root_mappings` entry than the one its
+   managed folder is physically under (e.g. the user moved it to another root
+   folder in Radarr's UI), the managed folder is relocated — a real rename,
+   preserving the user's own subfolder structure and naming — to the
+   corresponding location under the new bucket's `managed_root`; refused
+   (warn only) if the destination already has content. This treats an
+   Arr-side root-folder change as a deliberate reclassification signal, same
+   as moving the folder in the managed tree directly would be. Then: sync
+   projection, hardlink managed extras/additional videos into the library
+   folder, remove stale projections.
 3. **Library inode unknown, managed folder known** → two possible truths,
    resolved by mtime (the newer side is the intended change — so a manual
    replacement must carry a fresh mtime; copies that preserve old timestamps
@@ -116,7 +125,10 @@ season-like subfolders is found.
 
 - Managed files are **never deleted**. The only destructive operation on
   managed data is upgrade supersession, which defaults to a quarantine move to
-  `<managed_root>/.deletedByLibrariarr/`.
+  `<managed_root>/.deletedByLibrariarr/`. Bucket relocation (moving a managed
+  folder to follow an Arr-side root-folder change) is non-destructive — same
+  inode, same data, only the location changes — and refuses rather than
+  overwrites when the destination already has content.
 - Library/shadow cleanup only removes files provably safe to remove: inode
   present in the managed tree, or nlink > 1. A stale library folder containing
   a sole-copy video is left in place with a warning.

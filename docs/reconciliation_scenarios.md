@@ -48,6 +48,17 @@ Test coverage, three layers:
 | 8 | Idempotency / duplicate prevention | Inode comparison everywhere | Re-running any pass produces zero actions; projections are never re-ingested (their inodes are in the managed tree) |
 | 9 | Stale library/shadow folders (item removed from Arr) | Full pass prune | Folder removed when its contents are provably projections (inode in managed tree or nlink > 1); sole-copy videos are never deleted (warn + leave); managed data always survives |
 | 10 | User replaces a file in the managed tree | Library inode unknown, managed folder known, managed file newer → relink | Library path relinked to the managed inode; Arr rescan triggered; nothing quarantined |
+| 11 | Arr-side root-folder reassignment (bucket move) | Radarr/Sonarr "move to another root folder"; item's Arr path now maps to a *different* `movie_root_mappings`/`series_root_mappings` entry than the one its managed folder currently lives under | Managed folder is moved (real rename, not a copy) to the corresponding location under the new bucket's `managed_root`, preserving the user's own subfolder structure and naming verbatim; cache updated; refused (warn only, nothing touched) if the destination already has content |
+
+### Scenario 3 caveat: consistency-only passes cannot relocate
+
+Recovering identity after a rename/move (scenario 3) requires the inode index,
+which only exists during a **full** pass. If a consistency-only pass (e.g. an
+unrelated webhook) runs after a rename but before the next full pass, the item
+is deferred with a warning ("could not be located, likely moved") rather than
+guessed at — guessing wrong would otherwise hardlink a duplicate at the
+default location. This applies equally to scenario 11 (bucket-move
+relocation), which is also full-pass-only for the same reason.
 
 ## Conflict Tie-Break (Scenarios 2 vs 10)
 
@@ -56,6 +67,30 @@ folder is known for the item, either Radarr wrote a new file (upgrade) or the
 user replaced the managed file. These are structurally identical; the **newer
 mtime wins** (the newer side is the intended change). Both directions are unit
 tested; the decision is logged as a warning when the user side wins.
+
+## Known Coverage Gaps
+
+Documented deliberately rather than left implicit — this matrix was, for a
+while, tested only with a single bucket/mapping configured, which missed
+scenario 11 entirely (a Radarr/Sonarr root-folder reassignment silently left
+the managed tree and Arr's view of an item's bucket permanently out of sync,
+undetected). The following are known-untested as of this writing:
+
+- **A bucket move (scenario 11) happening in the *same* reconcile cycle as an
+  upgrade/replacement (scenario 2/10) for the same item.** Bucket relocation
+  currently only runs on the "identity holds" path; if the library inode is
+  *also* unresolved that cycle, relocation is skipped for that pass and
+  picked up once identity resolves on a later pass. Not believed to cause
+  incorrect behavior, but not explicitly tested.
+- **A `movie_root_mappings`/`series_root_mappings` entry being removed from
+  config while its `managed_root` still has content.** Undefined/untested.
+- **Two configured buckets whose folders could plausibly collide** (same
+  parsed title+year, different managed roots) during discovery. Config
+  validation rejects overlapping paths, but doesn't rule out two distinct,
+  non-overlapping buckets independently producing the same folder name.
+
+If you find another gap, treat it as expected rather than surprising: the
+matrix is a working document, not a formal proof of completeness.
 
 ## Related Docs
 
