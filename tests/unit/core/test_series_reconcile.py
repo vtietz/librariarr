@@ -202,6 +202,74 @@ def test_series_auto_add_confident_match(config, cache, roots):
     assert not report.unmatched
 
 
+def test_missing_shadow_episode_is_restored_by_filename(config, cache, roots):
+    series_folder = roots["managed_series"] / "Show (2020)"
+    managed_ep = write_file(series_folder / "Season 01" / "Show.S01E01.mkv")
+    cache.set_folder("sonarr", 1, series_folder)
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_ep = shadow_folder / "Season 01" / "Show.S01E01.mkv"  # missing on disk
+    sonarr = FakeSonarr(
+        [series_payload(1, "Show", 2020, shadow_folder)],
+        {1: [episode_file(shadow_ep, "Season 01/Show.S01E01.mkv")]},
+    )
+
+    report = make_engine(config, cache, sonarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert shadow_ep.exists()
+    assert inode(shadow_ep) == inode(managed_ep)
+    assert any(a.kind == "relink" for a in report.actions)
+    assert 1 in sonarr.refreshed
+
+
+def test_series_extras_are_projected_and_unknown_left_alone(config, cache, roots):
+    series_folder = roots["managed_series"] / "Show (2020)"
+    managed_ep = write_file(series_folder / "Season 01" / "Show.S01E01.mkv")
+    write_file(series_folder / "tvshow.nfo")
+    write_file(series_folder / "random.txt")
+    cache.set_folder("sonarr", 1, series_folder)
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_ep = hardlink(managed_ep, shadow_folder / "Season 01" / "Show.S01E01.mkv")
+    sonarr = FakeSonarr(
+        [series_payload(1, "Show", 2020, shadow_folder)],
+        {1: [episode_file(shadow_ep, "Season 01/Show.S01E01.mkv")]},
+    )
+
+    make_engine(config, cache, sonarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert (shadow_folder / "tvshow.nfo").exists()
+    assert not (shadow_folder / "random.txt").exists()
+
+
+def test_stale_shadow_folder_with_sole_copy_episode_is_left(config, cache, roots):
+    orphan = write_file(
+        roots["shadow_series"] / "Orphan (2001)" / "Season 01" / "Orphan.S01E01.mkv"
+    )
+    sonarr = FakeSonarr([], {})
+
+    report = make_engine(config, cache, sonarr).run(scope=SCOPE_FULL)
+
+    assert orphan.exists()
+    assert report.warnings
+
+
+def test_fileless_sonarr_series_is_adopted_by_matching_folder(config, cache, roots):
+    managed_ep = write_file(
+        roots["managed_series"] / "Adopt Show (2019)" / "Season 01" / "Adopt.S01E01.mkv"
+    )
+    shadow_folder = roots["shadow_series"] / "Adopt Show (2019)"
+    fileless = series_payload(6, "Adopt Show", 2019, shadow_folder, episode_file_count=0)
+    sonarr = FakeSonarr([fileless], {6: []})
+
+    report = make_engine(config, cache, sonarr).run(scope=SCOPE_FULL)
+
+    projected = shadow_folder / "Season 01" / "Adopt.S01E01.mkv"
+    assert projected.exists()
+    assert inode(projected) == inode(managed_ep)
+    assert 6 in sonarr.refreshed
+    assert cache.get_folder("sonarr", 6) == managed_ep.parent.parent
+    assert not report.unmatched
+
+
 def test_series_unmatched_reported_when_auto_add_disabled(config, cache, roots):
     write_file(
         roots["managed_series"] / "grouping" / "Unknown Show" / "Season 02" / "Unknown.S02E05.mkv"

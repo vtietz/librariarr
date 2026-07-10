@@ -18,10 +18,23 @@ work is done to find drift.
 
 ## Scenario Matrix
 
-Test coverage: `tests/e2e/filesystem/test_scenarios.py` (fake Arr, real
-filesystem; test names carry the scenario number) plus the equivalent unit
-suites under `tests/unit/core/`. Live smoke coverage:
-`tests/e2e/radarr/test_radarr_smoke_e2e.py`, `tests/e2e/sonarr/test_sonarr_smoke_e2e.py`.
+Test coverage, three layers:
+
+- **Unit** (`tests/unit/core/`): every scenario for both Radarr and Sonarr
+  against the engine directly (fake Arr clients, tmp filesystems).
+- **Filesystem e2e** (`tests/e2e/filesystem/`, marker `fs_e2e`): the closest
+  practical approximation of production. `test_scenarios.py` covers every
+  scenario row with Radarr *and* Sonarr variants (test names carry the
+  scenario number); `test_runtime_stack.py` runs the deployed wiring —
+  service + runtime loop thread + webhook/API-style triggers + status
+  tracking — over a real filesystem, including concurrent-trigger
+  serialization and startup reconcile.
+- **Live smoke** (`tests/e2e/{radarr,sonarr}/`, marker `e2e`): real Radarr and
+  Sonarr containers; covers the flows that need a real Arr API to be
+  meaningful (first-contact adopt/auto-add with real metadata lookup,
+  projection, idempotency, prune). Upgrade/replacement flows are not
+  exercised live because they require a real download/import cycle; they are
+  fully covered by the two layers above.
 
 | # | Scenario | Mechanism | Expected result |
 |---|---|---|---|

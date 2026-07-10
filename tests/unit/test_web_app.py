@@ -78,6 +78,33 @@ def test_reconcile_rejects_unknown_scope(client):
     assert response.status_code == 400
 
 
+def test_hook_post_triggers_consistency_on_the_loop(client):
+    class StubLoop:
+        def __init__(self):
+            self.consistency_calls = []
+            self.full_calls = []
+
+        def trigger_consistency(self, reason=""):
+            self.consistency_calls.append(reason)
+
+        def trigger_full(self, reason=""):
+            self.full_calls.append(reason)
+
+    stub = StubLoop()
+    client.app.state.web.runtime_loop = stub
+
+    response = client.post("/api/hooks/radarr", json={"eventType": "Download"})
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert stub.consistency_calls == ["webhook:Download"]
+
+    response = client.post("/api/reconcile", json={"scope": "full"})
+    assert response.json()["queued"] is True
+    assert stub.full_calls == ["api"]
+
+    client.app.state.web.runtime_loop = None
+
+
 def test_hooks_accept_payload_without_runtime_loop(client):
     response = client.post("/api/hooks/radarr", json={"eventType": "Download"})
     assert response.status_code == 200

@@ -133,6 +133,24 @@ def test_s3_user_move_in_managed_tree_survives_via_inode(make_engine, cache, roo
     assert lib_file.exists()
 
 
+def test_s3_sonarr_user_move_in_managed_tree_survives_via_inode(make_engine, cache, roots):
+    managed = write_file(
+        roots["managed_series"] / "new-bucket" / "Show (2020)" / "Season 01" / "Show.S01E01.mkv"
+    )
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_ep = hardlink(managed, shadow_folder / "Season 01" / "Show.S01E01.mkv")
+    sonarr = FakeSonarr(
+        [series(1, "Show", 2020, shadow_folder)],
+        {1: [episode(shadow_ep, "Season 01/Show.S01E01.mkv")]},
+    )
+
+    report = make_engine(sonarr=sonarr).run(scope=SCOPE_FULL)
+
+    assert cache.get_folder("sonarr", 1) == roots["managed_series"] / "new-bucket" / "Show (2020)"
+    assert not any(a.kind in {"ingest_link", "trash"} for a in report.actions)
+    assert shadow_ep.exists()
+
+
 # -- Scenario 4: manual add in managed root (auto-add / report) ----------------
 
 
@@ -167,7 +185,44 @@ def test_s4_ambiguous_folder_is_reported_and_skipped(make_engine, config, roots)
     assert [u.reason for u in report.unmatched] == ["ambiguous"]
 
 
-def test_s4_fileless_arr_entry_adopts_matching_folder(make_engine, roots):
+def test_s4_confident_unmatched_series_is_auto_added(make_engine, config, roots):
+    config.sonarr.auto_add_unmatched = True
+    config.sonarr.auto_add_quality_profile_id = 1
+    managed = write_file(
+        roots["managed_series"] / "kids" / "New Show (2023)" / "Season 01" / "New.Show.S01E01.mkv"
+    )
+    sonarr = FakeSonarr([], {})
+    sonarr.lookup_results = [{"title": "New Show", "year": 2023, "tvdbId": 77}]
+
+    report = make_engine(sonarr=sonarr).run(scope=SCOPE_FULL)
+
+    assert len(sonarr.added) == 1
+    projected = Path(sonarr.added[0]["path"]) / "Season 01" / "New.Show.S01E01.mkv"
+    assert projected.exists() and inode(projected) == inode(managed)
+    assert sonarr.added[0]["id"] in sonarr.refreshed
+    assert not report.unmatched
+
+
+def test_s4_ambiguous_series_is_reported_and_skipped(make_engine, config, roots):
+    config.sonarr.auto_add_unmatched = True
+    config.sonarr.auto_add_quality_profile_id = 1
+    write_file(roots["managed_series"] / "Twins (2019)" / "Season 01" / "Twins.S01E01.mkv")
+    sonarr = FakeSonarr([], {})
+    sonarr.lookup_results = [
+        {"title": "Twins", "year": 2019, "tvdbId": 1},
+        {"title": "Twins", "year": 2019, "tvdbId": 2},
+    ]
+
+    report = make_engine(sonarr=sonarr).run(scope=SCOPE_FULL)
+
+    assert not sonarr.added
+    assert [u.reason for u in report.unmatched] == ["ambiguous"]
+
+
+# -- Scenario 5: file-less Arr entry adopts a matching managed folder -----------
+
+
+def test_s5_fileless_radarr_entry_adopts_matching_folder(make_engine, roots):
     managed = write_file(roots["managed_movies"] / "Adopt Me (2018)" / "Adopt.mkv")
     library_folder = roots["library_movies"] / "Adopt Me (2018)"
     radarr = FakeRadarr([movie(5, "Adopt Me", 2018, library_folder, None)])
@@ -177,6 +232,27 @@ def test_s4_fileless_arr_entry_adopts_matching_folder(make_engine, roots):
     assert (library_folder / "Adopt.mkv").exists()
     assert inode(library_folder / "Adopt.mkv") == inode(managed)
     assert 5 in radarr.refreshed
+
+
+def test_s5_fileless_sonarr_entry_adopts_matching_folder(make_engine, roots):
+    managed = write_file(
+        roots["managed_series"] / "Adopt Show (2019)" / "Season 01" / "Adopt.S01E01.mkv"
+    )
+    shadow_folder = roots["shadow_series"] / "Adopt Show (2019)"
+    fileless = {
+        "id": 6,
+        "title": "Adopt Show",
+        "year": 2019,
+        "path": str(shadow_folder),
+        "statistics": {"episodeFileCount": 0},
+    }
+    sonarr = FakeSonarr([fileless], {6: []})
+
+    make_engine(sonarr=sonarr).run(scope=SCOPE_FULL)
+
+    projected = shadow_folder / "Season 01" / "Adopt.S01E01.mkv"
+    assert projected.exists() and inode(projected) == inode(managed)
+    assert 6 in sonarr.refreshed
 
 
 # -- Scenario 6: extras and unknown files policy --------------------------------
@@ -198,6 +274,28 @@ def test_s6_extras_allowlist_is_projected_unknown_files_stay(make_engine, cache,
     assert (managed_folder / "notes.txt").exists()
 
 
+def test_s6_sonarr_extras_allowlist_is_projected_unknown_files_stay(make_engine, cache, roots):
+    series_folder = roots["managed_series"] / "Show (2020)"
+    managed_ep = write_file(series_folder / "Season 01" / "Show.S01E01.mkv")
+    write_file(series_folder / "tvshow.nfo")
+    write_file(series_folder / "Season 01" / "Show.S01E01.srt")
+    write_file(series_folder / "production-notes.txt")
+    cache.set_folder("sonarr", 1, series_folder)
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_ep = hardlink(managed_ep, shadow_folder / "Season 01" / "Show.S01E01.mkv")
+    sonarr = FakeSonarr(
+        [series(1, "Show", 2020, shadow_folder)],
+        {1: [episode(shadow_ep, "Season 01/Show.S01E01.mkv")]},
+    )
+
+    make_engine(sonarr=sonarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert (shadow_folder / "tvshow.nfo").exists()
+    assert (shadow_folder / "Season 01" / "Show.S01E01.srt").exists()
+    assert not (shadow_folder / "production-notes.txt").exists()
+    assert (series_folder / "production-notes.txt").exists()
+
+
 # -- Scenario 7: missing managed source ----------------------------------------
 
 
@@ -212,6 +310,36 @@ def test_s7_missing_everything_warns_and_skips(make_engine, roots):
     assert not ghost_file.exists()
 
 
+def test_s7_missing_radarr_file_is_restored_from_managed(make_engine, cache, roots):
+    managed = write_file(roots["managed_movies"] / "Foo (2020)" / "Foo.mkv")
+    cache.set_folder("radarr", 1, managed.parent)
+    lib_folder = roots["library_movies"] / "Foo (2020)"
+    lib_file = lib_folder / "Foo.mkv"  # user wiped the library folder
+    radarr = FakeRadarr([movie(1, "Foo", 2020, lib_folder, lib_file)])
+
+    make_engine(radarr=radarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert lib_file.exists() and inode(lib_file) == inode(managed)
+    assert 1 in radarr.refreshed
+
+
+def test_s7_missing_sonarr_episode_is_restored_from_managed(make_engine, cache, roots):
+    series_folder = roots["managed_series"] / "Show (2020)"
+    managed_ep = write_file(series_folder / "Season 01" / "Show.S01E01.mkv")
+    cache.set_folder("sonarr", 1, series_folder)
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_ep = shadow_folder / "Season 01" / "Show.S01E01.mkv"  # never created
+    sonarr = FakeSonarr(
+        [series(1, "Show", 2020, shadow_folder)],
+        {1: [episode(shadow_ep, "Season 01/Show.S01E01.mkv")]},
+    )
+
+    make_engine(sonarr=sonarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert shadow_ep.exists() and inode(shadow_ep) == inode(managed_ep)
+    assert 1 in sonarr.refreshed
+
+
 # -- Scenario 8: idempotency / duplicate prevention -----------------------------
 
 
@@ -219,6 +347,23 @@ def test_s8_repeated_full_reconcile_is_idempotent(make_engine, roots):
     lib_file = write_file(roots["library_movies"] / "Bar (2011)" / "Bar.mkv")
     radarr = FakeRadarr([movie(1, "Bar", 2011, lib_file.parent, lib_file)])
     engine = make_engine(radarr=radarr)
+
+    engine.run(scope=SCOPE_FULL)
+    second = engine.run(scope=SCOPE_FULL)
+    third = engine.run(scope=SCOPE_CONSISTENCY)
+
+    assert second.actions == []
+    assert third.actions == []
+
+
+def test_s8_sonarr_repeated_reconcile_is_idempotent(make_engine, roots):
+    shadow_folder = roots["shadow_series"] / "Fresh (2022)"
+    shadow_ep = write_file(shadow_folder / "Season 01" / "Fresh.S01E01.mkv")
+    sonarr = FakeSonarr(
+        [series(2, "Fresh", 2022, shadow_folder)],
+        {2: [episode(shadow_ep, "Season 01/Fresh.S01E01.mkv")]},
+    )
+    engine = make_engine(sonarr=sonarr)
 
     engine.run(scope=SCOPE_FULL)
     second = engine.run(scope=SCOPE_FULL)
@@ -252,6 +397,34 @@ def test_s9_sole_copy_video_in_stale_folder_is_never_deleted(make_engine, roots)
     assert report.warnings
 
 
+def test_s9_stale_shadow_folder_is_pruned_managed_kept(make_engine, roots):
+    managed_ep = write_file(
+        roots["managed_series"] / "Gone (1999)" / "Season 01" / "Gone.S01E01.mkv"
+    )
+    shadow_ep = hardlink(
+        managed_ep, roots["shadow_series"] / "Gone (1999)" / "Season 01" / "Gone.S01E01.mkv"
+    )
+    sonarr = FakeSonarr([], {})
+
+    make_engine(sonarr=sonarr).run(scope=SCOPE_FULL)
+
+    assert managed_ep.exists()
+    assert not shadow_ep.exists()
+    assert not (roots["shadow_series"] / "Gone (1999)").exists()
+
+
+def test_s9_sole_copy_episode_in_stale_shadow_folder_is_never_deleted(make_engine, roots):
+    orphan = write_file(
+        roots["shadow_series"] / "Orphan Show (2001)" / "Season 01" / "Orphan.S01E01.mkv"
+    )
+    sonarr = FakeSonarr([], {})
+
+    report = make_engine(sonarr=sonarr).run(scope=SCOPE_FULL)
+
+    assert orphan.exists()
+    assert report.warnings
+
+
 # -- Scenario 10: user replacement in managed tree ------------------------------
 
 
@@ -268,3 +441,22 @@ def test_s10_user_replacement_wins_when_managed_newer(make_engine, cache, roots)
 
     assert inode(lib_old) == inode(managed_new)
     assert 1 in radarr.refreshed
+
+
+def test_s10_sonarr_user_replacement_wins_when_managed_newer(make_engine, cache, roots):
+    series_folder = roots["managed_series"] / "Show (2020)"
+    managed_new = write_file(series_folder / "Season 01" / "Show.S01E01.better.mkv", "better")
+    cache.set_folder("sonarr", 1, series_folder)
+    shadow_folder = roots["shadow_series"] / "Show (2020)"
+    shadow_old = write_file(shadow_folder / "Season 01" / "Show.S01E01.mkv", "old")
+    os.utime(shadow_old, (1000, 1000))
+    os.utime(managed_new, (2000, 2000))
+    sonarr = FakeSonarr(
+        [series(1, "Show", 2020, shadow_folder)],
+        {1: [episode(shadow_old, "Season 01/Show.S01E01.mkv")]},
+    )
+
+    make_engine(sonarr=sonarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert inode(shadow_old) == inode(managed_new)
+    assert 1 in sonarr.refreshed

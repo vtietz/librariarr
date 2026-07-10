@@ -175,6 +175,18 @@ def test_missing_library_file_is_restored_from_cached_managed_folder(config, cac
     assert 1 in radarr.refreshed
 
 
+def test_missing_everywhere_warns_and_rescans_nothing_invalid(config, cache, roots):
+    lib_folder = roots["library_movies"] / "Ghost (2015)"
+    ghost_file = lib_folder / "Ghost.mkv"  # neither library nor managed side exists
+    radarr = FakeRadarr([movie_payload(3, "Ghost", 2015, lib_folder, ghost_file)])
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert report.warnings
+    assert not ghost_file.exists()
+    assert not any(a.kind in {"link", "ingest_link"} for a in report.actions)
+
+
 def test_dry_run_plans_but_does_not_touch_filesystem(config, cache, roots):
     lib_file = write_file(roots["library_movies"] / "Bar (2011)" / "Bar.mkv")
     radarr = FakeRadarr([movie_payload(2, "Bar", 2011, lib_file.parent, lib_file)])

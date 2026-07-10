@@ -15,9 +15,15 @@ LOG = logging.getLogger(__name__)
 
 
 class LibrariArrService:
-    def __init__(self, config: AppConfig, *, config_path: str | Path | None = None) -> None:
+    def __init__(
+        self,
+        config: AppConfig,
+        *,
+        config_path: str | Path | None = None,
+        engine: ReconcileEngine | None = None,
+    ) -> None:
         self.config = config
-        self.engine = ReconcileEngine(config, cache_path=default_cache_path(config_path))
+        self.engine = engine or ReconcileEngine(config, cache_path=default_cache_path(config_path))
         self.status = get_status_tracker()
         self._reconcile_lock = threading.Lock()
 
