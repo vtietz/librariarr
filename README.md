@@ -120,12 +120,41 @@ sonarr:
 
 Full reference: [docs/configuration.md](docs/configuration.md).
 
-## Integration Checklist
+## Getting Started (Step by Step)
 
-- All containers mount the same media root at the same path (e.g. `/data`).
-- In Radarr add each `library_root` as a root folder; in Sonarr each `shadow_root`.
-- **Never place files in library/shadow roots yourself** — they are machine-only. Export them read-only on any file shares.
-- Set up Radarr/Sonarr Connect webhooks to `http://librariarr:8787/api/hooks/radarr` and `/api/hooks/sonarr` (optional shared secret via `LIBRARIARR_WEBHOOK_SECRET`).
+### 1. Prepare the folders
+
+- Put everything on **one filesystem**, mounted at the **same path** (e.g. `/data`) in every container — hardlinks don't cross filesystems.
+- Your curated trees (e.g. `/data/movies/age_12/...`) can be organized however you like, any nesting depth.
+- Create one **empty** flat folder per bucket for Radarr/Sonarr (e.g. `/data/radarr_library/age_12`). These are machine-only from now on: **never put files there yourself**, and export them read-only on any file share.
+
+### 2. Configure Radarr / Sonarr
+
+- **Root folders**: add each `library_root` as a Radarr root folder, each `shadow_root` as a Sonarr root folder (Settings → Media Management → Root Folders). Don't add your managed trees.
+- **Hardlinks**: keep *"Use Hardlinks instead of Copy"* enabled (default) so imports from the download client are instant and space-free. Your download folder should be on the same `/data` mount.
+- **Renaming**: Radarr/Sonarr renaming settings only affect *their* side and are safe to use — your managed tree keeps its own names, identity is the inode.
+- **Recycle bin** (optional): if configured in Arr, upgrade-replaced library files land there; LibrariArr independently quarantines the managed-side old file to `.deletedByLibrariarr/`.
+- **Webhooks** (recommended, this is what makes sync instant): Settings → Connect → Webhook, URL `http://librariarr:8787/api/hooks/radarr` (or `/sonarr`), method POST, all event types. Optional shared secret via the `LIBRARIARR_WEBHOOK_SECRET` env var (header `X-Librariarr-Webhook-Secret`).
+
+### 3. Configure LibrariArr
+
+Copy `config.yaml.example`, set the root mappings and Arr URLs/API keys (Settings → General in Radarr/Sonarr). Leave `auto_add_unmatched: false` for the first runs.
+
+### 4. First run
+
+Start the container, open `http://localhost:8787`, and click **Preview (dry-run)** on the Status panel. Read the plan — it lists every link, ingest, quarantine, and prune a real run would perform. When it looks right, click **Run full pass**. Then check the **Unmatched** panel and, once folder-name parsing looks good, enable `auto_add_unmatched` (plus `auto_add_quality_profile_id`).
+
+### 5. Daily use — what happens when
+
+| You do | What happens |
+|---|---|
+| Add a movie in Radarr, it downloads | Webhook → within seconds the folder appears in your managed root. Sort it deeper anytime. |
+| Radarr upgrades quality | New file hardlinked into your tree; old managed file quarantined. |
+| Drop a `Title (Year)` folder into a managed root | Next full pass: auto-added on an exact match, otherwise listed in Unmatched. |
+| Unmatched entry you want to fix | Add the title in the Radarr/Sonarr UI — the next full pass links it. No paths needed. |
+| Rename/move folders in your tree (TMM, by hand) | Nothing breaks — identity is the inode. |
+| Replace a file in your tree with a better version | Radarr's file is relinked to yours + rescan. Make sure the new file has a fresh mtime. |
+| Remove a movie in Radarr (without deleting files) | Library projection pruned; your files untouched. (With auto-add on, it gets re-added — remove the managed folder too if you mean it.) |
 
 ## Web UI
 

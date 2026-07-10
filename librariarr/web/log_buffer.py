@@ -15,8 +15,11 @@ _LEVEL_NORMALIZE: dict[str, str] = {"WARN": "WARNING", "FATAL": "CRITICAL"}
 _NON_PROPAGATING_LOGGERS: tuple[str, ...] = (
     "uvicorn",
     "uvicorn.error",
-    "uvicorn.access",
 )
+
+# HTTP access logs (one line per request, including the UI's status polling)
+# drown out the reconcile logs the panel exists to show. They stay on stdout.
+_EXCLUDED_LOGGERS: tuple[str, ...] = ("uvicorn.access",)
 
 
 def _detect_level(record: logging.LogRecord) -> str:
@@ -35,6 +38,8 @@ class LogRingBuffer(logging.Handler):
         self._waiters: list[threading.Event] = []
 
     def emit(self, record: logging.LogRecord) -> None:
+        if record.name in _EXCLUDED_LOGGERS:
+            return
         try:
             line = self.format(record)
         except Exception:
