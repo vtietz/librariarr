@@ -1,114 +1,47 @@
-# LibrariArr Workflow and Reconcile Flows
+# Runtime Workflows
 
-This document describes the **current** runtime behavior.
+Canonical scenario semantics live in
+[reconciliation_scenarios.md](reconciliation_scenarios.md); architecture in
+[architecture.md](architecture.md). This page summarizes when which pass runs.
 
-## Transition State (Current)
+## Triggers
 
-- **Movies (Radarr): projection-first, hooks-first**
-  - Source: `paths.movie_root_mappings[].managed_root`
-  - Target: `paths.movie_root_mappings[].library_root`
-  - Projection mode: hardlink managed video + allowlisted extras
-  - Trigger model: Radarr webhook queue + periodic/full reconcile
-- **Series (Sonarr): projection-first, hooks-first**
-  - Source: `paths.series_root_mappings[].nested_root`
-  - Target: `paths.series_root_mappings[].shadow_root`
-  - Projection mode: hardlink managed episode files + allowlisted extras
-  - Trigger model: Sonarr webhook queue + periodic/full reconcile
+| Trigger | Pass | Latency |
+|---|---|---|
+| Radarr/Sonarr Connect webhook (`POST /api/hooks/{radarr,sonarr}`) | consistency | `runtime.debounce_seconds` (default 8s) |
+| Interval | consistency | every `runtime.consistency_interval_seconds` (default 300s) |
+| Interval | full | every `runtime.full_interval_minutes` (default 60m) |
+| Startup | `runtime.startup_scope` (default full) | immediate |
+| API (`POST /api/reconcile`) | chosen scope | queued into the loop (or immediate with `dry_run`) |
 
-Important: legacy Sonarr link matching/path-update/cleanup flows are removed from the
-runtime reconcile path. Movie and series ingest are available as optional reconciliation steps via
-`ingest.enabled`.
+There are no filesystem watchers. Arr-side changes arrive via webhooks within
+seconds; user-side changes (manual folder drops, moves, renames) are picked up
+by the next full pass. If an hourly full pass is too slow for your workflow,
+lower `full_interval_minutes` or trigger a full pass from the UI/API after
+making changes.
 
-## Terms
+## Pass Contents
 
-- **Managed root**: Arr-owned source storage root.
-- **Library root**: Curated target root populated by projection.
-- **Projection**: Hardlinking managed files into library roots.
-- **Full reconcile**: No affected-path scope; broad cycle.
-- **Incremental reconcile**: Affected-path scope from filesystem/manual path trigger.
+**Consistency** (cheap, no tree walk):
+1. Fetch all movies/series (+episode files) from Arr.
+2. Per item: verify library-file inode against the cached managed folder.
+3. Ingest new imports/upgrades (hardlink into managed), relink user
+   replacements, restore missing library files, sync per-item projections.
 
-## Core Reconcile Pipeline
+**Full** (one managed-tree walk):
+1. Build the inode index across managed roots.
+2. Everything the consistency pass does, plus resolving items without cache
+   hints (user moves).
+3. Discovery: report/auto-add/adopt unmatched managed folders.
+4. Prune stale library/shadow folders (items removed from Arr).
 
-On each reconcile cycle, LibrariArr performs:
+## Deployment Notes
 
-1. Refresh Arr root-folder availability state.
-2. Consume scoped movie ids from the Radarr webhook queue (if any).
-3. Consume scoped series ids from the Sonarr webhook queue (if any).
-4. Optionally ingest movies/series from library or shadow roots back into managed roots.
-5. Run discovery/auto-add for unmatched managed folders.
-6. Run movie projection from Radarr movie inventory + movie root mappings.
-7. Run series projection from Sonarr series inventory + series root mappings.
-8. Run conservative stale-shadow cleanup for provenance-managed stale outputs.
-9. Soft-delete unmanaged shadow video leftovers in projected folders to
-  `.deletedByLibrariarr` (managed roots are never auto-deleted).
-9. Publish reconcile metrics/status.
-
-For detailed scenario-by-scenario outcomes (including manual/startup/full reconcile semantics),
-use `docs/reconciliation_scenarios.md` as the canonical reference.
-
-## Trigger Sources
-
-### Runtime loop
-
-- Watches configured managed roots and library roots.
-- Runs:
-  - initial reconcile at startup,
-  - filesystem-triggered reconcile (incremental),
-  - scheduled maintenance reconcile (full),
-  - poll-triggered reconcile when Arr roots become available.
-
-### Webhook queues
-
-- `POST /api/hooks/radarr` enqueues movie ids.
-- `POST /api/hooks/sonarr` enqueues series ids.
-- Queues are deduped/coalesced.
-- Next reconcile consumes ids and scopes projection work.
-
-### Manual API
-
-- `POST /api/maintenance/reconcile`
-  - without `path`: full reconcile,
-  - with absolute `path`: incremental/scoped reconcile.
-- `POST /api/fs/unmatched-movie-resolve`
-  - legacy-compatible payload: `path`, `movie_id`, optional `force_takeover`,
-  - optional winner selection: `winner_strategy=incoming|existing` (default `incoming`),
-  - optional loser soft-delete: `quarantine_loser=true|false` (default `false`).
-  - conservative ownership conflict default is preserved:
-    - active valid owner conflict returns `409` unless `force_takeover=true`,
-    - stale/invalid owner can be reassigned without force.
-
-## Movie Projection Behavior
-
-- Folder naming uses sanitized Radarr title/year naming.
-- Managed files include:
-  - video extensions from `radarr.projection.managed_video_extensions`,
-  - extras from `radarr.projection.managed_extras_allowlist`.
-- Unknown library files are replaced by projection when destinations collide.
-- Reconcile is idempotent and re-links replaced managed files.
-
-## Series Projection Behavior
-
-- Folder naming uses sanitized Sonarr title/year naming.
-- Managed files include:
-  - video extensions from `sonarr.projection.managed_video_extensions`,
-  - extras from `sonarr.projection.managed_extras_allowlist`.
-- Unknown library files are replaced by projection when destinations collide.
-- Reconcile is idempotent and re-links replaced managed files.
-
-## Scenario Coverage Reference
-
-E2E scenario coverage is tracked in one place:
-
-- `docs/reconciliation_scenarios.md`
-
-## Practical Summary
-
-- Both movie and series flows are projection-first.
-- Legacy symlink and path-mutation orchestration is removed from active runtime behavior.
-- Wrapper validations stay green when this projection-only architecture is preserved.
-
-## Scenario Reference
-
-For a scenario-by-scenario behavior matrix (including reconciliation definition,
-legacy broken-link diagnostics, and filesystem e2e coverage), see
-`docs/reconciliation_scenarios.md`.
+- Webhooks: point Radarr/Sonarr Connect at
+  `http://librariarr:8787/api/hooks/radarr` / `.../sonarr`. Optional shared
+  secret via `LIBRARIARR_WEBHOOK_SECRET` (header
+  `X-Librariarr-Webhook-Secret`).
+- `--once` runs a single full pass and prints the report as JSON;
+  `--once --dry-run` prints the plan without touching anything.
+- `--web` serves the UI/API and runs the loop; `--web-no-runtime` serves the
+  API only.

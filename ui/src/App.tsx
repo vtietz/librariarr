@@ -1,315 +1,66 @@
-import { AppShell, Group, Loader, Stack, Tabs, Text, ThemeIcon, Title } from "@mantine/core";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { AppShell, Badge, Group, Tabs, ThemeIcon, Title } from "@mantine/core";
 import { IconBooks } from "@tabler/icons-react";
-import {
-  getRuntimeStatus,
-  getConfig,
-  getDiff,
-  saveConfig,
-  validateConfig
-} from "./api/client";
-import type { RuntimeStatusResponse } from "./api/client";
-import ConfigEditor from "./components/ConfigEditor";
-import ActivityPanel from "./components/ActivityPanel";
-import Dashboard from "./components/Dashboard";
-import DiscoveryWarningsPanel from "./components/DiscoveryWarningsPanel";
-import DirectoryMapper from "./components/DirectoryMapper";
-import HistoryPanel from "./components/HistoryPanel";
+import { useCallback, useEffect, useState } from "react";
+import type { StatusResponse, UnmatchedEntry } from "./api/client";
+import { getStatus, getUnmatched } from "./api/client";
+import ConfigPanel from "./components/ConfigPanel";
 import LogsPanel from "./components/LogsPanel";
-import type { ConfigModel, ConfigResponse, Issue } from "./types/config";
-
-const cloneConfig = (value: ConfigModel): ConfigModel => JSON.parse(JSON.stringify(value));
-
-const TAB_PATHS = {
-  dashboard: "/dashboard",
-  activity: "/activity",
-  warnings: "/warnings",
-  config: "/config",
-  mapper: "/mapper",
-  history: "/history",
-  logs: "/logs"
-} as const;
-
-type TabKey = keyof typeof TAB_PATHS;
-
-const PATH_TO_TAB: Record<string, TabKey> = {
-  "/": "dashboard",
-  "/dashboard": "dashboard",
-  "/activity": "activity",
-  "/warnings": "warnings",
-  "/config": "config",
-  "/mapper": "mapper",
-  "/history": "history",
-  "/logs": "logs"
-};
-
-const normalizePath = (pathname: string): string => {
-  if (!pathname || pathname === "/") {
-    return "/";
-  }
-  return pathname.endsWith("/") ? pathname.slice(0, -1) : pathname;
-};
-
-const resolveTabFromPath = (pathname: string): TabKey => {
-  const normalized = normalizePath(pathname);
-  return PATH_TO_TAB[normalized] ?? "dashboard";
-};
-
-const resolvePathFromTab = (tab: string | null): string => {
-  if (tab && tab in TAB_PATHS) {
-    return TAB_PATHS[tab as TabKey];
-  }
-  return TAB_PATHS.dashboard;
-};
+import StatusPanel from "./components/StatusPanel";
+import UnmatchedPanel from "./components/UnmatchedPanel";
 
 export default function App() {
-  const [response, setResponse] = useState<ConfigResponse | null>(null);
-  const [draft, setDraft] = useState<ConfigModel | null>(null);
-  const [issues, setIssues] = useState<Issue[]>([]);
-  const [diffText, setDiffText] = useState("");
-  const [yamlPreview, setYamlPreview] = useState("");
-  const [runtimeStatus, setRuntimeStatus] = useState<RuntimeStatusResponse | null>(null);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabKey>(() =>
-    resolveTabFromPath(window.location.pathname)
-  );
+  const [status, setStatus] = useState<StatusResponse | null>(null);
+  const [unmatched, setUnmatched] = useState<UnmatchedEntry[]>([]);
 
-  const parseLoadError = (error: unknown): string => {
-    if (typeof error !== "object" || error === null) {
-      return "Unable to load configuration from API.";
-    }
-
-    const maybeResponse = (error as { response?: { data?: unknown } }).response;
-    const detail =
-      maybeResponse &&
-      typeof maybeResponse.data === "object" &&
-      maybeResponse.data !== null &&
-      "detail" in maybeResponse.data
-        ? (maybeResponse.data as { detail?: unknown }).detail
-        : undefined;
-
-    if (typeof detail === "string" && detail.trim()) {
-      return detail;
-    }
-
-    return "Unable to load configuration from API.";
-  };
-
-  const reloadFromDisk = useCallback(async () => {
-    try {
-      const config = await getConfig("disk");
-      setResponse(config);
-      setDraft(cloneConfig(config.config));
-      setIssues([]);
-      setDiffText("");
-      setYamlPreview(config.yaml);
-      setLoadError(null);
-    } catch (error: unknown) {
-      setLoadError(parseLoadError(error));
-    }
+  const refresh = useCallback(() => {
+    getStatus().then(setStatus).catch(() => undefined);
+    getUnmatched().then(setUnmatched).catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    void reloadFromDisk();
-  }, [reloadFromDisk]);
-
-  const isReconcileRunning = runtimeStatus?.current_task?.state === "running";
-  const pollInterval = isReconcileRunning ? 1000 : 3000;
-
-  useEffect(() => {
-    let active = true;
-    let inFlight = false;
-
-    const loadRuntimeStatus = async () => {
-      if (inFlight) {
-        return;
-      }
-      inFlight = true;
-      try {
-        const runtimeResult = await getRuntimeStatus();
-        if (active) {
-          setRuntimeStatus(runtimeResult);
-        }
-      } catch (error) {
-        void error;
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    void loadRuntimeStatus();
-    const interval = window.setInterval(() => {
-      void loadRuntimeStatus();
-    }, pollInterval);
-
-    return () => {
-      active = false;
-      window.clearInterval(interval);
-    };
-  }, [pollInterval]);
-
-  useEffect(() => {
-    const syncFromPath = () => {
-      const nextTab = resolveTabFromPath(window.location.pathname);
-      setActiveTab(nextTab);
-
-      const canonicalPath = resolvePathFromTab(nextTab);
-      if (normalizePath(window.location.pathname) !== canonicalPath) {
-        window.history.replaceState({}, "", canonicalPath);
-      }
-    };
-
-    syncFromPath();
-    window.addEventListener("popstate", syncFromPath);
-    return () => {
-      window.removeEventListener("popstate", syncFromPath);
-    };
-  }, []);
-
-  const handleTabChange = (value: string | null) => {
-    const nextTab = resolveTabFromPath(resolvePathFromTab(value));
-    setActiveTab(nextTab);
-
-    const nextPath = resolvePathFromTab(nextTab);
-    if (normalizePath(window.location.pathname) !== nextPath) {
-      window.history.pushState({}, "", nextPath);
-    }
-  };
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!response || !draft) {
-      return false;
-    }
-    return JSON.stringify(response.config) !== JSON.stringify(draft);
-  }, [response, draft]);
-
-  const handleValidate = async () => {
-    if (!draft) {
-      return;
-    }
-    const result = await validateConfig(draft);
-    setIssues(result.issues ?? []);
-    if (result.valid) {
-      const draftConfig = await getConfig("draft");
-      setYamlPreview(draftConfig.yaml);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!draft) {
-      return;
-    }
-    const result = await saveConfig(draft);
-    setIssues(result.issues ?? []);
-    if (result.saved) {
-      await reloadFromDisk();
-    }
-  };
-
-  const handleDiff = async () => {
-    if (!draft) {
-      return;
-    }
-
-    const saveResult = await saveConfig(draft);
-    setIssues(saveResult.issues ?? []);
-    if (!saveResult.saved) {
-      return;
-    }
-
-    await reloadFromDisk();
-    const result = await getDiff();
-    setDiffText(result.diff);
-  };
-
-  if (loadError) {
-    return (
-      <Stack align="center" justify="center" h="100vh" gap="xs">
-        <Text c="red" fw={600}>
-          Failed to load LibrariArr config
-        </Text>
-        <Text c="dimmed" size="sm">
-          {loadError}
-        </Text>
-        <Text c="dimmed" size="sm">
-          Run `./run.sh setup` to create a valid config file if missing.
-        </Text>
-      </Stack>
-    );
-  }
-
-  if (!response || !draft) {
-    return (
-      <Stack align="center" justify="center" h="100vh">
-        <Loader />
-        <Text c="dimmed">Loading LibrariArr UI...</Text>
-      </Stack>
-    );
-  }
+    refresh();
+    const timer = setInterval(refresh, 5000);
+    return () => clearInterval(timer);
+  }, [refresh]);
 
   return (
-    <AppShell padding="md" header={{ height: 62 }}>
+    <AppShell header={{ height: 56 }} padding="md">
       <AppShell.Header>
         <Group h="100%" px="md" justify="space-between">
           <Group gap="xs">
-            <ThemeIcon variant="light" size="lg" radius="md">
-              <IconBooks size={18} />
+            <ThemeIcon variant="light" size="lg">
+              <IconBooks size={20} />
             </ThemeIcon>
-            <Title order={3}>LibrariArr Admin</Title>
+            <Title order={4}>LibrariArr</Title>
           </Group>
+          {status && (
+            <Badge color={status.running ? "yellow" : "green"}>
+              {status.running ? `running: ${status.running_scope}` : "idle"}
+            </Badge>
+          )}
         </Group>
       </AppShell.Header>
       <AppShell.Main>
-        <Tabs value={activeTab} onChange={handleTabChange}>
-          <Tabs.List>
-            <Tabs.Tab value="dashboard">Dashboard</Tabs.Tab>
-            <Tabs.Tab value="activity">Activity</Tabs.Tab>
-            <Tabs.Tab value="warnings">Warnings</Tabs.Tab>
-            <Tabs.Tab value="config">Config Editor</Tabs.Tab>
-            <Tabs.Tab value="mapper">Path Mapping Status</Tabs.Tab>
-            <Tabs.Tab value="history">History</Tabs.Tab>
+        <Tabs defaultValue="status" keepMounted={false}>
+          <Tabs.List mb="md">
+            <Tabs.Tab value="status">Status</Tabs.Tab>
+            <Tabs.Tab value="unmatched">
+              Unmatched{unmatched.length > 0 ? ` (${unmatched.length})` : ""}
+            </Tabs.Tab>
+            <Tabs.Tab value="config">Config</Tabs.Tab>
             <Tabs.Tab value="logs">Logs</Tabs.Tab>
           </Tabs.List>
-
-          <Tabs.Panel value="dashboard" pt="md">
-            <Dashboard
-              hasUnsavedChanges={hasUnsavedChanges}
-              runtimeStatus={runtimeStatus}
-            />
+          <Tabs.Panel value="status">
+            <StatusPanel status={status} onRefresh={refresh} />
           </Tabs.Panel>
-
-          <Tabs.Panel value="activity" pt="md">
-            {activeTab === "activity" && <ActivityPanel />}
+          <Tabs.Panel value="unmatched">
+            <UnmatchedPanel unmatched={unmatched} />
           </Tabs.Panel>
-
-          <Tabs.Panel value="warnings" pt="md">
-            {activeTab === "warnings" && <DiscoveryWarningsPanel />}
+          <Tabs.Panel value="config">
+            <ConfigPanel />
           </Tabs.Panel>
-
-          <Tabs.Panel value="config" pt="md">
-            <ConfigEditor
-              draft={draft}
-              hasUnsavedChanges={hasUnsavedChanges}
-              issues={issues}
-              yamlPreview={yamlPreview}
-              onValidate={handleValidate}
-              onSave={handleSave}
-              onLoadDiff={handleDiff}
-              diffText={diffText}
-              onChange={setDraft}
-            />
-          </Tabs.Panel>
-
-          <Tabs.Panel value="mapper" pt="md">
-            {activeTab === "mapper" && <DirectoryMapper />}
-          </Tabs.Panel>
-
-          <Tabs.Panel value="history" pt="md">
-            {activeTab === "history" && <HistoryPanel />}
-          </Tabs.Panel>
-
-          <Tabs.Panel value="logs" pt="md">
-            {activeTab === "logs" && <LogsPanel />}
+          <Tabs.Panel value="logs">
+            <LogsPanel />
           </Tabs.Panel>
         </Tabs>
       </AppShell.Main>

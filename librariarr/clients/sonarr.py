@@ -210,6 +210,10 @@ class SonarrClient:
         tags = self._request("GET", "/tag")
         return tags if isinstance(tags, list) else []
 
+    def get_episode_files(self, series_id: int) -> list[dict[str, Any]]:
+        files = self._request("GET", "/episodefile", params={"seriesId": int(series_id)})
+        return files if isinstance(files, list) else []
+
     def lookup_series(self, term: str) -> list[dict[str, Any]]:
         results = self._request("GET", "/series/lookup", params={"term": term})
         return results if isinstance(results, list) else []

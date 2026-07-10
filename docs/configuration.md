@@ -1,475 +1,59 @@
-# Configuration Guide
-
-Use `config.yaml.example` as your starting point.
-
-This page is the detailed reference for all `config.yaml` options.
-
-For end-to-end lifecycle behavior examples, see `docs/workflows.md`.
-
-## Quick Start
-
-Recommended baseline:
-
-```yaml
-paths:
-  movie_root_mappings:
-    - managed_root: "/data/movies/age_06"
-      library_root: "/data/radarr_library/age_06"
-  # Required only when sonarr.enabled=true
-  series_root_mappings:
-    - nested_root: "/data/series/age_06"       # Sonarr managed root
-      shadow_root: "/data/sonarr_library/age_06" # Sonarr projection library root
-  exclude_paths:
-    - ".deletedByTMM/"
-    - ".actors/"
-    - "sample/"
-    - "samples/"
-    - "*-sample.*"
-    - "sample-*.*"
-    - "*.sample.*"
-    - "* sample.*"
-    - ".librariarr/**"
-
-radarr:
-  enabled: true
-  url: "http://radarr:7878"
-  api_key: "YOUR_API_KEY"
-  sync_enabled: true
-  refresh_debounce_seconds: 15
-  request_timeout_seconds: 30
-  request_retry_attempts: 2
-  request_retry_backoff_seconds: 0.5
-  auto_add_unmatched: true
-  auto_add_search_on_add: false
-  mapping:
-    quality_map:
-      - match: ["2160p", "x265"]
-        target_id: 19
-      - match: ["1080p", "x265"]
-        target_id: 7
-      - match: ["1080p"]
-        target_id: 9
-      - match: ["720p"]
-        target_id: 5
-    custom_format_map:
-      - match: ["german"]
-        format_id: 42
-      - match: ["2160p", "x265"]
-        format_id: 99
-
-sonarr:
-  enabled: false
-  url: "http://sonarr:8989"
-  api_key: "YOUR_API_KEY"
-  sync_enabled: true
-  refresh_debounce_seconds: 15
-  request_timeout_seconds: 30
-  request_retry_attempts: 2
-  request_retry_backoff_seconds: 0.5
-  auto_add_unmatched: false
-  auto_add_search_on_add: false
-  projection:
-    managed_video_extensions: [".mkv", ".mp4", ".avi"]
-    managed_extras_allowlist: ["*.srt", "series.nfo", "tvshow.nfo"]
-  mapping:
-    quality_profile_map:
-      - match: ["2160p", "x265"]
-        profile_id: 12
-    language_profile_map:
-      - match: ["german", "lang-de"]
-        profile_id: 4
-
-analysis:
-  use_nfo: false
-  use_media_probe: true
-```
-
-## Example Notes
-
-`config.yaml.example` is intentionally brief. Use this section for the longer rationale:
-
-- `radarr.auto_add_unmatched=true` is enabled in the example for out-of-the-box automation. Disable it if source folder names are often temporary or incomplete.
-- `radarr.enabled=false` disables movie projection and Radarr integration entirely (useful for Sonarr-only setups).
-- `sonarr.enabled=true` enables Sonarr projection (managed roots to library roots).
-- `radarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshMovie` bursts for the same movie during noisy event windows; set `0` to disable.
-- `sonarr.refresh_debounce_seconds=15` helps avoid duplicate `RefreshSeries` bursts during noisy rename windows.
-- Keep `radarr.auto_add_search_on_add=false` unless you explicitly want immediate indexer searches after auto-add.
-- Leave `radarr.auto_add_quality_profile_id` unset to use automatic profile mapping. Set it only when you want strict, fixed-profile behavior.
-- `radarr.mapping.custom_format_map` is optional and useful when Radarr parse cannot infer enough custom-format signal from release title alone.
-- Keep `radarr.mapping.quality_map` short if you use it as fallback; start with resolution and codec signals.
-- Enable `analysis.use_media_probe=true` for more reliable quality detection when filenames are inconsistent.
-- On startup preflight, LibrariArr logs configured Radarr/Sonarr mapping ids and catalogs (`id:name`) to make id verification easier.
-- Top-level `quality_map` / `custom_format_map` is not supported; use `radarr.mapping.*` only.
-
-## How It Fits Together
-
-Configuration interaction for auto-add/profile behavior:
-
-1. If `radarr.auto_add_quality_profile_id` is set, that fixed profile is always used.
-2. If it is not set, LibrariArr first uses custom-format signal from Radarr parse and local `radarr.mapping.custom_format_map`.
-3. If no custom-format signal is available, LibrariArr tries parse-derived quality-definition signal from Radarr (`quality`/`qualityDefinition`).
-4. If there is still no parse quality signal (or it does not map), LibrariArr falls back to `radarr.mapping.quality_map`.
-5. If neither mapping path yields a profile, LibrariArr falls back to the lowest available Radarr profile id.
-6. `analysis.use_nfo` and `analysis.use_media_probe` feed token extraction for both `radarr.mapping.custom_format_map` and `radarr.mapping.quality_map` matching.
-7. `radarr.mapping.quality_map` is optional and can be short (or empty) when you primarily rely on custom-format-based mapping.
-
-Projection strategy for Arr identity:
-1. Radarr projection uses Radarr movie inventory (`/api/v3/movie`) and `paths.movie_root_mappings`.
-2. Sonarr projection uses Sonarr series inventory (`/api/v3/series`) and `paths.series_root_mappings`.
-3. Optional webhook queues scope projection to affected movie/series ids.
-
-Why Radarr parse is title-based:
-- Radarr `/api/v3/parse` accepts a `title` parameter, so parse-based custom format detection is driven by folder/file title strings.
-- LibrariArr tries multiple title candidates (folder name, video stem, video filename), not only one title string.
-- Parse output can also include quality-definition signal, which LibrariArr can use as a fallback for profile mapping.
-- Deeper local analysis (NFO + ffprobe + filename tokens) can still influence profile selection, but custom-format-based influence requires `radarr.mapping.custom_format_map` because token-level signals do not map to Radarr custom format IDs automatically.
-
-## Multiple Versions & Constraints
-
-Important limitation when using a single Radarr/Sonarr instance:
-
-- Radarr and Sonarr identify items by media identity (movie/series metadata), not by filesystem folder uniqueness alone.
-- In practice, this means one managed item has one canonical managed path at a time.
-- If your source tree contains multiple parallel versions of the same movie/series (for example theatrical + director's cut as separate folders), discovery can see both, but Arr-side identity still collides.
-- Result: only one path can be the effective managed path for that Arr item, and alternates are treated as duplicates/noise for syncing.
-
-Why this happens:
-
-- LibrariArr matches folders to Arr records by identity signals (title/year, ids), then syncs that Arr record path to the selected shadow link.
-- Separate folder names or deeper nesting do not create separate Arr identities by themselves.
-
-Recommended patterns:
-
-1. Keep exactly one canonical version inside Arr-managed roots.
-2. Keep alternate versions outside Arr-managed roots, or
-3. Exclude alternate-version folders from discovery using `paths.exclude_paths`.
-
-### Excluding Alternate Versions (Workaround)
-
-Yes — this is the recommended workaround when you intentionally keep multiple versions on disk.
-
-`paths.exclude_paths` uses **glob-style patterns** (gitignore-like), not full regex. This is usually enough to filter alternate-version folders.
-
-Examples:
-
-```yaml
-paths:
-  exclude_paths:
-    # common alternate-version naming patterns
-    - "**/*Director's Cut*/"
-    - "**/*Extended*/"
-    - "**/*Remastered*/"
-    - "**/*Theatrical*/"
-
-    # keep discovery away from known side-content folders
-    - "**/Specials/"
-    - "**/Extras/"
-```
-
-Notes:
-
-- Matching is case-insensitive in discovery.
-- Use `/` suffix to target directories only.
-- Use `**` to match at any depth below each `nested_root`.
-
-## Paths
-
-`paths.movie_root_mappings`:
-- Each Radarr-managed source root (`managed_root`) maps to one curated movie target (`library_root`).
-- Used by the movie projection pipeline.
-
-`paths.series_root_mappings`:
-- Sonarr projection mappings (`nested_root` -> `shadow_root`).
-- Required when `sonarr.enabled=true`.
-- `nested_root` is Sonarr-managed source root.
-- `shadow_root` is Sonarr projection library target root.
-
-`paths.exclude_paths`:
-- Optional list of glob-style ignore patterns applied during movie/series discovery.
-- Patterns are evaluated relative to each `nested_root` (gitignore-style intent).
-- Useful for skipping transient/trash trees such as `.deletedByTMM/`.
-- Supports `*` and `**` globs, and comments/blank entries are ignored.
-- Built-in defaults are always appended (unless already present): `.deletedByLibrariarr/`, sample dirs (`sample/`, `samples/`) and sample filename patterns (`*-sample.*`, `sample-*.*`, `*.sample.*`, `* sample.*`).
-
-## Radarr
-
-`radarr.enabled`:
-- Enables movie projection and Radarr integration flow.
-- If false, movie projection is skipped.
-
-`radarr.url`:
-- Radarr base URL (for example `http://radarr:7878`).
-
-`radarr.api_key`:
-- Radarr API key.
-
-`radarr.sync_enabled`:
-- Controls Radarr sync/preflight behaviors around auxiliary Radarr sync checks.
-- Movie projection still relies on Radarr movie inventory when `radarr.enabled=true`.
-
-`radarr.refresh_debounce_seconds`:
-- Debounce window for `RefreshMovie` commands per movie id.
-- Default is `15` seconds.
-- Set `0` to disable debounce.
-
-`radarr.request_timeout_seconds`:
-- Per-request timeout in seconds for Radarr API calls.
-- Default is `30`.
-
-`radarr.request_retry_attempts`:
-- Number of retries for transient request failures.
-- Default is `2`.
-- Applies only to idempotent methods (`GET`, `PUT`, `DELETE`, `HEAD`, `OPTIONS`).
-
-`radarr.request_retry_backoff_seconds`:
-- Exponential backoff base delay between retries.
-- Delay pattern: `base * 2^attempt`.
-- Default is `0.5`.
-
-`radarr.auto_add_unmatched`:
-- If true, unmatched folders can be auto-added to Radarr.
-- Recommended for normal automation.
-- Disable if your source folder names are frequently temporary/incomplete.
-- Auto-add still converges to folder-derived managed link paths.
-
-`radarr.auto_add_quality_profile_id`:
-- Optional fixed quality profile id for auto-add.
-- If set, this profile id is always used for newly auto-added movies.
-- If omitted, LibrariArr maps automatically using this workflow:
-  1. Try Radarr parse (`/api/v3/parse`) on folder/file titles and collect matched `customFormats`.
-  2. Add optional local `radarr.mapping.custom_format_map` matches from filename/folder text, optional NFO, and optional ffprobe tokens.
-  3. Score Radarr profiles by `formatItems` scores and select the best profile.
-  4. If there is still no custom-format signal, try parse-derived quality-definition fallback.
-  5. If parse quality is unavailable or cannot be mapped, use `radarr.mapping.quality_map` fallback scoring (`target_id` against profile cutoffs/allowed qualities).
-  6. If no profile can be mapped from either signal, fall back to the lowest available profile id.
-  7. If multiple profiles tie, prefer specific profile names over generic profiles (`Any`, `All`, `Default`).
-
-`radarr.auto_add_search_on_add`:
-- If true, Radarr starts indexer search immediately after add.
-- Keep false if you only want registration/path import behavior.
-
-`radarr.auto_add_monitored`:
-- Initial Radarr monitored flag for newly auto-added entries.
-
-## Sonarr
-
-`sonarr.enabled`:
-- Enables Sonarr projection and Sonarr integration flow.
-
-`sonarr.url`:
-- Sonarr base URL (for example `http://sonarr:8989`).
-
-`sonarr.api_key`:
-- Sonarr API key.
-
-`sonarr.sync_enabled`:
-- Enables Sonarr API projection interactions.
-- If false while `sonarr.enabled=true`, Sonarr projection is skipped.
-
-`sonarr.refresh_debounce_seconds`:
-- Debounce window for `RefreshSeries` commands per series id.
-- Default is `15` seconds.
-- Set `0` to disable debounce.
-
-`sonarr.request_timeout_seconds`:
-- Per-request timeout in seconds for Sonarr API calls.
-- Default is `30`.
-
-`sonarr.request_retry_attempts`:
-- Number of retries for transient request failures.
-- Default is `2`.
-- Applies only to idempotent methods (`GET`, `PUT`, `DELETE`, `HEAD`, `OPTIONS`).
-
-`sonarr.request_retry_backoff_seconds`:
-- Exponential backoff base delay between retries.
-- Delay pattern: `base * 2^attempt`.
-- Default is `0.5`.
-
-`sonarr.auto_add_unmatched`:
-- If true, unmatched series folders can be auto-added to Sonarr.
-
-`sonarr.auto_add_quality_profile_id`:
-- Optional fixed quality profile id for Sonarr auto-add.
-
-`sonarr.auto_add_language_profile_id`:
-- Optional fixed language profile id for Sonarr auto-add.
-
-`sonarr.auto_add_search_on_add`:
-- If true, Sonarr starts indexer search immediately after auto-add.
-
-`sonarr.auto_add_monitored`:
-- Initial Sonarr monitored flag for newly auto-added entries.
-
-`sonarr.auto_add_season_folder`:
-- Controls Sonarr season-folder behavior on auto-added series.
-
-`sonarr.projection.managed_video_extensions`:
-- Extensions treated as managed episode/video files for Sonarr projection.
-
-`sonarr.projection.managed_extras_allowlist`:
-- Allowlisted extras (for example subtitles or NFO files) projected with episodes.
-
-## Mapping
-
-`radarr.mapping.quality_map` rules:
-- Optional fallback map (can be empty).
-- Checked top-to-bottom.
-- All tokens in `match` must be present (AND logic).
-- First match wins.
-- If no match, fallback quality definition id is `4`.
-
-`radarr.mapping.custom_format_map` rules:
-- Optional and additive (all matching rules are collected).
-- Uses the same token sources as quality mapping: filename/folder text, optional NFO, optional ffprobe tokens.
-- `format_id` must be a valid Radarr custom format id.
-- Helps preserve deeper local analysis signals (for example language/audio hints) when Radarr parse relies mostly on release title text.
-- Without `radarr.mapping.custom_format_map`, deeper analytics still run for `radarr.mapping.quality_map`, but they do not create Radarr custom format IDs on their own.
-
-`sonarr.mapping.quality_profile_map` rules:
-- Optional fallback map (can be empty).
-- Checked top-to-bottom.
-- All tokens in `match` must be present (AND logic).
-- First match wins.
-- `profile_id` must be a valid Sonarr quality profile id.
-
-`sonarr.mapping.language_profile_map` rules:
-- Optional fallback map (can be empty).
-- Checked top-to-bottom.
-- All tokens in `match` must be present (AND logic).
-- First match wins.
-- `profile_id` must be a valid Sonarr language profile id.
-
-`radarr.mapping.quality_map.target_id` uses Radarr quality definitions:
-
-```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualitydefinition
-```
-
-`radarr.auto_add_quality_profile_id` uses Radarr quality profiles:
-
-```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/qualityprofile
-```
-
-`radarr.mapping.custom_format_map.format_id` uses Radarr custom formats:
-
-```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://radarr:7878/api/v3/customformat
-```
-
-`sonarr.mapping.quality_profile_map.profile_id` uses Sonarr quality profiles:
-
-```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://sonarr:8989/api/v3/qualityprofile
-```
-
-`sonarr.mapping.language_profile_map.profile_id` uses Sonarr language profiles:
-
-```bash
-curl -s -H "X-Api-Key: <API_KEY>" http://sonarr:8989/api/v3/languageprofile
-```
-
-## Analysis
-
-`analysis.use_nfo`:
-- Enables NFO token extraction during quality mapping.
-
-`analysis.use_media_probe`:
-- Enables ffprobe token extraction.
-- Extracts codec/channels and audio language tags (`stream_tags=language`) when present.
-
-`analysis.media_probe_bin`:
-- Probe executable name/path (default `ffprobe`).
-
-Quality matching order:
-1. Filename/folder text
-2. NFO text (if enabled)
-3. Probe tokens (if enabled)
-
-Audio language token notes:
-- Common language tags are normalized to spoken tokens plus `lang-xx` tokens (for example `deu/ger/de` -> `german` + `lang-de`, `eng/en` -> `english` + `lang-en`, `fra` -> `french`, `spa` -> `spanish`).
-- Compact combined tags from metadata sources (for example `gereng`) are split when possible and mapped to multiple languages.
-- `multi-language` and `dual-language` tokens are emitted when at least two recognized languages are detected.
-
-## Cleanup
-
-Stale projected links whose source no longer exists are always removed during reconcile.
-
-`cleanup.sonarr_action_on_missing`:
-- Controls Sonarr behavior when source disappears.
-- `none`: leave Sonarr state untouched (recommended for transient disconnects/renames).
-- `unmonitor`: unmonitor after `cleanup.missing_grace_seconds`.
-- `delete`: delete from Sonarr after `cleanup.missing_grace_seconds`.
-
-`cleanup.missing_grace_seconds`:
-- Delay before `unmonitor` or `delete` is applied.
-- Helps avoid false actions during temporary storage/network outages.
-- Missing-item actions are applied in both full and incremental reconciles.
-
-## Runtime
-
-`runtime.startup_reconcile_mode`:
-- Controls how startup reconcile runs:
-  - `smart` (default): compares a lightweight filesystem baseline and runs targeted startup reconcile only for changed roots.
-  - `full`: always runs full startup reconcile.
-  - `off`: skips startup reconcile and waits for filesystem events, poll triggers, or maintenance.
-- `smart` falls back to full reconcile when no previous baseline exists.
-
-`runtime.debounce_seconds`:
-- Debounce window for filesystem events.
-- Filesystem events trigger incremental reconcile for configured managed/library roots.
-
-`runtime.maintenance_interval_minutes`:
-- Periodic full reconcile interval.
-- Set `0` to disable periodic maintenance (event-driven only after startup).
-
-`runtime.arr_root_poll_interval_minutes`:
-- Interval for polling Radarr/Sonarr root-folder catalogs.
-- Triggers reconcile when configured roots become available later:
-  - Radarr: configured `managed_root` paths in `paths.movie_root_mappings`
-  - Sonarr: configured `nested_root` paths in `paths.series_root_mappings`
-- LibrariArr triggers a reconcile automatically (without restart or filesystem touch).
-- Set `0` to disable this poller.
-
-`runtime.arr_event_safety_poll_interval_minutes`:
-- Interval for lightweight Radarr/Sonarr history probes used as a missed-signal safety net.
-- When new history rows are observed, LibrariArr enqueues scoped reconcile IDs through existing webhook queues.
-- This complements filesystem events/webhooks and helps converge after missed notifications.
-- Set `0` to disable this safety poller.
-
-`runtime.arr_event_safety_bootstrap_lookback_minutes`:
-- Startup-only lookback window for the first safety history probe.
-- `0` means "initialize cursor only" (no startup backfill).
-- Values greater than `0` allow bounded startup catch-up for recent Arr history events.
-
-`runtime.arr_event_safety_history_page_size`:
-- Number of newest history rows fetched per safety probe from each Arr instance.
-- Lower values reduce API load; higher values improve burst catch-up.
-- Effective range is clamped internally to keep load bounded.
-
-`runtime.polling_fallback_interval_seconds`:
-- Polling interval used when inotify watch limit is exceeded and LibrariArr falls back to polling-based filesystem monitoring.
-- Only applies in fallback mode; ignored when inotify watches are active.
-- Minimum enforced: `10`. Default: `60`.
-- Lower values increase I/O load; higher values delay detection of manual filesystem changes (webhook-triggered reconciles are unaffected).
-
-`runtime.auto_add_batch_size`:
-- Maximum unmatched folders processed per reconcile cycle for auto-add/path-reconcile.
-- Applies separately to movie and series flows.
-- Work is processed in root-aware chunks (round-robin across configured roots) to keep long recoveries responsive.
-- Default is `150`; lower values reduce cycle duration but may take more cycles to converge.
-
-`runtime.scan_video_extensions`:
-- Extensions that mark a directory as a media folder.
-- Leading dots are optional (`mkv` and `.mkv` are treated the same).
-- Default includes: `.mkv`, `.mp4`, `.avi`, `.m2ts`, `.mov`, `.wmv`, `.ts`, `.m4v`, `.mpg`, `.mpeg`.
-
-## Env Overrides
-
-Only these app-level runtime env overrides are supported:
-- `LIBRARIARR_RADARR_URL`
-- `LIBRARIARR_RADARR_API_KEY`
-- `LIBRARIARR_SONARR_URL`
-- `LIBRARIARR_SONARR_API_KEY`
-
-All other app behavior should be configured in `config.yaml`.
+# Configuration Reference
+
+Baseline: [config.yaml.example](../config.yaml.example). Env overrides:
+`LIBRARIARR_RADARR_URL`, `LIBRARIARR_RADARR_API_KEY`, `LIBRARIARR_SONARR_URL`,
+`LIBRARIARR_SONARR_API_KEY` (non-empty env wins over YAML).
+
+## paths
+
+| Key | Type | Notes |
+|---|---|---|
+| `movie_root_mappings[]` | list | `managed_root` (your curated tree) + `library_root` (Radarr root folder). Absolute, non-overlapping; one library per managed root. Required when Radarr is enabled. |
+| `series_root_mappings[]` | list | `nested_root` (curated) + `shadow_root` (Sonarr root folder). Required when Sonarr is enabled. |
+| `exclude_paths[]` | list | Case-insensitive patterns skipped by sync and discovery. `name/` matches a directory segment anywhere, `/abs/path` excludes a subtree, anything else is a filename glob. Defaults (`.deletedByLibrariarr/`, sample patterns, ...) are always appended. |
+
+## radarr / sonarr
+
+| Key | Default | Notes |
+|---|---|---|
+| `enabled` | radarr: presence of section, sonarr: `false` | |
+| `url`, `api_key` | — | required when the section is present |
+| `sync_enabled` | `true` | disable to keep the client configured but inactive |
+| `refresh_debounce_seconds` | `15` | per-item Refresh command debounce |
+| `auto_add_unmatched` | `false` | conservative auto-add: single exact title+year lookup match only |
+| `auto_add_quality_profile_id` | unset | **required** for auto-add to act |
+| `auto_add_language_profile_id` | unset | Sonarr only |
+| `auto_add_search_on_add` | `false` | |
+| `auto_add_monitored` | `true` | |
+| `auto_add_season_folder` | `true` | Sonarr only |
+| `request_timeout_seconds` / `request_retry_attempts` / `request_retry_backoff_seconds` | 120/1/1.0 (radarr), 30/2/0.5 (sonarr) | HTTP client behavior |
+| `projection.managed_video_extensions` | common video extensions | which files count as video |
+| `projection.managed_extras_allowlist` | subtitles, nfo, poster, fanart | extras mirrored into library/shadow folders |
+
+## runtime
+
+| Key | Default | Notes |
+|---|---|---|
+| `debounce_seconds` | `8` | webhook burst debounce |
+| `consistency_interval_seconds` | `300` | cheap pass; no tree walk (min 30) |
+| `full_interval_minutes` | `60` | tree walk + discovery + prune (min 1) |
+| `startup_scope` | `full` | `full` \| `consistency` \| `off` (quote `"off"` in YAML) |
+
+## ingest
+
+| Key | Default | Notes |
+|---|---|---|
+| `enabled` | `true` | disabling leaves new Arr imports library-only (warned) |
+| `replacement_delete_mode` | `soft` | `soft` = quarantine superseded managed files under `<managed_root>/.deletedByLibrariarr/`; `hard` = delete |
+
+## Environment Variables
+
+| Variable | Purpose |
+|---|---|
+| `LIBRARIARR_CONFIG_PATH` | config path for `--web` (default `/config/config.yaml`) |
+| `LIBRARIARR_STATE_PATH` | relocate the advisory id-cache (`librariarr-idcache.json`); default is next to the config file |
+| `LIBRARIARR_WEBHOOK_SECRET` | if set, webhooks must send `X-Librariarr-Webhook-Secret` |
+| `LIBRARIARR_UI_DIST` / `LIBRARIARR_UI_DEV_URL` | frontend assets location / dev redirect |
+| `LIBRARIARR_WEB_HOST` / `LIBRARIARR_WEB_PORT` | server bind (default 0.0.0.0:8787) |
+
+Unknown keys in config.yaml are ignored by the loader.

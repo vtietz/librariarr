@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 
@@ -11,16 +12,17 @@ from .web import run_web_app
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="LibrariArr: nested media folders -> flat Arr symlink roots (Radarr/Sonarr)"
+        description="LibrariArr: nested managed folders <-> flat Arr library roots (hardlinks)"
     )
     parser.add_argument("--config", default="config.yaml", help="Path to config.yaml")
     parser.add_argument("--log-level", default="INFO", help="DEBUG, INFO, WARNING, ERROR")
-    parser.add_argument("--once", action="store_true", help="Run one reconcile cycle and exit")
+    parser.add_argument("--once", action="store_true", help="Run one full reconcile and exit")
     parser.add_argument(
-        "--web",
+        "--dry-run",
         action="store_true",
-        help="Run embedded web UI and API server",
+        help="With --once: print the plan without touching the filesystem",
     )
+    parser.add_argument("--web", action="store_true", help="Run embedded web UI and API server")
     parser.add_argument(
         "--web-host",
         default=os.getenv("LIBRARIARR_WEB_HOST", "0.0.0.0"),
@@ -58,16 +60,10 @@ def main() -> None:
         return
 
     config = load_config(args.config)
-    service = LibrariArrService(config)
+    service = LibrariArrService(config, config_path=args.config)
     if args.once:
-        service.reconcile()
-        # Refresh caches to match runtime-loop parity (the loop triggers
-        # cache refresh via on_reconcile_complete; one-shot must do it too).
-        from .cache.discovery_cache import get_discovery_warnings_cache
-        from .cache.mapped_cache import get_mapped_directories_cache
-
-        get_mapped_directories_cache().request_refresh(config, force=True)
-        get_discovery_warnings_cache().request_refresh(config, force=True)
+        report = service.reconcile(dry_run=args.dry_run)
+        print(json.dumps(report.to_dict(), indent=2))
         return
     service.run()
 

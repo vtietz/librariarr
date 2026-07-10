@@ -1,125 +1,51 @@
 # Reconciliation Scenarios and Coverage
 
-Status: living document for runtime behavior + test coverage
+Status: canonical scenario matrix.
+Architecture background: [architecture.md](architecture.md).
 
 ## What Reconciliation Means
 
-In LibrariArr, **reconciliation** is one full convergence cycle that makes Arr state,
-managed folders, and library/shadow projections consistent again.
+One reconcile pass makes Arr state, the managed tree, and the library/shadow
+projections consistent. Two scopes exist:
 
-One reconcile cycle does this in order:
+- **consistency** — per-Arr-item stat/inode verification, no tree walk.
+  Triggered by webhooks (debounced) and a short interval.
+- **full** — consistency + one managed-tree walk (inode index) + discovery/
+  auto-add + stale-projection prune. Triggered at startup and a long interval.
 
-1. Consume webhook-scoped IDs (Radarr/Sonarr).
-2. Optionally ingest movie/series content from library/shadow roots back to managed roots (`ingest.enabled`).
-3. Normalize Arr paths to canonical library/shadow folder layout.
-4. Project managed files to library/shadow roots via hardlinks.
-5. Run discovery/auto-add for unmatched managed folders.
-6. Run conservative stale-shadow cleanup for provenance-managed stale outputs.
-7. Soft-delete unmanaged shadow video leftovers in already-projected folders
-  (`.deletedByLibrariarr` quarantine), while never deleting managed-root files.
-
-Reconcile can be:
-
-- **Scoped/incremental**: only affected IDs or paths.
-- **Full**: whole inventory drift-healing pass.
-
-## Production Note: Broken `.librariarr` Series Links on Host
-
-Observed on DiskStation host:
-
-- Broken entries exist under `/volume2/series/.librariarr/FSK06|FSK12|FSK16`.
-- These entries are **directory symlinks** pointing to absolute `/data/series/...` targets.
-- From host view, `/data/...` is container-internal and therefore appears invalid.
-
-Example observed target pattern:
-
-- `.librariarr/FSK12/Heartstopper -> /data/series/FSK12/Heartstopper`
-
-Root cause:
-
-- These are legacy symlink artifacts from older Sonarr shadow-link behavior.
-- Current runtime projection is hardlink-based (file-level) and does not create new
-  directory symlinks in production code.
-
-How to verify quickly on host:
-
-```bash
-cd /volume2/series
-find .librariarr -maxdepth 2 -xtype l -print
-```
-
-How to clean safely (broken symlinks only):
-
-```bash
-cd /volume2/series
-find .librariarr -xtype l -delete
-```
-
-Important:
-
-- `-xtype l` removes only broken symlinks.
-- This does not remove real directories/files.
-- If you want a dry run first, use `-print` instead of `-delete`.
+Both scopes converge to the same target state; the scope only affects how much
+work is done to find drift.
 
 ## Scenario Matrix
 
-The scenarios below are intentionally ordered the same for Radarr and Sonarr.
+Test coverage: `tests/e2e/filesystem/test_scenarios.py` (fake Arr, real
+filesystem; test names carry the scenario number) plus the equivalent unit
+suites under `tests/unit/core/`. Live smoke coverage:
+`tests/e2e/radarr/test_radarr_smoke_e2e.py`, `tests/e2e/sonarr/test_sonarr_smoke_e2e.py`.
 
-| # | Scenario | Reconcile steps performed to achieve goal | Radarr expected result | Sonarr expected result | FS e2e coverage | Implementation gap |
-|---|---|---|---|---|---|---|
-| 1 | New Arr import in library/shadow root | webhook/file event -> scope IDs -> ingest (if configured) -> path normalization -> projection | New movie folder is moved to managed root, then projected back to canonical library folder | New series folder is moved from shadow to nested managed root, then projected back to canonical shadow folder | [x] Radarr, [x] Sonarr | No major gap |
-| 2 | Quality/file replacement | webhook/file event -> scope IDs -> ingest file-level (if configured) -> projection relink | New inode/file ends in managed folder and projected path points to new source | New episode file can be ingested from projected shadow path into nested managed root; projection relink then points to new source | [x] Radarr, [x] Sonarr | No major gap |
-| 3 | User rename/move in managed root | file event/full reconcile -> mapping/provenance resolve -> projection -> stale cleanup | Canonical library output updated; no phantom managed folder | Canonical shadow output updated; decorated/non-canonical managed names still resolve | [x] Radarr, [x] Sonarr | No major gap |
-| 4 | Manual add in managed root (auto-add unmatched) | discovery scan -> Arr lookup -> conditional auto-add -> projection | Confident match: add+project. No match/ambiguous: skip+retry later | Confident match: add+project. No match/ambiguous: skip+retry later | [x] Radarr, [x] Sonarr | No major gap |
-| 5 | Arr path already points to shadow/library location | scope IDs -> resolve mapping/provenance -> normalize path -> projection | Path normalized to flat canonical `Title (Year)` under library root | Path normalized to canonical series folder under shadow root | [x] Radarr, [x] Sonarr | No major gap |
-| 6 | Extras and unknown files policy | classify files -> apply allowlist -> project -> preserve/replace unknown by config | Video + allowlisted extras projected; unknown preserve/replace follows config | Video + allowlisted extras projected; non-allowlisted skipped | [x] Radarr, [x] Sonarr | No major gap |
-| 7 | Missing managed source folder | resolve IDs -> source existence check -> skip safely | Movie skipped; no invalid projection output | Series skipped; no invalid projection output | [x] Radarr, [x] Sonarr | No major gap |
-| 8 | Duplicate prevention / no back-ingest of projection output | reconcile cycle repetition -> ingest guardrails -> projection idempotency | Projection folders are not moved back into managed root as duplicates | Projected shadow output does not trigger duplicate folder moves; only new files are ingested into existing nested source | [x] Radarr, [x] Sonarr | No major gap |
-| 9 | Stale unmanaged shadow leftovers in projected folders | reconcile -> provenance cleanup -> shadow soft-delete cleanup | Untracked stale shadow videos in projected movie folders are moved to `.deletedByLibrariarr`; managed files remain untouched | Untracked stale shadow videos in projected series folders are moved to `.deletedByLibrariarr`; managed files remain untouched | [x] Unit | No major gap |
-| 10 | Manual unmatched movie resolution with duplicate safety | API resolve -> winner selection -> ownership checks -> optional loser quarantine | Default remains conservative: active valid owner conflict returns 409 unless `force_takeover=true`; stale/invalid owner may be reassigned without force; optional loser path can be moved to `.deletedByLibrariarr` | n/a | [x] Unit | No major gap |
+| # | Scenario | Mechanism | Expected result |
+|---|---|---|---|
+| 1 | New Arr import | Webhook → consistency pass. Library inode unknown, no managed folder for the item → ingest | Library folder content hardlinked into `<managed_root>/<Arr folder name>/`; Arr's files untouched; cache learns the mapping |
+| 2 | Quality/file upgrade | Library inode unknown, managed folder known, library file newer → ingest file | New inode hardlinked into managed folder; superseded managed videos (movies: all others; series: same SxxEyy only) quarantined to `.deletedByLibrariarr` (or deleted, per `ingest.replacement_delete_mode`) |
+| 3 | User rename/move in managed tree | Inode unchanged → identity survives; full pass re-derives folder via index | No filesystem actions; cache updated; Arr never touched |
+| 4 | Manual add in managed root | Full pass discovery: video inodes unknown to Arr | Exact single lookup match + auto-add enabled → added + projected + rescan. Ambiguous/no match → unmatched report. Manual resolution: add the title in the Arr UI → adopted next full pass |
+| 5 | Arr entry without file (file-less) | Discovery adopt: exact title+year folder match | Managed folder projected into the Arr folder, rescan triggered, identity established by inode from then on |
+| 6 | Extras and unknown files | Projection allowlist | Videos + allowlisted extras projected; unknown files stay managed-side only; non-video unknown files in library folders are left alone |
+| 7 | Missing sources | Library file missing on disk → restore from managed; nothing known anywhere → warn + rescan | No invalid projections; self-heals via scenario 5 once Arr marks the item file-less |
+| 8 | Idempotency / duplicate prevention | Inode comparison everywhere | Re-running any pass produces zero actions; projections are never re-ingested (their inodes are in the managed tree) |
+| 9 | Stale library/shadow folders (item removed from Arr) | Full pass prune | Folder removed when its contents are provably projections (inode in managed tree or nlink > 1); sole-copy videos are never deleted (warn + leave); managed data always survives |
+| 10 | User replaces a file in the managed tree | Library inode unknown, managed folder known, managed file newer → relink | Library path relinked to the managed inode; Arr rescan triggered; nothing quarantined |
 
-Ingest replacement delete mode:
+## Conflict Tie-Break (Scenarios 2 vs 10)
 
-- `ingest.replacement_delete_mode: soft` (default): replaced/superseded managed files are moved under `managed_root/.deletedByLibrariarr` before the new inode is moved in.
-- `ingest.replacement_delete_mode: hard`: replaced same-path managed files are deleted after successful replacement.
-- Different-filename conflict handling (incoming Arr filename winner):
-  - Movies: when a new movie filename arrives, other managed video files in that destination folder are treated as superseded and moved/deleted according to `replacement_delete_mode`.
-  - Series: only files matching the same episode identity (`SxxEyy`) are treated as conflicting and replaced.
-
-Manual/full/startup reconcile note:
-
-- Desired state is expected to converge regardless of trigger source (webhook, file event, manual API reconcile, or startup reconcile), because all paths run the same reconcile orchestration (`reconcile()` / `reconcile_full()`).
-- Manual full reconcile explicitly uses `reconcile_full()` via maintenance operations.
-- Startup reconcile can run full or targeted reconcile depending on `runtime.startup_reconcile_mode` (`full`/`smart`), and in `smart` mode it may skip when no baseline drift is detected.
-- Therefore, startup mode affects *when/how much* work runs, but not the target converged state once a reconcile cycle executes.
-
-Manual unmatched resolve policy:
-
-- `POST /api/fs/unmatched-movie-resolve` accepts legacy payloads (`path`, `movie_id`, optional `force_takeover`) and remains backward compatible.
-- Optional additive fields:
-  - `winner_strategy`: `incoming` (default) or `existing`.
-  - `quarantine_loser`: `false` (default) or `true`.
-- Winner/loser behavior:
-  - `incoming`: winner is request `path`; loser is selected movie's previously mapped folder when different.
-  - `existing`: winner is selected movie's current mapped folder; loser is request `path` when different.
-- Conflict policy remains conservative by default:
-  - If winner path is owned by another active valid movie, return `409` unless `force_takeover=true`.
-  - Reassignment without force is allowed when current owner is stale/invalid (owner missing in Radarr, mapped folder missing/not a directory, or mapped folder outside configured managed roots).
-- Optional loser quarantine is soft-delete only:
-  - When enabled and safe, loser is moved into `managed_root/.deletedByLibrariarr/...` with unique naming.
-  - No hard delete is performed.
-
-## Implementation Gaps (Current)
-
-No critical reconcile-path implementation gaps are currently open in this matrix.
-
-Recent hardening completed:
-
-1. Added explicit Sonarr nested shadow-path flatten variant coverage (`tests/e2e/filesystem/test_scenario_gap_coverage.py::test_sonarr_nested_shadow_path_is_normalized_to_canonical_shadow_folder`).
-2. Added startup-trigger Sonarr runtime parity coverage (`tests/e2e/filesystem/test_scenario_gap_coverage.py::test_startup_full_reconcile_projects_sonarr_series`).
+When the library file's inode is unknown to the managed tree but a managed
+folder is known for the item, either Radarr wrote a new file (upgrade) or the
+user replaced the managed file. These are structurally identical; the **newer
+mtime wins** (the newer side is the intended change). Both directions are unit
+tested; the decision is logged as a warning when the user side wins.
 
 ## Related Docs
 
-- Runtime flow summary: `docs/workflows.md`
-- Radarr architecture deep-dive: `docs/radarr_projection_implementation_spec.md`
-- Configuration reference: `docs/configuration.md`
+- Architecture: [architecture.md](architecture.md)
+- Runtime flow: [workflows.md](workflows.md)
+- Configuration reference: [configuration.md](configuration.md)

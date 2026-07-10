@@ -1,692 +1,100 @@
+"""Slim runtime loop: webhook-triggered consistency passes + scheduled full passes.
+
+No filesystem watchers. Arr-side changes arrive via webhooks (instant, debounced);
+user-side changes (manual folder drops/renames) are picked up by the scheduled
+full pass, which is also the only pass that walks the managed tree.
+"""
+
 from __future__ import annotations
 
-import errno
 import logging
-import os
 import threading
 import time
-from collections.abc import Callable
-from dataclasses import dataclass
-from fnmatch import fnmatch
-from pathlib import Path
 
-import requests
-from watchdog.events import FileSystemEvent, FileSystemEventHandler
-from watchdog.observers import Observer
-from watchdog.observers.polling import PollingObserver
+from ..config.models import RuntimeConfig
+from ..core.engine import SCOPE_CONSISTENCY, SCOPE_FULL
 
-from .status import RuntimeStatusTracker
+LOG = logging.getLogger(__name__)
 
 
-@dataclass
-class ReconcileSchedule:
-    debounce_seconds: int
-    maintenance_interval_seconds: int | None
-    last_event: float = 0.0
-    last_sync: float = 0.0
+class RuntimeLoop:
+    def __init__(self, service, runtime_config: RuntimeConfig) -> None:
+        self.service = service
+        self.config = runtime_config
+        self._wakeup = threading.Event()
+        self._lock = threading.Lock()
+        self._pending_scope: str | None = None
+        self._pending_since: float | None = None
 
-    def mark_event(self, now: float | None = None) -> None:
-        self.last_event = time.time() if now is None else now
+    # -- triggers (called from webhook handlers / API) -------------------
 
-    def clear_event(self) -> None:
-        self.last_event = 0.0
+    def trigger_consistency(self, reason: str = "") -> None:
+        self._trigger(SCOPE_CONSISTENCY, reason)
 
-    def mark_sync(self, now: float | None = None) -> None:
-        self.last_sync = time.time() if now is None else now
+    def trigger_full(self, reason: str = "") -> None:
+        self._trigger(SCOPE_FULL, reason)
 
-    def due(self, now: float | None = None) -> tuple[bool, bool]:
-        current = time.time() if now is None else now
-        maintenance_due = self.maintenance_interval_seconds is not None and (
-            (current - self.last_sync) >= self.maintenance_interval_seconds
-        )
-        event_due = self.last_event and ((current - self.last_event) >= self.debounce_seconds)
-        return maintenance_due, bool(event_due)
+    def _trigger(self, scope: str, reason: str) -> None:
+        with self._lock:
+            if self._pending_scope != SCOPE_FULL:
+                self._pending_scope = scope
+            if self._pending_since is None:
+                self._pending_since = time.monotonic()
+        LOG.debug("%s reconcile triggered%s", scope, f" ({reason})" if reason else "")
+        self._wakeup.set()
 
+    def _take_pending(self, now: float) -> str | None:
+        with self._lock:
+            if self._pending_since is None:
+                return None
+            if now < self._pending_since + self.config.debounce_seconds:
+                return None
+            scope = self._pending_scope
+            self._pending_scope = None
+            self._pending_since = None
+            return scope
 
-class _SyncEventHandler(FileSystemEventHandler):
-    def __init__(self, trigger: Callable[[FileSystemEvent], None]) -> None:
-        self.trigger = trigger
+    def _pending_deadline(self) -> float | None:
+        with self._lock:
+            if self._pending_since is None:
+                return None
+            return self._pending_since + self.config.debounce_seconds
 
-    def on_any_event(self, event):  # type: ignore[override]
-        self.trigger(event)
+    # -- loop -------------------------------------------------------------
 
+    def run(self, stop_event: threading.Event) -> None:
+        interval = max(30, int(self.config.consistency_interval_seconds))
+        full_interval = max(60, int(self.config.full_interval_minutes) * 60)
 
-class RuntimeSyncLoop:
-    _NOISY_EVENT_TYPES = frozenset({"opened", "closed", "closed_no_write"})
-    _SHADOW_TRIGGER_EVENT_TYPES = frozenset({"created", "deleted", "moved"})
-    _VALID_STARTUP_RECONCILE_MODES = frozenset({"smart", "full", "off"})
+        if self.config.startup_scope in (SCOPE_FULL, SCOPE_CONSISTENCY):
+            self._safe_reconcile(self.config.startup_scope)
+        now = time.monotonic()
+        next_consistency = now + interval
+        next_full = now + full_interval
 
-    def _summarize_paths(self, paths: set[Path] | list[Path], limit: int = 1) -> str:
-        if not paths:
-            return "-"
-
-        unique_paths = sorted({str(path) for path in paths})
-        shown = unique_paths[:limit]
-        remaining = len(unique_paths) - len(shown)
-        suffix = f" (+{remaining} more)" if remaining > 0 else ""
-        return ", ".join(shown) + suffix
-
-    def _first_path(self, paths: set[Path] | list[Path]) -> str:
-        if not paths:
-            return "-"
-        return sorted({str(path) for path in paths})[0]
-
-    def __init__(
-        self,
-        nested_roots: list[Path],
-        shadow_roots: list[Path],
-        schedule: ReconcileSchedule,
-        reconcile: Callable[..., bool],
-        on_reconcile_error: Callable[[Exception], None],
-        logger: logging.Logger,
-        poll_reconcile_trigger: Callable[[], bool] | None = None,
-        status_tracker: RuntimeStatusTracker | None = None,
-        on_reconcile_complete: Callable[[], None] | None = None,
-        tracked_video_extensions: set[str] | None = None,
-        exclude_paths: list[str] | None = None,
-        polling_fallback_interval_seconds: int = 60,
-        startup_reconcile_mode: str = "smart",
-    ) -> None:
-        self.nested_roots = nested_roots
-        self.shadow_roots = shadow_roots
-        self.schedule = schedule
-        self.reconcile = reconcile
-        self.on_reconcile_error = on_reconcile_error
-        self.poll_reconcile_trigger = poll_reconcile_trigger
-        self.on_reconcile_complete = on_reconcile_complete
-        self.log = logger
-        self.status_tracker = status_tracker
-        self.polling_fallback_interval_seconds = max(10, polling_fallback_interval_seconds)
-        self.startup_reconcile_mode = self._normalize_startup_reconcile_mode(startup_reconcile_mode)
-        self.tracked_video_extensions = {
-            self._normalize_extension(ext)
-            for ext in (tracked_video_extensions or set())
-            if self._normalize_extension(ext)
-        }
-        self._last_reconcile_succeeded: bool | None = None
-        self._dirty_paths: set[Path] = set()
-        self._dirty_paths_lock = threading.Lock()
-        self.exclude_paths = self._normalize_exclude_patterns(exclude_paths)
-        if self.status_tracker is not None:
-            self.status_tracker.set_debounce_seconds(self.schedule.debounce_seconds)
-
-    def run(self, stop_event: threading.Event | None = None) -> None:
-        handler = _SyncEventHandler(self.mark_dirty)
-        observer, watched_roots, observer_mode = self._start_observer(handler)
-
-        if self.status_tracker is not None:
-            self.status_tracker.mark_runtime_running(
-                running=True,
-                watched_nested_roots=len(self.nested_roots),
-                watched_shadow_roots=len(self.shadow_roots),
-                watched_roots_total=len(watched_roots),
+        while not stop_event.is_set():
+            now = time.monotonic()
+            deadline = min(
+                next_consistency,
+                next_full,
+                self._pending_deadline() or float("inf"),
             )
+            if now < deadline:
+                self._wakeup.wait(timeout=min(deadline - now, 1.0))
+                self._wakeup.clear()
+                continue
 
-        if observer_mode == "polling":
-            self.log.info("Runtime observer mode: polling")
+            scope = self._take_pending(now)
+            if scope is None:
+                scope = SCOPE_FULL if now >= next_full else SCOPE_CONSISTENCY
+            self._safe_reconcile(scope)
+            now = time.monotonic()
+            next_consistency = now + interval
+            if scope == SCOPE_FULL:
+                next_full = now + full_interval
 
+    def _safe_reconcile(self, scope: str) -> None:
         try:
-            self._run_startup_reconcile_cycle()
-            while stop_event is None or not stop_event.is_set():
-                poll_triggered = self._poll_reconcile_trigger_safe()
-                self._run_due_reconcile_cycle(poll_triggered)
-                if stop_event is None:
-                    time.sleep(1)
-                elif stop_event.wait(1):
-                    break
-        finally:
-            observer.stop()
-            observer.join()
-            if self.status_tracker is not None:
-                self.status_tracker.mark_runtime_running(running=False)
-
-    def _start_observer(
-        self,
-        handler: _SyncEventHandler,
-    ) -> tuple[Observer | PollingObserver, set[Path], str]:
-        observer = Observer()
-        watched_roots = self._schedule_observer_roots(observer, handler)
-        try:
-            observer.start()
-            return observer, watched_roots, "inotify"
-        except OSError as exc:
-            if exc.errno != errno.ENOSPC:
-                raise
-
-        self.log.warning(
-            "Inotify watch limit reached; falling back to polling observer mode. "
-            "Filesystem sync remains active but may react slower to changes.",
-        )
-        polling_observer = PollingObserver(timeout=self.polling_fallback_interval_seconds)
-        watched_roots = self._schedule_observer_roots(polling_observer, handler)
-        polling_observer.start()
-        return polling_observer, watched_roots, "polling"
-
-    def _schedule_observer_roots(
-        self,
-        observer: Observer | PollingObserver,
-        handler: _SyncEventHandler,
-    ) -> set[Path]:
-        watched_roots: set[Path] = set()
-
-        for root in self.nested_roots:
-            root.mkdir(parents=True, exist_ok=True)
-            if root not in watched_roots:
-                observer.schedule(handler, str(root), recursive=True)
-                self.log.info("Watching nested root: %s", root)
-                watched_roots.add(root)
-
-        for root in self.shadow_roots:
-            root.mkdir(parents=True, exist_ok=True)
-            if root not in watched_roots:
-                observer.schedule(handler, str(root), recursive=True)
-                self.log.info("Watching shadow root: %s", root)
-                watched_roots.add(root)
-
-        return watched_roots
-
-    def _poll_reconcile_trigger_safe(self) -> bool:
-        if self.poll_reconcile_trigger is None:
-            return False
-        try:
-            return self.poll_reconcile_trigger()
-        except Exception:
-            self.log.exception("Poll-based reconcile trigger failed")
-            return False
-
-    def _run_startup_reconcile_cycle(self) -> None:
-        if self.startup_reconcile_mode == "off":
-            self.log.info("Startup reconcile skipped (mode=off)")
-            self.schedule.mark_sync()
-            return
-
-        if self.startup_reconcile_mode == "full":
-            self.log.info("Startup reconcile mode=full")
-            if self.status_tracker is not None:
-                self.status_tracker.mark_reconcile_started(
-                    trigger_source="startup", phase="startup_full_reconcile"
-                )
-                self.status_tracker.update_reconcile_phase("running")
-            self._run_reconcile_with_handling(
-                "Startup Full Reconcile failed",
-                force_full_scope=True,
-            )
-            self._maybe_store_filesystem_baseline()
-            return
-
-        previous_probe = self._load_filesystem_baseline()
-        current_probe = self._collect_filesystem_probe()
-        changed_roots = self._detect_changed_roots(previous_probe, current_probe)
-
-        if previous_probe is None:
-            self.log.info("Startup reconcile mode=smart; no baseline found, running full reconcile")
-            if self.status_tracker is not None:
-                self.status_tracker.mark_reconcile_started(
-                    trigger_source="startup", phase="startup_full_reconcile"
-                )
-                self.status_tracker.update_reconcile_phase("running")
-            self._run_reconcile_with_handling(
-                "Startup Full Reconcile failed",
-                force_full_scope=True,
-            )
-            self._maybe_store_filesystem_baseline(current_probe)
-            return
-
-        if not changed_roots:
-            self.log.info(
-                "Startup reconcile mode=smart; no filesystem drift detected, "
-                "skipping startup reconcile"
-            )
-            self.schedule.mark_sync()
-            self._store_filesystem_baseline(current_probe)
-            return
-
-        self.log.info(
-            "Startup reconcile mode=smart; running targeted startup reconcile "
-            "for %s roots (first_root=%s)",
-            len(changed_roots),
-            self._first_path(changed_roots),
-        )
-        if self.status_tracker is not None:
-            self.status_tracker.mark_reconcile_started(
-                trigger_source="startup", phase="startup_incremental_reconcile"
-            )
-            self.status_tracker.update_reconcile_phase("running")
-        self._run_reconcile_with_handling(
-            "Startup targeted reconcile failed; runtime will retry on next cycle",
-            affected_paths=changed_roots,
-        )
-        self._maybe_store_filesystem_baseline(current_probe)
-
-    def _run_due_reconcile_cycle(self, poll_triggered: bool) -> None:
-        should_maintenance, should_event_sync = self.schedule.due()
-        if not (should_maintenance or should_event_sync or poll_triggered):
-            return
-
-        trigger_source = "maintenance"
-        if should_event_sync and not should_maintenance:
-            trigger_source = "filesystem"
-        elif poll_triggered and not should_maintenance and not should_event_sync:
-            trigger_source = "poll"
-
-        reconcile_paths: set[Path] | None = None
-        if should_maintenance:
-            self.log.info("Running scheduled maintenance reconcile")
-            self._clear_dirty_paths()
-        if should_event_sync:
-            if should_maintenance:
-                self.log.debug("Running event-triggered reconcile (covered by maintenance)")
-            else:
-                reconcile_paths = self._consume_dirty_paths()
-                self.log.debug(
-                    "Event-triggered reconcile queued (affected_paths=%s, first_path=%s)",
-                    len(reconcile_paths),
-                    self._first_path(reconcile_paths),
-                )
-        if poll_triggered and not should_maintenance and not should_event_sync:
-            self.log.info("Running poll-triggered reconcile")
-
-        reconcile_mode = "incremental" if reconcile_paths is not None else "full"
-        self.log.info(
-            "Starting reconcile cycle (mode=%s, trigger=%s) first_path=%s",
-            reconcile_mode,
-            trigger_source,
-            self._first_path(reconcile_paths or set()),
-        )
-
-        if self.status_tracker is not None:
-            self.status_tracker.mark_reconcile_started(trigger_source=trigger_source)
-            self.status_tracker.update_reconcile_phase("running")
-
-        followup_pending = self._run_reconcile_with_handling(
-            "Reconcile failed; will retry on next cycle",
-            affected_paths=reconcile_paths,
-        )
-        if followup_pending:
-            self.log.info(
-                "Reconcile requested a follow-up cycle; scheduling retry in ~%ss",
-                self.schedule.debounce_seconds,
-            )
-            self.schedule.mark_event()
-        else:
-            self.schedule.clear_event()
-
-    def mark_dirty(self, event: FileSystemEvent | None = None) -> None:
-        if event is not None and not self._should_trigger_for_event(event):
-            return
-
-        event_paths: list[Path] = []
-        if event is not None:
-            raw_event_paths = self._extract_event_paths(event)
-            event_paths = [
-                path
-                for path in raw_event_paths
-                if not self._is_excluded_path(path, is_dir=event.is_directory)
-            ]
-            if raw_event_paths and not event_paths:
-                return
-            if event_paths:
-                with self._dirty_paths_lock:
-                    self._dirty_paths.update(event_paths)
-
-        if self.schedule.last_event == 0.0:
-            event_source = "filesystem:unknown"
-            if event is not None:
-                event_source = f"filesystem:{event.event_type}"
-            self.log.info(
-                "Filesystem event queued: source=%s path=%s debounce_seconds=%s",
-                event_source,
-                self._first_path(event_paths),
-                self.schedule.debounce_seconds,
-            )
-        self.schedule.mark_event()
-        if self.status_tracker is not None:
-            with self._dirty_paths_lock:
-                dirty_count = len(self._dirty_paths)
-            self.status_tracker.update_dirty_paths_queue(
-                queued=dirty_count,
-                last_event_at=self.schedule.last_event,
-            )
-
-    def _consume_dirty_paths(self) -> set[Path]:
-        with self._dirty_paths_lock:
-            dirty_paths = set(self._dirty_paths)
-            self._dirty_paths.clear()
-        if self.status_tracker is not None:
-            self.status_tracker.update_dirty_paths_queue(queued=0, last_event_at=None)
-        return dirty_paths
-
-    def _clear_dirty_paths(self) -> None:
-        with self._dirty_paths_lock:
-            self._dirty_paths.clear()
-        if self.status_tracker is not None:
-            self.status_tracker.update_dirty_paths_queue(queued=0, last_event_at=None)
-
-    def _should_trigger_for_event(self, event: FileSystemEvent) -> bool:
-        if event.event_type in self._NOISY_EVENT_TYPES:
-            return False
-
-        # Recursive watches generate frequent directory metadata updates during scans.
-        # create/delete/move still produce their own concrete events.
-        if event.is_directory and event.event_type == "modified":
-            return False
-
-        event_paths = self._extract_event_paths(event)
-        if event_paths and not any(
-            not self._is_excluded_path(path, is_dir=event.is_directory) for path in event_paths
-        ):
-            return False
-
-        if event_paths and not any(
-            self._path_matches_event_filter(path, is_directory=event.is_directory)
-            for path in event_paths
-        ):
-            return False
-
-        if event_paths and self._is_shadow_event(event_paths):
-            if event.event_type not in self._SHADOW_TRIGGER_EVENT_TYPES:
-                return False
-            return self._is_shadow_top_level_event(event_paths)
-
-        return True
-
-    def _extract_event_paths(self, event: FileSystemEvent) -> list[Path]:
-        paths: list[Path] = []
-        for attr in ("src_path", "dest_path"):
-            raw = getattr(event, attr, None)
-            if not isinstance(raw, str) or not raw.strip():
-                continue
-            paths.append(Path(raw))
-        return paths
-
-    def _path_matches_event_filter(self, path: Path, is_directory: bool) -> bool:
-        if not self.tracked_video_extensions or is_directory:
-            return True
-        return path.suffix.lower() in self.tracked_video_extensions
-
-    def _normalize_extension(self, ext: str) -> str:
-        normalized = str(ext).strip().lower().lstrip(".")
-        if not normalized:
-            return ""
-        return f".{normalized}"
-
-    def _normalize_exclude_patterns(self, exclude_patterns: list[str] | None) -> list[str]:
-        if not exclude_patterns:
-            return []
-        normalized: list[str] = []
-        for raw_pattern in exclude_patterns:
-            pattern = str(raw_pattern).strip().replace("\\", "/")
-            if not pattern or pattern.startswith("#"):
-                continue
-            if pattern.startswith("./"):
-                pattern = pattern[2:]
-            normalized.append(pattern)
-        return normalized
-
-    def _is_excluded_path(self, path: Path, *, is_dir: bool) -> bool:
-        if not self.exclude_paths:
-            return False
-
-        # Exclude patterns are configured relative to nested managed roots only.
-        # Shadow roots must remain observable so Sonarr/Radarr library writes can trigger sync.
-        for root in self.nested_roots:
-            try:
-                relative = path.relative_to(root).as_posix()
-            except ValueError:
-                continue
-            if self._matches_exclude_pattern(relative, path.name, is_dir=is_dir):
-                return True
-
-        return False
-
-    def _matches_dir_only_exclude(
-        self,
-        *,
-        anchored: bool,
-        relative_ci: str,
-        core_ci: str,
-        suffix_candidates: list[str],
-    ) -> bool:
-        if anchored:
-            return relative_ci == core_ci or relative_ci.startswith(core_ci + "/")
-        return any(
-            candidate == core_ci or candidate.startswith(core_ci + "/")
-            for candidate in suffix_candidates
-        )
-
-    def _matches_exclude_pattern(self, relative: str, basename: str, *, is_dir: bool) -> bool:
-        if relative == ".":
-            return False
-
-        parts = [part for part in Path(relative).parts if part not in {".", ""}]
-        suffix_candidates = ["/".join(parts[index:]).lower() for index in range(len(parts))]
-        relative_ci = relative.lower()
-        basename_ci = basename.lower()
-
-        for pattern in self.exclude_paths:
-            anchored = pattern.startswith("/")
-            dir_only = pattern.endswith("/")
-            core = pattern.strip("/")
-            core_ci = core.lower()
-            if not core:
-                continue
-
-            # Directory-style exclude patterns (trailing slash) should suppress
-            # both the marker directory itself and all descendants beneath it.
-            if dir_only:
-                if self._matches_dir_only_exclude(
-                    anchored=anchored,
-                    relative_ci=relative_ci,
-                    core_ci=core_ci,
-                    suffix_candidates=suffix_candidates,
-                ):
-                    return True
-                continue
-
-            if anchored:
-                if fnmatch(relative_ci, core_ci):
-                    return True
-                continue
-
-            if fnmatch(basename_ci, core_ci):
-                return True
-            if fnmatch(relative_ci, core_ci):
-                return True
-            if any(fnmatch(candidate, core_ci) for candidate in suffix_candidates):
-                return True
-
-        return False
-
-    def _normalize_startup_reconcile_mode(self, mode: str) -> str:
-        normalized = str(mode or "smart").strip().lower()
-        if normalized in self._VALID_STARTUP_RECONCILE_MODES:
-            return normalized
-        self.log.warning(
-            "Unsupported startup_reconcile_mode=%r; falling back to 'smart'",
-            mode,
-        )
-        return "smart"
-
-    def _iter_probe_roots(self) -> list[Path]:
-        ordered: list[Path] = []
-        seen: set[Path] = set()
-        for root in [*self.nested_roots, *self.shadow_roots]:
-            if root in seen:
-                continue
-            seen.add(root)
-            ordered.append(root)
-        return ordered
-
-    def _collect_filesystem_probe(self) -> dict[str, object]:
-        roots_probe: dict[str, dict[str, int]] = {}
-        for root in self._iter_probe_roots():
-            root_key = str(root)
-            file_count = 0
-            dir_count = 0
-            max_mtime_ns = 0
-
-            if root.exists():
-                try:
-                    max_mtime_ns = max(max_mtime_ns, root.stat().st_mtime_ns)
-                except OSError:
-                    pass
-
-                for dirpath, dirnames, filenames in os.walk(root, followlinks=False):
-                    current_dir = Path(dirpath)
-                    if self._is_excluded_path(current_dir, is_dir=True):
-                        dirnames[:] = []
-                        continue
-
-                    dirnames[:] = [
-                        dirname
-                        for dirname in dirnames
-                        if not self._is_excluded_path(current_dir / dirname, is_dir=True)
-                    ]
-
-                    dir_count += len(dirnames)
-                    try:
-                        max_mtime_ns = max(max_mtime_ns, current_dir.stat().st_mtime_ns)
-                    except OSError:
-                        pass
-
-                    for filename in filenames:
-                        path = current_dir / filename
-                        if self._is_excluded_path(path, is_dir=False):
-                            continue
-                        if (
-                            self.tracked_video_extensions
-                            and path.suffix.lower() not in self.tracked_video_extensions
-                        ):
-                            continue
-                        file_count += 1
-                        try:
-                            max_mtime_ns = max(max_mtime_ns, path.stat().st_mtime_ns)
-                        except OSError:
-                            continue
-
-            roots_probe[root_key] = {
-                "file_count": file_count,
-                "dir_count": dir_count,
-                "max_mtime_ns": max_mtime_ns,
-            }
-
-        return {
-            "captured_at": time.time(),
-            "roots": roots_probe,
-        }
-
-    def _load_filesystem_baseline(self) -> dict[str, object] | None:
-        if self.status_tracker is None:
-            return None
-        snapshot = self.status_tracker.snapshot()
-        baseline = snapshot.get("filesystem_baseline")
-        if not isinstance(baseline, dict):
-            return None
-        roots = baseline.get("roots")
-        if not isinstance(roots, dict):
-            return None
-        return baseline
-
-    def _detect_changed_roots(
-        self,
-        previous_probe: dict[str, object] | None,
-        current_probe: dict[str, object],
-    ) -> set[Path]:
-        if previous_probe is None:
-            return set(self._iter_probe_roots())
-
-        previous_roots = previous_probe.get("roots")
-        current_roots = current_probe.get("roots")
-        if not isinstance(previous_roots, dict) or not isinstance(current_roots, dict):
-            return set(self._iter_probe_roots())
-
-        changed_roots: set[Path] = set()
-        for root in self._iter_probe_roots():
-            key = str(root)
-            previous = previous_roots.get(key)
-            current = current_roots.get(key)
-            if previous != current:
-                changed_roots.add(root)
-        return changed_roots
-
-    def _store_filesystem_baseline(self, probe: dict[str, object] | None) -> None:
-        if self.status_tracker is None:
-            return
-        self.status_tracker.set_filesystem_baseline(probe)
-
-    def _maybe_store_filesystem_baseline(self, probe: dict[str, object] | None = None) -> None:
-        if self._last_reconcile_succeeded is False:
-            return
-        self._store_filesystem_baseline(probe or self._collect_filesystem_probe())
-
-    def _is_shadow_event(self, paths: list[Path]) -> bool:
-        for path in paths:
-            for root in self.shadow_roots:
-                try:
-                    path.relative_to(root)
-                    return True
-                except ValueError:
-                    continue
-        return False
-
-    def _is_shadow_top_level_event(self, paths: list[Path]) -> bool:
-        for path in paths:
-            for root in self.shadow_roots:
-                try:
-                    relative = path.relative_to(root)
-                except ValueError:
-                    continue
-
-                if len(relative.parts) == 1:
-                    return True
-
-                top_level = root / relative.parts[0]
-                if top_level.exists() and top_level.is_dir() and not top_level.is_symlink():
-                    return True
-        return False
-
-    def _run_reconcile_with_handling(
-        self,
-        error_log_message: str,
-        affected_paths: set[Path] | None = None,
-        *,
-        force_full_scope: bool = False,
-    ) -> bool:
-        # Preserve existing semantics: sync time updates when a reconcile attempt starts.
-        self.schedule.mark_sync()
-        try:
-            if force_full_scope:
-                followup_pending = self.reconcile(affected_paths, force_full_scope=True)
-            else:
-                followup_pending = self.reconcile(affected_paths)
-            self._last_reconcile_succeeded = True
-            if self.on_reconcile_complete is not None:
-                try:
-                    self.on_reconcile_complete()
-                except Exception:
-                    self.log.debug("on_reconcile_complete callback failed", exc_info=True)
-            if self.status_tracker is not None:
-                self.status_tracker.mark_reconcile_finished(
-                    success=True,
-                    followup_pending=followup_pending,
-                )
-            return followup_pending
-        except Exception as exc:
-            self.on_reconcile_error(exc)
-            if isinstance(exc, requests.RequestException):
-                self.log.warning(
-                    "%s: %s (%s)",
-                    error_log_message,
-                    exc,
-                    type(exc).__name__,
-                )
-            else:
-                self.log.exception(error_log_message)
-            self._last_reconcile_succeeded = False
-            if self.status_tracker is not None:
-                self.status_tracker.mark_reconcile_finished(
-                    success=False,
-                    followup_pending=False,
-                    error=str(exc),
-                )
-            return False
+            self.service.reconcile(scope=scope)
+        except Exception:  # noqa: BLE001 - the loop must survive any single failure
+            LOG.exception("Reconcile failed (scope=%s)", scope)

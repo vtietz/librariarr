@@ -1,5 +1,6 @@
 paths:
-  # Radarr movie projection mappings (managed_root -> curated library_root).
+  # Radarr mappings: your curated tree (managed_root) <-> Radarr's flat root
+  # folder (library_root). One pair per bucket.
   movie_root_mappings:
     - managed_root: "/data/movies/age_06"
       library_root: "/data/radarr_library/age_06"
@@ -8,40 +9,30 @@ paths:
     - managed_root: "/data/movies/age_16"
       library_root: "/data/radarr_library/age_16"
 
-  # Sonarr projection mappings (optional; required only when sonarr.enabled=true).
+  # Sonarr mappings (required only when sonarr.enabled=true).
   series_root_mappings:
-    - nested_root: "/data/series/age_06"      # Sonarr managed root
-      shadow_root: "/data/sonarr_library/age_06" # Sonarr library root
-    - nested_root: "/data/series/age_12"      # Sonarr managed root
-      shadow_root: "/data/sonarr_library/age_12" # Sonarr library root
-    - nested_root: "/data/series/age_16"      # Sonarr managed root
-      shadow_root: "/data/sonarr_library/age_16" # Sonarr library root
-  # Optional gitignore-style patterns (relative to each nested_root) to skip
-  # during movie/series discovery. Matching is case-insensitive.
-  # Useful for trash/temp folders like TMM deletes.
+    - nested_root: "/data/series/age_06"
+      shadow_root: "/data/sonarr_library/age_06"
+    - nested_root: "/data/series/age_12"
+      shadow_root: "/data/sonarr_library/age_12"
+
+  # Patterns excluded from sync and discovery (case-insensitive).
+  # "name/" excludes any directory segment with that name, other patterns are
+  # filename globs, absolute paths exclude that subtree.
+  # LibrariArr always adds its own defaults (.deletedByLibrariarr/, sample
+  # patterns, ...) on top of this list.
   exclude_paths:
     - ".deletedByTMM/"
     - ".actors/"
     - ".trash/"
-    - ".deletedByLibrariarr/"
-    - ".librariarr/**"
-    - "specials/"
-    - "trailer/"
-    - "trailers/"
-    - "*-trailer.*"
-    - "* trailer.*"
     - "extras/"
     - "featurettes/"
     - "bonus/"
-    - "sample/"
-    - "samples/"
-    - "*-sample.*"
-    - "sample-*.*"
-    - "*.sample.*"
-    - "* sample.*"
+    - "trailer/"
+    - "trailers/"
+    - "*-trailer.*"
 
 radarr:
-  # Enabled by default. Disable for Sonarr-only mode.
   enabled: true
   # Env overrides: LIBRARIARR_RADARR_URL, LIBRARIARR_RADARR_API_KEY.
   url: "http://radarr:7878"
@@ -49,19 +40,15 @@ radarr:
   sync_enabled: true
   # Per-movie RefreshMovie debounce window in seconds (0 disables debounce).
   refresh_debounce_seconds: 15
-  # Auto-add unmatched folders to Radarr.
+  # Auto-add unmatched managed folders to Radarr (exact title+year match only).
+  # Requires auto_add_quality_profile_id. Ambiguous folders are reported
+  # instead; resolve them by adding the title in the Radarr UI.
   auto_add_unmatched: true
-  # Optional fixed profile ID; leave commented to auto-map.
   # auto_add_quality_profile_id: 1
-  # Trigger indexer search immediately after add.
   auto_add_search_on_add: false
-  # Initial monitored flag for newly auto-added movies.
   auto_add_monitored: true
-  # HTTP request timeout (seconds) for Radarr API calls.
   request_timeout_seconds: 120
-  # Retries for transient failures on idempotent methods (GET/PUT/DELETE/HEAD/OPTIONS).
   request_retry_attempts: 1
-  # Exponential backoff base delay (seconds): delay = base * 2^attempt.
   request_retry_backoff_seconds: 1.0
   projection:
     managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
@@ -72,56 +59,21 @@ radarr:
       - "poster.jpg"
       - "fanart.jpg"
 
-  mapping:
-    # Optional fallback map for quality-definition IDs.
-    # Used when auto profile mapping has no custom-format signal and
-    # parse-based quality-definition signal is unavailable or not mappable.
-    # Keep this short; first match wins; all tokens in `match` must be present.
-    # target_id values are Radarr quality definition IDs.
-    quality_map:
-      - match: ["2160p", "x265"]
-        target_id: 19
-      - match: ["1080p", "x265"]
-        target_id: 7
-      - match: ["1080p"]
-        target_id: 9
-      - match: ["720p"]
-        target_id: 5
-
-    # Optional: map local analysis tokens (filename/NFO/ffprobe) to Radarr custom format IDs.
-    # This is used when auto profile mapping is enabled and helps when Radarr parse
-    # cannot infer custom formats from release title alone.
-    custom_format_map:
-      - match: ["german"]
-        format_id: 42
-      - match: ["2160p", "x265"]
-        format_id: 99
-
 sonarr:
-  # Disabled by default. Enable for series projection.
   enabled: false
   # Env overrides: LIBRARIARR_SONARR_URL, LIBRARIARR_SONARR_API_KEY.
   url: "http://sonarr:8989"
   api_key: "YOUR_API_KEY"
   sync_enabled: true
-  # Per-series RefreshSeries debounce window in seconds (0 disables debounce).
   refresh_debounce_seconds: 15
-  # Auto-add unmatched series folders to Sonarr.
   auto_add_unmatched: false
-  # Optional fixed profile IDs; leave commented to use lowest available profile IDs.
   # auto_add_quality_profile_id: 1
   # auto_add_language_profile_id: 1
-  # Trigger indexer search immediately after add.
   auto_add_search_on_add: false
-  # Initial monitored flag for newly auto-added series.
   auto_add_monitored: true
-  # Whether newly added series should use season folders in Sonarr.
   auto_add_season_folder: true
-  # HTTP request timeout (seconds) for Sonarr API calls.
   request_timeout_seconds: 30
-  # Retries for transient failures on idempotent methods (GET/PUT/DELETE/HEAD/OPTIONS).
   request_retry_attempts: 2
-  # Exponential backoff base delay (seconds): delay = base * 2^attempt.
   request_retry_backoff_seconds: 0.5
   projection:
     managed_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov"]
@@ -134,83 +86,23 @@ sonarr:
       - "poster.jpg"
       - "fanart.jpg"
 
-  mapping:
-    # Optional: token-based quality profile selection for Sonarr auto-add.
-    # Only used when sonarr.auto_add_quality_profile_id is not set.
-    quality_profile_map:
-      - match: ["2160p", "x265"]
-        profile_id: 12
-      - match: ["1080p"]
-        profile_id: 8
-
-    # Optional: token-based language profile selection for Sonarr auto-add.
-    # Only used when sonarr.auto_add_language_profile_id is not set.
-    language_profile_map:
-      - match: ["german", "lang-de"]
-        profile_id: 4
-      - match: ["lang-de", "lang-en"]
-        profile_id: 6
-
-cleanup:
-  # What to do in Sonarr when a source folder is missing:
-  #   none      -> do not touch Sonarr state (recommended for transient outages/renames)
-  #   unmonitor -> unmonitor after grace window
-  #   delete    -> delete from Sonarr after grace window
-  sonarr_action_on_missing: "none"
-  # Grace period before unmonitor/delete action is applied.
-  missing_grace_seconds: 21600
-
 runtime:
-  # Startup reconcile strategy:
-  # - smart: compare lightweight filesystem baseline and only reconcile changed roots
-  # - full: always run full startup reconcile
-  # - off: skip startup reconcile and rely on events/poll/maintenance
-  startup_reconcile_mode: "smart"
-  # Debounce window for filesystem event bursts (seconds).
-  # Lower values improve "time to first visible result" after new files appear.
-  # Recommended responsive range: 2-4.
-  debounce_seconds: 3
-  # Minutes between full maintenance reconciles (0 = startup-only + events).
-  maintenance_interval_minutes: 0
-  # Minutes between Arr root-folder checks used to auto-trigger reconcile when
-  # configured managed roots are added later in Radarr/Sonarr (0 disables polling).
-  arr_root_poll_interval_minutes: 1
-  # Minutes between lightweight Radarr/Sonarr history probes that enqueue scoped
-  # reconcile IDs as a safety net for missed webhook/filesystem signals (0 disables).
-  arr_event_safety_poll_interval_minutes: 10
-  # On first safety probe after startup, only enqueue events newer than this lookback.
-  # Set to 0 to initialize cursor only (no startup backfill from history).
-  arr_event_safety_bootstrap_lookback_minutes: 0
-  # Number of newest history rows fetched per safety poll from each Arr instance.
-  # Lower values reduce API work, higher values improve burst catch-up.
-  arr_event_safety_history_page_size: 100
-  # Polling interval (seconds) when inotify watch limit is exceeded and
-  # LibrariArr falls back to polling-based filesystem monitoring.
-  # Only used in fallback mode; ignored when inotify is active.
-  # Minimum enforced: 10. Default: 60.
-  polling_fallback_interval_seconds: 60
-  # Max unmatched folders processed per reconcile cycle across roots (movies/series each).
-  # Lower = faster visible progress, higher = better backlog throughput.
-  # Recommended responsive range: 5-25 (common default: 10).
-  # For large one-time backlog imports, temporarily raise to 50-100.
-  auto_add_batch_size: 10
-  # File extensions used to detect movie folders.
-  scan_video_extensions: [".mkv", ".mp4", ".avi", ".m2ts", ".mov", ".wmv", ".ts", ".m4v", ".mpg", ".mpeg"]
+  # Debounce window for webhook bursts (seconds).
+  debounce_seconds: 8
+  # Seconds between cheap consistency passes (no tree walk; per-item stat
+  # verification). Webhooks additionally trigger this pass instantly.
+  consistency_interval_seconds: 300
+  # Minutes between full passes (one managed-tree walk + discovery/auto-add
+  # + stale-projection prune). This is what picks up manual folder drops.
+  full_interval_minutes: 60
+  # Reconcile scope at startup: full | consistency | off
+  startup_scope: "full"
 
 ingest:
-  # Promote folders that Radarr points to under library roots (.librariarr)
-  # back into the configured managed roots, then queue projection.
-  # File-level ingest also handles quality upgrades via inode comparison.
+  # Bring new Radarr/Sonarr imports and upgrades into the managed tree by
+  # hardlinking them (Arr's files are never moved or renamed).
   enabled: true
-  # Behavior when replacing a same-path managed file with a new inode:
-  # - soft: move replaced managed file to .deletedByLibrariarr (default)
-  # - hard: delete replaced managed file after successful move
+  # Behavior for superseded managed files after an upgrade:
+  # - soft: move to <managed_root>/.deletedByLibrariarr (default)
+  # - hard: delete
   replacement_delete_mode: "soft"
-
-analysis:
-  # Include NFO text in quality detection.
-  use_nfo: false
-  # Include ffprobe tokens in quality detection.
-  use_media_probe: true
-  # ffprobe executable name or absolute path.
-  media_probe_bin: "ffprobe"

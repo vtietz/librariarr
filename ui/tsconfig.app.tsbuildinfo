@@ -1,0 +1,1 @@
+{"root":["./src/App.tsx","./src/main.tsx","./src/api/client.ts","./src/components/ConfigPanel.tsx","./src/components/LogsPanel.tsx","./src/components/StatusPanel.tsx","./src/components/UnmatchedPanel.tsx"],"version":"5.9.3"}

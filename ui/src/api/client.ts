@@ -1,499 +1,89 @@
 import axios from "axios";
-import type { ConfigModel, ConfigResponse, ValidateResponse } from "../types/config";
-import type {
-  DeletedFilesResponse,
-  DiscoveryWarningsResponse,
-  HistoryResponse,
-  JobRecord,
-  JobsSummary,
-  LogItem,
-  ResolveUnmatchedMovieMappingRequest,
-  ResolveUnmatchedMovieMappingResponse,
-  RuntimeStatusResponse,
-  UnmatchedMovieCandidatesResponse
-} from "./types";
-export type {
-  DeletedFilesResponse,
-  DiscoveryWarningsResponse,
-  HistoryEvent,
-  HistoryResponse,
-  JobRecord,
-  JobsSummary,
-  LogItem,
-  ResolveUnmatchedMovieMappingRequest,
-  ResolveUnmatchedMovieMappingResponse,
-  RuntimeStatusResponse,
-  UnmatchedFolderComparisonInfo,
-  UnmatchedMovieCandidate,
-  UnmatchedMovieWinnerStrategy,
-  UnmatchedMovieCandidatesResponse
-} from "./types";
 
-const api = axios.create({
-  baseURL: "/api",
-  timeout: 10000
-});
+export interface ActionEntry {
+  kind: string;
+  detail: string;
+  source: string | null;
+  target: string | null;
+}
 
-/** Short timeout for Arr metadata proxy calls (tags, profiles, etc.). */
-const ARR_METADATA_TIMEOUT = 6000;
+export interface UnmatchedEntry {
+  path: string;
+  parsed_title: string | null;
+  parsed_year: number | null;
+  reason: string;
+  candidates: string[];
+}
 
-api.interceptors.response.use(
-  (response) => {
-    console.debug(
-      `[API] ${response.config.method?.toUpperCase()} ${response.config.url} → ${response.status}`
-    );
-    return response;
-  },
-  (error) => {
-    if (axios.isAxiosError(error)) {
-      const status = error.response?.status ?? "no response";
-      const detail =
-        typeof error.response?.data === "object" &&
-        error.response?.data !== null &&
-        "detail" in error.response.data
-          ? String(error.response.data.detail)
-          : error.message;
-      console.error(
-        `[API] ${error.config?.method?.toUpperCase()} ${error.config?.url} → ${status}: ${detail}`
-      );
-    } else {
-      console.error("[API] Request failed:", error);
-    }
-    return Promise.reject(error);
-  }
-);
+export interface ReconcileReport {
+  dry_run: boolean;
+  scope: string;
+  items_seen: number;
+  items_changed: number;
+  duration_seconds: number;
+  actions: ActionEntry[];
+  unmatched: UnmatchedEntry[];
+  warnings: string[];
+  errors: string[];
+}
 
-export const getConfig = async (source: "disk" | "draft" = "disk") => {
-  const { data } = await api.get<ConfigResponse>("/config", {
-    params: { source, include_secrets: true }
-  });
-  return data;
-};
+export interface RunSummary {
+  finished_at: number;
+  scope: string;
+  dry_run?: boolean;
+  items_seen?: number;
+  items_changed?: number;
+  unmatched?: number;
+  warnings?: number;
+  errors?: number;
+  duration_seconds?: number;
+  error?: string;
+}
 
-export const validateConfig = async (config: ConfigModel) => {
-  const { data } = await api.post<ValidateResponse>("/config/validate", {
-    source: "disk",
-    config
-  });
-  return data;
-};
+export interface StatusResponse {
+  running: boolean;
+  running_scope: string | null;
+  started_at: number | null;
+  last_finished_at: number | null;
+  last_error: string | null;
+  last_report: ReconcileReport | null;
+  history: RunSummary[];
+  runtime_loop_active: boolean;
+}
 
-export const saveConfig = async (config: ConfigModel) => {
-  const { data } = await api.put<ValidateResponse>("/config", { config }, {
-    timeout: 15000
-  });
-  return data;
-};
+export interface LogEntry {
+  line: string;
+  level: string;
+  seq: string;
+}
 
-export const getDiff = async () => {
-  const { data } = await api.get<{ has_diff: boolean; diff: string }>("/config/diff");
-  return data;
-};
+const api = axios.create({ baseURL: "/api" });
 
-export const getFsRoots = async () => {
-  const { data } = await api.get<{ roots: string[] }>("/fs/roots");
-  return data.roots;
-};
+export const getStatus = () => api.get<StatusResponse>("/status").then((r) => r.data);
 
-export const listFs = async (path: string) => {
-  const { data } = await api.get<{
-    entries: Array<{ name: string; path: string; is_dir: boolean; is_symlink: boolean }>;
-  }>("/fs/ls", { params: { path } });
-  return data.entries;
-};
+export const getUnmatched = () =>
+  api.get<{ unmatched: UnmatchedEntry[] }>("/unmatched").then((r) => r.data.unmatched);
 
-export const getMappedDirectories = async (params?: {
-  search?: string;
-  shadowRoot?: string;
-  limit?: number;
-  timeoutMs?: number;
-  includeArrState?: boolean;
-  arrVirtualPaths?: string[];
-}) => {
-  const { data } = await api.get<{
-    items: Array<{
-      entry_type?: string;
-      shadow_root: string;
-      virtual_path: string;
-      real_path: string;
-      target_exists: boolean;
-      arr_state?: string;
-      arr_movie_id?: number | null;
-      arr_title?: string | null;
-      arr_monitored?: boolean | null;
-      last_reconcile_status?: string;
-      last_reconcile_arr?: string;
-      last_reconcile_message?: string;
-      last_reconcile_movie_id?: number | null;
-      last_reconcile_series_id?: number | null;
-      last_reconcile_updated_at_ms?: number | null;
-    }>;
-    shadow_roots: string[];
-    truncated: boolean;
-    cache?: {
-      ready: boolean;
-      building: boolean;
-      updated_at_ms: number | null;
-      last_error: string | null;
-      entries_total: number;
-      version: number;
-    };
-  }>("/fs/mapped-directories", {
-    params: {
-      search: params?.search,
-      shadow_root: params?.shadowRoot,
-      limit: params?.limit,
-      include_arr_state: params?.includeArrState,
-      arr_virtual_path: params?.arrVirtualPaths
-    },
-    timeout: params?.timeoutMs ?? 90000
-  });
-  return data;
-};
+export const triggerReconcile = (scope: "full" | "consistency", dryRun = false) =>
+  api
+    .post<{ ok: boolean; queued?: boolean; report?: ReconcileReport }>("/reconcile", {
+      scope,
+      dry_run: dryRun
+    })
+    .then((r) => r.data);
 
-export const refreshRadarrMovie = async (movieId: number) => {
-  const { data } = await api.post<{ ok: boolean; movie_id: number; started: boolean }>(
-    `/radarr/movies/${movieId}/refresh`
-  );
-  return data;
-};
+export const getConfigYaml = () =>
+  api.get<{ yaml: string }>("/config").then((r) => r.data.yaml);
 
-export const getMappedDirectoriesStreamUrl = (params?: { intervalMs?: number }) => {
-  const search = new URLSearchParams();
-  if (typeof params?.intervalMs === "number") {
-    search.set("interval_ms", String(params.intervalMs));
-  }
-  const query = search.toString();
-  return query
-    ? `/api/fs/mapped-directories/stream?${query}`
-    : "/api/fs/mapped-directories/stream";
-};
+export const validateConfigYaml = (yaml: string) =>
+  api
+    .post<{ valid: boolean; error: string | null }>("/config/validate", { yaml })
+    .then((r) => r.data);
 
-export const getDiscoveryWarnings = async (params?: { limit?: number; includeAll?: boolean }) => {
-  const { data } = await api.get<DiscoveryWarningsResponse>("/fs/discovery-warnings", {
-    params: {
-      limit: params?.limit,
-      include_all: params?.includeAll,
-    }
-  });
-  return data;
-};
+export const saveConfigYaml = (yaml: string) =>
+  api.put<{ ok: boolean; note?: string }>("/config", { yaml }).then((r) => r.data);
 
-export const recycleOrphanedManagedFolder = async (path: string) => {
-  const { data } = await api.post<{
-    ok: boolean;
-    source_path: string;
-    recycled_path: string;
-  }>(
-    "/fs/orphaned-managed-folders/recycle",
-    undefined,
-    { params: { path } }
-  );
-  return data;
-};
-
-export const getDeletedFiles = async (params?: { managedRoot?: string; limit?: number }) => {
-  const { data } = await api.get<DeletedFilesResponse>("/fs/deleted-files", {
-    params: {
-      managed_root: params?.managedRoot,
-      limit: params?.limit,
-    },
-  });
-  return data;
-};
-
-export const restoreDeletedFile = async (path: string) => {
-  const { data } = await api.post<{ ok: boolean; restored_path: string; source_path: string }>(
-    "/fs/deleted-files/restore",
-    undefined,
-    { params: { path } }
-  );
-  return data;
-};
-
-export const deleteDeletedFile = async (path: string) => {
-  const { data } = await api.delete<{ ok: boolean; deleted_path: string }>("/fs/deleted-files", {
-    params: { path },
-  });
-  return data;
-};
-
-export const clearDeletedFiles = async (managedRoot?: string) => {
-  const { data } = await api.post<{ ok: boolean; removed_files: number; removed_roots: number }>(
-    "/fs/deleted-files/clear",
-    undefined,
-    {
-      params: {
-        managed_root: managedRoot,
-      },
-    }
-  );
-  return data;
-};
-
-export const refreshMappedDirectories = async () => {
-  const { data } = await api.post<{
-    ok: boolean;
-    cache: { ready: boolean; building: boolean; entries_total: number; version: number };
-  }>("/fs/mapped-directories/refresh");
-  return data;
-};
-
-export const getRadarrProfiles = async () => {
-  const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
-    "/radarr/quality-profiles",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getRadarrQualityDefinitions = async () => {
-  const { data } = await api.get<{ items: Array<{ id: number; name?: string }> }>(
-    "/radarr/quality-definitions",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getRadarrCustomFormats = async () => {
-  const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
-    "/radarr/custom-formats",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getRadarrTags = async () => {
-  const { data } = await api.get<{ items: Array<{ id?: number; label?: string }> }>(
-    "/radarr/tags",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getSonarrProfiles = async () => {
-  const { data } = await api.get<{ items: Array<{ id: number; name: string }> }>(
-    "/sonarr/quality-profiles",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getSonarrLanguageProfiles = async () => {
-  const { data } = await api.get<{
-    enabled: boolean;
-    items: Array<{ id: number; name: string }>;
-    error: string | null;
-  }>(
-    "/sonarr/language-profiles",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data;
-};
-
-export const getSonarrTags = async () => {
-  const { data } = await api.get<{ items: Array<{ id?: number; label?: string }> }>(
-    "/sonarr/tags",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getRadarrRootFolders = async () => {
-  const { data } = await api.get<{ items: Array<{ path: string }> }>(
-    "/radarr/root-folders",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const getSonarrRootFolders = async () => {
-  const { data } = await api.get<{ items: Array<{ path: string }> }>(
-    "/sonarr/root-folders",
-    { timeout: ARR_METADATA_TIMEOUT }
-  );
-  return data.items;
-};
-
-export const testRadarrConnection = async (url: string, apiKey: string) => {
-  const { data } = await api.post<{ ok: boolean; message: string }>("/radarr/test", {
-    url,
-    api_key: apiKey
-  });
-  return data;
-};
-
-export const testSonarrConnection = async (url: string, apiKey: string) => {
-  const { data } = await api.post<{ ok: boolean; message: string }>("/sonarr/test", {
-    url,
-    api_key: apiKey
-  });
-  return data;
-};
-
-export const deleteShadowFolder = async (path: string) => {
-  const { data } = await api.delete<{
-    ok: boolean;
-    removed_path: string;
-    removed_files: number;
-  }>("/fs/shadow-folder", { params: { path } });
-  return data;
-};
-
-export const runMaintenanceReconcile = async (params?: { path?: string }) => {
-  const { data } = await api.post<{
-    ok: boolean;
-    queued: boolean;
-    job_id: string;
-    message: string;
-  }>(
-    "/maintenance/reconcile",
-    undefined,
-    {
-      params: {
-        path: params?.path
-      }
-    }
-  );
-  return data;
-};
-
-export const getUnmatchedMovieCandidates = async (path: string) => {
-  const { data } = await api.get<UnmatchedMovieCandidatesResponse>(
-    "/fs/unmatched-movie-candidates",
-    { params: { path } }
-  );
-  return data;
-};
-
-export const resolveUnmatchedMovieMapping = async (
-  params: ResolveUnmatchedMovieMappingRequest
-) => {
-  const { data } = await api.post<ResolveUnmatchedMovieMappingResponse>(
-    "/fs/unmatched-movie-resolve",
-    {
-      path: params.path,
-      movie_id: params.movieId,
-      force_takeover: params.forceTakeover ?? false,
-      winner_strategy: params.winnerStrategy,
-      quarantine_loser: params.quarantineLoser,
-    }
-  );
-  return data;
-};
-
-export const runFullReconcile = async () => {
-  const { data } = await api.post<{
-    ok: boolean;
-    queued: boolean;
-    job_id: string;
-    message: string;
-  }>("/maintenance/full-reconcile");
-  return data;
-};
-
-export const waitForJobCompletion = async (jobId: string, options?: { timeoutMs?: number; pollIntervalMs?: number }) => {
-  const timeoutMs = options?.timeoutMs ?? 180000;
-  const pollIntervalMs = options?.pollIntervalMs ?? 1000;
-  const startedAt = Date.now();
-  while (Date.now() - startedAt < timeoutMs) {
-    const job = await getJob(jobId);
-    if (job.status === 'succeeded') {
-      return job;
-    }
-    if (job.status === 'failed' || job.status === 'canceled') {
-      const errorText = typeof job.error === 'string' && job.error.trim() ? job.error : null;
-      throw new Error(errorText ?? `Reconcile job ${job.status}.`);
-    }
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, pollIntervalMs);
-    });
-  }
-  throw new Error('Reconcile job timed out while waiting for completion.');
-};
-
-export const getJob = async (jobId: string) => {
-  const { data } = await api.get<JobRecord>(`/jobs/${jobId}`);
-  return data;
-};
-
-export const getJobsSummary = async (params?: { includeHidden?: boolean }) => {
-  const { data } = await api.get<JobsSummary>("/jobs/summary", {
-    params: {
-      include_hidden: params?.includeHidden,
-    },
-  });
-  return data;
-};
-export const getJobs = async (
-  params?: { limit?: number; status?: string; includeHidden?: boolean }
-) => {
-  const { data } = await api.get<{ items: JobRecord[] }>("/jobs", {
-    params: {
-      limit: params?.limit,
-      status: params?.status,
-      include_hidden: params?.includeHidden,
-    }
-  });
-  return data.items;
-};
-export const cancelJob = async (jobId: string) => {
-  const { data } = await api.post<{
-    ok: boolean;
-    job_id: string;
-    status: string;
-    message: string;
-  }>(`/jobs/${jobId}/cancel`);
-  return data;
-};
-export const clearCompletedJobs = async () => {
-  const { data } = await api.post<{ ok: boolean; removed: number }>("/jobs/clear-completed");
-  return data;
-};
-export const deleteJob = async (jobId: string) => {
-  const { data } = await api.delete<{
-    ok: boolean;
-    job_id: string;
-    status: string;
-    message: string;
-  }>(`/jobs/${jobId}`);
-  return data;
-};
-export const getRuntimeStatus = async () => {
-  const { data } = await api.get<RuntimeStatusResponse>("/runtime/status");
-  return data;
-};
-export const getAppLogs = async (params?: { tail?: number; timeoutMs?: number }) => {
-  const { data } = await api.get<{
-    tail: number;
-    items: LogItem[];
-  }>("/logs", {
-    params: {
-      tail: params?.tail
-    },
-    timeout: params?.timeoutMs ?? 60000
-  });
-  return data;
-};
-export const getAppLogStreamUrl = () => {
-  return "/api/logs/stream";
-};
-
-export const getHistory = async (params?: { limit?: number }) => {
-  const { data } = await api.get<HistoryResponse>("/history", {
-    params: {
-      limit: params?.limit,
-    },
-  });
-  return data;
-};
-
-export const clearHistory = async () => {
-  const { data } = await api.post<{ ok: boolean; removed: number }>("/history/clear");
-  return data;
-};
-
-export const deleteHistoryEvent = async (eventId: string) => {
-  const { data } = await api.delete<{ ok: boolean; event_id: string }>(`/history/${eventId}`);
-  return data;
-};
+export const getLogs = (limit = 300) =>
+  api
+    .get<{ entries: LogEntry[] }>("/logs", { params: { limit } })
+    .then((r) => r.data.entries);

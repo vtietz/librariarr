@@ -1,102 +1,49 @@
 # LibrariArr
 
-LibrariArr keeps real media folders in your preferred nested structure while continuously syncing library views for Radarr and Sonarr.
+LibrariArr keeps real media folders in your preferred nested structure while continuously syncing flat library views for Radarr and Sonarr — using hardlinks and **inode identity**.
 
-It solves the path drift problem between your filesystem and *arr apps by projecting managed
-media into curated library roots with hardlinks.
+Your curated tree stays authoritative. Radarr/Sonarr get the flat root folders they expect, imports and upgrades flow back into your tree automatically, and renaming or moving folders in your tree never breaks anything, because identity is the inode, not the name.
 
-## What Problem It Solves
+## Should you use this at all?
 
-Many libraries are organized for humans (age buckets, studio folders, custom hierarchies), while Radarr and Sonarr work best with flat root folders.
-
-Without synchronization, this causes:
-
-- imports that fail because *arr paths no longer match real folders,
-- stale entries after external renames or moves,
-- extra manual path fixing in Radarr/Sonarr,
-- brittle workflows when multiple tools touch the same files.
-
-LibrariArr bridges that gap and keeps both sides aligned.
+Honest guidance first: **most users don't need a tool.** Radarr/Sonarr support multiple root folders — one per certification/age bucket with a flat structure covers most "organized library" needs, and TinyMediaManager works fine on flat `Title (Year)/` folders. LibrariArr is for the niche that genuinely wants a *deeply nested, user-curated* tree (studio/collection/custom hierarchies, TMM management, manual moves) **plus** full Arr automation. That combination is inherently a sync problem; LibrariArr solves it with the smallest possible state.
 
 ## Status
 
-LibrariArr is a personal project built to scratch a real itch. It runs on an actual media library and is developed iteratively — which means it works, but it is not hardened software with enterprise guarantees.
-
-**Use at your own risk.** Before pointing it at a library you care about, take a backup. Hardlinks are non-destructive by nature, but path updates and ingest moves are real filesystem operations. The authors make no warranty, express or implied.
-
-A fair portion of this codebase was shaped through conversational AI collaboration — what some call vibe coding. The architecture was designed deliberately, the logic was reasoned through carefully, and the tests exist for a reason. But if something goes sideways in an unexpected corner case, that's between you and the universe.
-
-## Core Features
-
-- **Hardlink projection** (managed → library): projects video files and allowlisted extras from your curated folders into flat Arr-compatible library roots using hardlinks. Zero storage overhead.
-- **Two-tier ingest** (library → managed): when Radarr imports a new movie, the entire folder is moved into your curated tree. When Radarr upgrades quality, file-level inode comparison detects the replacement and moves the new file in (backing up the old one first).
-- **Auto-discovery**: scans managed roots for folders not yet in Radarr/Sonarr, looks up each title via the Radarr/Sonarr API, and auto-adds matches with configurable quality profiles. Folders that don't match are skipped and retried on change.
-- **Webhook-scoped reconcile**: Radarr/Sonarr Connect webhooks trigger targeted per-movie/series reconcile within seconds instead of waiting for periodic scans.
-- **Filesystem watchers + periodic reconcile**: filesystem events trigger debounced incremental reconcile; scheduled full reconcile catches any drift.
-- **Idempotent and safe**: relink-on-replace for changed files, unknown user files in library roots are never touched.
-- **Web UI**: dashboard with real-time status, config editor with validation, path mapping explorer, and log viewer.
-
-## Sync Architecture
-
-```mermaid
-flowchart LR
-  subgraph "Your curated folders"
-    A[managed_root]
-  end
-  subgraph "LibrariArr"
-    B[Reconcile]
-  end
-  subgraph "Arr library roots"
-    C[library_root]
-  end
-  A -- "projection (hardlink)" --> B
-  B --> C
-  C -- "ingest (move)" --> B
-  B --> A
-  B <--> D[Radarr / Sonarr API]
-```
+A personal project that runs on a real media library. **Use at your own risk** and take a backup before pointing it at a library you care about. Hardlinks are non-destructive by nature, and LibrariArr never deletes managed files — superseded files are quarantined to `.deletedByLibrariarr/` — but bugs happen.
 
 ## How It Works
 
-You organize movies however you like — age buckets, collections, studios. LibrariArr projects them into the flat structure Radarr expects, using hardlinks (same content, zero extra storage).
-
-```yaml
-# config.yaml — one mapping per age bucket
-paths:
-  movie_root_mappings:
-    - managed_root: "/data/movies/age_12"
-      library_root: "/data/radarr_library/age_12"
-    - managed_root: "/data/movies/age_16"
-      library_root: "/data/radarr_library/age_16"
+```mermaid
+flowchart LR
+  subgraph "Your curated tree (authoritative)"
+    A["/data/movies/age_12/Studio X/Foo (2020)/"]
+  end
+  subgraph "Radarr's flat root (machine-only)"
+    C["/data/radarr_library/age_12/Foo (2020)/"]
+  end
+  A <-- "same inode (hardlink)" --> C
+  B[LibrariArr] -- "project / ingest / prune" --> C
+  B <--> D[Radarr / Sonarr API]
 ```
 
-| Your folders | What Radarr sees | Notes |
-|---|---|---|
-| `…/age_12/Foo (2020)/Foo.mkv` | `…/age_12/Foo (2020)/Foo.mkv` | direct child → flat |
-| `…/age_16/Bar (2011)/Bar.mkv` | `…/age_16/Bar (2011)/Bar.mkv` | direct child → flat |
-| `…/age_12/Studio/Qux (2023)/Qux.mkv` | `…/age_12/Qux (2023)/Qux.mkv` | `Studio/` stripped — always flat |
+Three invariants make it simple and safe:
 
-No matter how deep your managed folder structure is, Radarr always sees a flat `Title (Year)/` folder directly under its root. Intermediate directories (studios, collections, genres) are stripped automatically.
+1. **Identity by inode.** The managed file and the library file are the same inode. Renames/moves in your tree change nothing — no name parsing, no state database.
+2. **Library roots are machine-only.** You never put files there. Every file there is either a projection of your tree (safe to relink/prune) or a fresh Arr import (ingested by hardlinking it into your tree — no data is ever moved).
+3. **Arr paths are never rewritten.** Radarr keeps the folder and file names it chose; your tree keeps yours. LibrariArr only ever *adds* items to Arr and triggers rescans.
 
-On reconcile, LibrariArr:
+What that gives you:
 
-1. **Ingests** new/upgraded files from library roots back into managed roots.
-2. **Normalizes paths** so Radarr/Sonarr always point to library roots.
-3. **Projects** managed video and allowlisted extras into library roots via hardlinks.
-4. **Discovers** unmatched folders in managed roots and auto-adds them to Radarr/Sonarr.
+- **New import** → the folder appears in your managed root (hardlinks) within seconds of the webhook. Sort it deeper into your hierarchy whenever you like.
+- **Quality upgrade** → new file hardlinked into your tree, old file quarantined (movies: any other video in the folder; series: only the same SxxEyy episode).
+- **You replace a file in your tree** → LibrariArr relinks Radarr's file to yours and triggers a rescan (newer side wins).
+- **You drop a new movie/series folder** → discovery parses the name once, auto-adds on an exact match, or lists it as unmatched. To resolve manually: just add the title in the Radarr/Sonarr UI — no paths, no dialogs.
+- **You remove an item from Arr** → the library projection is pruned; your files are untouched.
 
-## Common Sync Scenarios
+Runtime model: webhooks trigger a cheap **consistency pass** (two `stat()` calls per item, seconds even on NAS disks, no tree walk). A scheduled **full pass** (default hourly) does the single tree walk for discovery and cleanup. No filesystem watchers to configure or tune.
 
-Canonical scenario behavior, expected results, and e2e coverage are maintained in:
-
-- `docs/reconciliation_scenarios.md`
-
-Keep this README focused on onboarding and configuration, and use the scenarios document as
-the single source of truth for reconcile-case behavior.
-
-## Quick Start (Users: Docker Compose)
-
-These steps are for regular Docker users (Docker CLI, Docker Desktop, or Portainer), not local repository development.
+## Quick Start (Docker Compose)
 
 1. Copy defaults:
 
@@ -105,7 +52,7 @@ cp config.yaml.example config.yaml
 cp .env.example .env
 ```
 
-2. Set writable host paths in `.env` (single-root best practice):
+2. Set writable host paths in `.env` (single shared root best practice):
 
 ```dotenv
 MEDIA_ROOT=/volume2
@@ -113,19 +60,12 @@ PUID=1000
 PGID=1000
 ```
 
-Use one shared top-level mount (`MEDIA_ROOT`) across all *arr services and LibrariArr for reliable atomic moves and consistent path resolution.
+Use one shared top-level mount (`MEDIA_ROOT`) across all *arr services and LibrariArr — hardlinks require one filesystem and identical container paths.
 
-3. Use the provided full-stack example compose file at the repository root:
+3. Use the provided full-stack example compose file:
 
 ```yaml
 services:
-  sabnzbd:
-    image: lscr.io/linuxserver/sabnzbd:latest
-    env_file: .env
-    volumes:
-      - ${CONFIG_ROOT}/sabnzbd:/config
-      - ${MEDIA_ROOT}:/data
-
   radarr:
     image: lscr.io/linuxserver/radarr:latest
     env_file: .env
@@ -151,155 +91,77 @@ services:
     command: ["--config", "/config/config.yaml", "--log-level", "INFO", "--web"]
 ```
 
-4. Start and verify:
+4. Start and open `http://localhost:8787`:
 
 ```bash
 docker compose -f docker-compose.full-stack.example.yml up -d
-docker compose -f docker-compose.full-stack.example.yml logs -f librariarr
 ```
 
-Then open `http://localhost:8787` for the LibrariArr GUI.
-
-### Linux note: inotify watch limits
-
-Large media libraries can exceed Linux's default inotify watch limit. When this
-happens LibrariArr logs a warning and falls back to **polling mode**, which scans
-for changes once per minute instead of reacting instantly.
-
-Check your current limits:
-
-```bash
-cat /proc/sys/fs/inotify/max_user_watches
-cat /proc/sys/fs/inotify/max_user_instances
-```
-
-To restore instant detection, increase the limit on the **Docker host** (not
-inside the container):
-
-```bash
-sudo sysctl -w fs.inotify.max_user_watches=524288
-sudo sysctl -w fs.inotify.max_user_instances=1024
-```
-
-Persist after reboot:
-
-```bash
-# Standard Linux (Debian, Ubuntu, etc.)
-printf 'fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=1024\n' | \
-  sudo tee /etc/sysctl.d/99-librariarr-inotify.conf
-sudo sysctl --system
-```
-
-On **Synology DSM** the `/etc/sysctl.d/` directory does not exist. Use one of:
-
-```bash
-# Option A: append to /etc/sysctl.conf (may be reset on DSM major updates)
-printf 'fs.inotify.max_user_watches=524288\nfs.inotify.max_user_instances=1024\n' >> /etc/sysctl.conf
-sysctl -p
-```
-
-```
-# Option B (recommended): DSM → Control Panel → Task Scheduler →
-#   Create → Triggered Task → User-defined script
-# Event: Boot-up, User: root, Script:
-sysctl -w fs.inotify.max_user_watches=524288
-sysctl -w fs.inotify.max_user_instances=1024
-```
-
-After applying the fix, restart the LibrariArr container. The log will confirm
-whether inotify or polling mode is active.
-
-5. Stop when needed:
-
-```bash
-docker compose -f docker-compose.full-stack.example.yml down
-```
-
-## Minimal Config Example
+## Minimal Config
 
 ```yaml
 paths:
   movie_root_mappings:
-    - managed_root: "/data/movies/age_12"       # your curated folder
-      library_root: "/data/radarr_library/age_12" # Radarr's root folder
+    - managed_root: "/data/movies/age_12"          # your curated tree
+      library_root: "/data/radarr_library/age_12"  # Radarr's root folder
   series_root_mappings:
-    - nested_root: "/data/series/age_12"         # your curated folder
-      shadow_root: "/data/sonarr_library/age_12" # Sonarr's root folder
+    - nested_root: "/data/series/age_12"
+      shadow_root: "/data/sonarr_library/age_12"
 
 radarr:
-  enabled: true
   url: "http://radarr:7878"
   api_key: "YOUR_API_KEY"
-  sync_enabled: true
-  auto_add_unmatched: true  # auto-import unmatched folders to Radarr
+  auto_add_unmatched: true
+  auto_add_quality_profile_id: 1
 
 sonarr:
   enabled: false
-  url: "http://sonarr:8989"
-  api_key: "YOUR_API_KEY"
-  sync_enabled: true
 ```
 
-> **Naming note**: Radarr mappings use `managed_root`/`library_root`. Sonarr mappings currently use `nested_root`/`shadow_root` (same concept, naming migration pending).
+Full reference: [docs/configuration.md](docs/configuration.md).
 
 ## Integration Checklist
 
-- All containers (Radarr, Sonarr, LibrariArr) must mount the same top-level media root to `/data`.
-- Keep managed folders and library folders under that shared root (e.g. `/data/movies`, `/data/radarr_library`).
-- In Radarr: add each `library_root` as a root folder. In Sonarr: add each `shadow_root` as a root folder.
-- Set up Radarr/Sonarr Connect webhooks to `http://librariarr:8787/api/hooks/radarr` (and `/hooks/sonarr`) for fast scoped reconcile.
-- If API sync fails, check that all containers see the same paths (path parity).
+- All containers mount the same media root at the same path (e.g. `/data`).
+- In Radarr add each `library_root` as a root folder; in Sonarr each `shadow_root`.
+- **Never place files in library/shadow roots yourself** — they are machine-only. Export them read-only on any file shares.
+- Set up Radarr/Sonarr Connect webhooks to `http://librariarr:8787/api/hooks/radarr` and `/api/hooks/sonarr` (optional shared secret via `LIBRARIARR_WEBHOOK_SECRET`).
 
-## More Details
+## Web UI
 
-- Full option reference: [docs/configuration.md](docs/configuration.md)
-- Workflow/reference behavior guide: [docs/workflows.md](docs/workflows.md)
-- Reconciliation scenarios + FS e2e coverage matrix: [docs/reconciliation_scenarios.md](docs/reconciliation_scenarios.md)
-- Example baseline: [config.yaml.example](config.yaml.example)
-- Main compose file: [docker-compose.yml](docker-compose.yml)
-- Dev compose file: [docker-compose.dev.yml](docker-compose.dev.yml)
-- Full stack compose example (Sabnzbd/Radarr/Sonarr/Prowlarr/LibrariArr/Mediathekarr, documentation-only): [docker-compose.full-stack.example.yml](docker-compose.full-stack.example.yml)
-- Wrapper help script (contributors/local repo dev): [run.sh](run.sh)
+Four panels: **Status** (runtime state, last run report, trigger reconcile), **Unmatched** (folders needing attention, with the reason and how to resolve), **Config** (raw YAML with validation and backup), **Logs**. The Radarr/Sonarr UIs remain the primary interaction surface for everything content-related.
+
+## Docs
+
+- Architecture and invariants: [docs/architecture.md](docs/architecture.md)
+- Scenario matrix (canonical behavior): [docs/reconciliation_scenarios.md](docs/reconciliation_scenarios.md)
+- Runtime flow: [docs/workflows.md](docs/workflows.md)
+- Configuration reference: [docs/configuration.md](docs/configuration.md)
 
 ## Contributor Commands (Repo Checkout)
 
-These `run.sh` wrappers are for contributors and local repository development.
+All operations go through `./run.sh`:
 
-- `./run.sh once` for single reconcile.
-- `./run.sh test` for unit/integration tests (non-e2e).
-- `./run.sh e2e` for Arr end-to-end tests (Radarr + Sonarr).
-- `./run.sh fs-e2e` for filesystem-focused end-to-end tests.
-- `./run.sh quality` for lint/format/complexity checks.
+- `./run.sh install` — build the dev Docker image
+- `./run.sh test` — unit tests
+- `./run.sh fs-e2e` — filesystem scenario e2e tests (fake Arr, real filesystem)
+- `./run.sh e2e` — live Radarr/Sonarr smoke tests
+- `./run.sh quality` / `quality-autofix` — Ruff + ESLint/typecheck
+- `./run.sh once` — single full reconcile (add `--dry-run` via args for a plan)
+- `./run.sh dev-up` / `dev-down` — local dev stack (API, Vite UI, Radarr, Sonarr)
 
-### Dev GUI + Local Arr Stack
+Single test file: `LIBRARIARR_PYTEST_ARGS="tests/unit/core/test_movies_reconcile.py -v" ./run.sh test`
 
-Prerequisites:
+## First Run on a Real Library
 
-- Docker with Compose support (`docker compose` or `docker-compose`)
-- Writable host media root (`MEDIA_ROOT`) for local folder/bootstrap operations
-- A repo-local `config.yaml` file (auto-created by wrappers when missing)
+Read this before pointing LibrariArr at data you care about.
 
-- Create env file: `cp .env.dev.example .env`
-- Start full dev stack: `./run.sh dev-up`
-- One-time/bootstrap only (optional): `./run.sh dev-bootstrap`
-- Seed sample folders/files into configured nested roots (optional): `./run.sh dev-seed`
-- GUI API: `http://localhost:8787`
-- Vite dev UI: `http://localhost:5173`
-- Radarr dev instance: `http://localhost:17878`
-- Sonarr dev instance: `http://localhost:18989`
-- Tail logs: `./run.sh dev-logs`
-- Stop everything: `./run.sh dev-down`
-
-Ports and internal dev URLs can be adjusted in `.env` via `LIBRARIARR_WEB_PORT`,
-`LIBRARIARR_DEV_RADARR_URL`, `LIBRARIARR_DEV_SONARR_URL`,
-`DEV_HOST_PORT_RADARR`, and `DEV_HOST_PORT_SONARR`.
-
-By default, `dev-up` creates `.env` from `.env.dev.example` when missing and runs
-`dev-bootstrap` automatically (`LIBRARIARR_DEV_BOOTSTRAP=0` disables auto-bootstrap).
-The bootstrap syncs Arr API keys/URLs into `config.yaml` and `.env`, tries to disable
-Arr auth/HTTPS for local dev, and ensures root folders exist.
-Before startup, `dev-up` also pre-creates `movies`, `series`, `radarr_library`, and
-`sonarr_library` under `MEDIA_ROOT` when the host path is writable.
-If host-side creation is blocked by ownership/permissions, `dev-bootstrap` runs an
-in-container repair step that creates/chowns mapped `/data` paths before Arr root
-folder registration.
+1. **Backup or snapshot the media volume.** Everything LibrariArr does is hardlink-based and reversible in principle, but do it anyway.
+2. **One filesystem, identical mount paths.** Managed roots, library/shadow roots, and (ideally) the download client's folder must be on the same filesystem and mounted at the same path (e.g. `/data`) in every container — hardlinks don't cross filesystems.
+3. **Dry-run first.** Run `--once --dry-run` (or `POST /api/reconcile {"dry_run": true}` from the Status panel) and read the plan. It lists every link, ingest, quarantine, and prune the real run would perform. Nothing is touched.
+4. **Library/shadow roots: empty is easiest, existing hardlinks are fine.** A fresh empty library root is the cleanest start — Radarr imports into it and LibrariArr ingests from there. If the roots already contain hardlink projections of your managed files, they are adopted as-is (identity is the inode). What you should clean out beforehand: broken symlinks, duplicate copies, or anything a previous tool left behind — files whose inode is unknown and that have no other link are treated conservatively (warned, never deleted), so junk lingers as warnings.
+5. **Start with `auto_add_unmatched: false`.** Let the first full pass populate the Unmatched panel, review what it found and how it parsed your folder names, then enable auto-add once the list looks right.
+6. **Where your data lives:** the physical data always survives in your managed tree. After every reconcile, every Arr-known file has a hardlink in the managed folder; the library-side name is just another link to the same data. The only window where a new download exists solely in the library root is between Radarr's import and the next reconcile (seconds, with webhooks configured). Corollary: avoid "delete files" when removing items in Radarr/Sonarr during that window; after ingest it only removes the library-side link and your managed file is untouched.
+7. **Replacing a file by hand?** Put the new file in the managed folder with a *fresh modification time* (a normal copy does this; `cp -p`/`rsync -t` preserving an old mtime does not). The upgrade-vs-replacement tie-break trusts mtimes: newer side wins. When in doubt, `touch` the new file.
+8. **Quarantine maintenance.** Superseded files accumulate under `<managed_root>/.deletedByLibrariarr/`. Empty it periodically once you trust the setup, or set `ingest.replacement_delete_mode: hard`.
+9. **Auto-add re-adds.** If you remove a movie/series from Arr but keep the managed folder, auto-add will re-add it on the next full pass. To retire something for good: delete (or exclude) the managed folder too, or leave it and disable auto-add.

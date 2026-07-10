@@ -1,10 +1,3 @@
-"""Filesystem e2e fixtures: fake Arr clients over a real temp filesystem.
-
-These tests exercise the full reconcile engine against real hardlinks and
-directories; only the Arr HTTP APIs are faked. They are the executable form of
-the scenario matrix in docs/reconciliation_scenarios.md.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,7 +15,6 @@ from librariarr.config.models import (
     RuntimeConfig,
     SonarrConfig,
 )
-from librariarr.core.engine import ReconcileEngine
 from librariarr.core.index import AdvisoryCache
 
 
@@ -63,9 +55,7 @@ class FakeRadarr:
 
 class FakeSonarr:
     def __init__(
-        self,
-        series: list[dict] | None = None,
-        episode_files: dict[int, list[dict]] | None = None,
+        self, series: list[dict] | None = None, episode_files: dict[int, list[dict]] | None = None
     ) -> None:
         self.series = series or []
         self.episode_files = episode_files or {}
@@ -149,14 +139,6 @@ def cache(tmp_path: Path) -> AdvisoryCache:
     return AdvisoryCache(tmp_path / "idcache.json")
 
 
-@pytest.fixture
-def make_engine(config, cache):
-    def factory(radarr=None, sonarr=None) -> ReconcileEngine:
-        return ReconcileEngine(config, radarr=radarr, sonarr=sonarr, cache=cache)
-
-    return factory
-
-
 def write_file(path: Path, content: str = "data") -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
@@ -164,8 +146,29 @@ def write_file(path: Path, content: str = "data") -> Path:
 
 
 def hardlink(source: Path, target: Path) -> Path:
+    target.parent.mkdir(parents=True, exist_ok=True)
     import os
 
-    target.parent.mkdir(parents=True, exist_ok=True)
     os.link(source, target)
     return target
+
+
+def movie_payload(
+    movie_id: int, title: str, year: int, folder: Path, file_path: Path | None
+) -> dict:
+    payload: dict = {"id": movie_id, "title": title, "year": year, "path": str(folder)}
+    if file_path is not None:
+        payload["movieFile"] = {"path": str(file_path)}
+    return payload
+
+
+def series_payload(
+    series_id: int, title: str, year: int, folder: Path, episode_file_count: int = 1
+) -> dict:
+    return {
+        "id": series_id,
+        "title": title,
+        "year": year,
+        "path": str(folder),
+        "statistics": {"episodeFileCount": episode_file_count},
+    }

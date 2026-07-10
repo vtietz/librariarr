@@ -11,7 +11,6 @@ import requests
 
 from librariarr.config import (
     AppConfig,
-    CleanupConfig,
     MovieRootMapping,
     PathsConfig,
     RadarrConfig,
@@ -220,8 +219,7 @@ def projection_config(
             sync_enabled=sync_enabled,
             projection=RadarrProjectionConfig(),
         ),
-        cleanup=CleanupConfig(),
-        runtime=RuntimeConfig(debounce_seconds=1, maintenance_interval_minutes=60),
+        runtime=RuntimeConfig(debounce_seconds=1),
     )
 
 
