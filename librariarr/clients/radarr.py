@@ -8,6 +8,8 @@ from typing import Any
 
 import requests
 
+from .errors import describe_http_error
+
 LOG = logging.getLogger(__name__)
 
 
@@ -133,6 +135,7 @@ class RadarrClient:
                 LOG.debug("Radarr request failed: %s %s error=%s", method_name, path, exc)
                 if attempt >= self.retry_attempts or not self._can_retry_request(method_name, exc):
                     self._record_cb_failure()
+                    exc.args = (describe_http_error(exc),)
                     raise
                 self._log_retry_attempt(method_name, path, attempt, exc)
                 time.sleep(self._retry_delay_seconds(attempt))

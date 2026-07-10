@@ -359,6 +359,31 @@ def test_get_movies_by_ids_skips_404(monkeypatch) -> None:
     assert [movie["id"] for movie in movies] == [1]
 
 
+def test_request_surfaces_radarr_validation_message_on_400(monkeypatch) -> None:
+    client = RadarrClient(base_url="http://radarr:7878", api_key="test", retry_attempts=0)
+
+    class _Response:
+        status_code = 400
+        content = b"[]"
+
+        def json(self):
+            return [{"errorMessage": "This movie has already been added"}]
+
+        def raise_for_status(self):
+            raise requests.HTTPError("400 Client Error: Bad Request for url: ...", response=self)
+
+    class _Session:
+        def request(self, *args, **kwargs):
+            return _Response()
+
+    client.session = _Session()
+
+    with pytest.raises(requests.HTTPError) as exc_info:
+        client._request("POST", "/movie", json={})
+
+    assert "already been added" in str(exc_info.value)
+
+
 def test_get_movies_by_ids_reraises_non_404(monkeypatch) -> None:
     client = RadarrClient(base_url="http://radarr:7878", api_key="test")
 
