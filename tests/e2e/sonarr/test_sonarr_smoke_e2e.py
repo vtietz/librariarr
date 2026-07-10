@@ -83,20 +83,20 @@ def _case_root() -> Path:
 def test_series_auto_add_projection_and_prune(sonarr_session, tmp_path):
     session, api_key = sonarr_session
     case_root = _case_root()
-    nested_root = case_root / "series"
-    shadow_root = case_root / "sonarr_library"
-    nested_root.mkdir(parents=True, exist_ok=True)
-    shadow_root.mkdir(parents=True, exist_ok=True)
+    managed_root = case_root / "series"
+    library_root = case_root / "sonarr_library"
+    managed_root.mkdir(parents=True, exist_ok=True)
+    library_root.mkdir(parents=True, exist_ok=True)
 
     profiles = session.get(f"{SONARR_URL}/api/v3/qualityprofile", timeout=20).json()
     if not profiles:
         pytest.skip("Sonarr has no quality profiles")
-    session.post(f"{SONARR_URL}/api/v3/rootfolder", json={"path": str(shadow_root)}, timeout=20)
+    session.post(f"{SONARR_URL}/api/v3/rootfolder", json={"path": str(library_root)}, timeout=20)
 
     config = AppConfig(
         paths=PathsConfig(
             series_root_mappings=[
-                RootMapping(nested_root=str(nested_root), shadow_root=str(shadow_root))
+                RootMapping(managed_root=str(managed_root), library_root=str(library_root))
             ],
         ),
         radarr=RadarrConfig(url="", api_key="", enabled=False),
@@ -121,7 +121,7 @@ def test_series_auto_add_projection_and_prune(sonarr_session, tmp_path):
     if not any((r.get("title") or "").lower() == "breaking bad" for r in lookup):
         pytest.skip("Sonarr lookup did not return the fixture series")
 
-    managed_folder = nested_root / "Breaking Bad (2008)"
+    managed_folder = managed_root / "Breaking Bad (2008)"
     managed_ep = managed_folder / "Season 01" / "Breaking.Bad.S01E01.mkv"
     managed_ep.parent.mkdir(parents=True)
     managed_ep.write_text("fixture-episode", encoding="utf-8")

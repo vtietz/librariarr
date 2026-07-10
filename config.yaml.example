@@ -11,10 +11,10 @@ paths:
 
   # Sonarr mappings (required only when sonarr.enabled=true).
   series_root_mappings:
-    - nested_root: "/data/series/age_06"
-      shadow_root: "/data/sonarr_library/age_06"
-    - nested_root: "/data/series/age_12"
-      shadow_root: "/data/sonarr_library/age_12"
+    - managed_root: "/data/series/age_06"
+      library_root: "/data/sonarr_library/age_06"
+    - managed_root: "/data/series/age_12"
+      library_root: "/data/sonarr_library/age_12"
 
   # Patterns excluded from sync and discovery (case-insensitive).
   # "name/" excludes any directory segment with that name, other patterns are

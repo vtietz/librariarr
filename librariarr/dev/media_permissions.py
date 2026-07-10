@@ -52,7 +52,7 @@ def _collect_media_paths(payload: dict[str, Any]) -> list[Path]:
     collected.extend(
         _extract_data_paths(
             paths_section.get("series_root_mappings", []),
-            ("nested_root", "shadow_root"),
+            ("managed_root", "library_root", "nested_root", "shadow_root"),
         )
     )
     collected.extend(

@@ -131,8 +131,8 @@ def config(roots: dict[str, Path]) -> AppConfig:
             ],
             series_root_mappings=[
                 RootMapping(
-                    nested_root=str(roots["managed_series"]),
-                    shadow_root=str(roots["shadow_series"]),
+                    managed_root=str(roots["managed_series"]),
+                    library_root=str(roots["shadow_series"]),
                 )
             ],
             exclude_paths=list(DEFAULT_EXCLUDE_PATH_PATTERNS),

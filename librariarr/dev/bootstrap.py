@@ -16,7 +16,7 @@ RADARR_CONFIG_XML = Path("/radarr-config/config.xml")
 SONARR_CONFIG_XML = Path("/sonarr-config/config.xml")
 
 DEFAULT_SERIES_ROOT_MAPPINGS = [
-    {"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"},
+    {"managed_root": "/data/series", "library_root": "/data/sonarr_library"},
 ]
 
 DEFAULT_MOVIE_ROOT_MAPPINGS = [
@@ -326,13 +326,31 @@ def _ensure_root_folders(
         LOG.info("Added %s root folder: %s", label, root_path)
 
 
+def _mapping_value(mapping: dict[str, Any], key: str, legacy_key: str | None = None) -> str:
+    value = mapping.get(key)
+    if value is None and legacy_key is not None:
+        value = mapping.get(legacy_key)
+    return str(value or "").strip()
+
+
+def _normalize_root_mapping_keys(mapping: dict[str, Any]) -> dict[str, Any]:
+    mapping["managed_root"] = _mapping_value(mapping, "managed_root", "nested_root")
+    mapping["library_root"] = _mapping_value(mapping, "library_root", "shadow_root")
+    mapping.pop("nested_root", None)
+    mapping.pop("shadow_root", None)
+    return mapping
+
+
 def _ensure_container_paths(
     mappings: list[dict[str, Any]],
-    keys: tuple[str, ...] = ("nested_root", "shadow_root"),
+    keys: tuple[tuple[str, str | None], ...] = (
+        ("managed_root", "nested_root"),
+        ("library_root", "shadow_root"),
+    ),
 ) -> None:
     for mapping in mappings:
-        for key in keys:
-            path_text = str(mapping.get(key, "")).strip()
+        for key, legacy_key in keys:
+            path_text = _mapping_value(mapping, key, legacy_key)
             if not path_text.startswith("/data/"):
                 continue
             try:
@@ -356,46 +374,46 @@ def _ensure_dev_sonarr_mappings(
     has_sonarr_mapping = False
 
     for mapping in series_root_mappings:
-        nested_root = str(mapping.get("nested_root", "")).strip()
-        shadow_root = str(mapping.get("shadow_root", "")).strip()
-        if not nested_root or not shadow_root:
+        managed_root = _mapping_value(mapping, "managed_root", "nested_root")
+        library_root = _mapping_value(mapping, "library_root", "shadow_root")
+        if not managed_root or not library_root:
             continue
 
-        existing_pairs.add((nested_root, shadow_root))
-        shadow_lower = shadow_root.lower()
-        nested_lower = nested_root.lower()
-        if "sonarr" in shadow_lower:
+        existing_pairs.add((managed_root, library_root))
+        library_lower = library_root.lower()
+        managed_lower = managed_root.lower()
+        if "sonarr" in library_lower:
             has_sonarr_mapping = True
-        if "radarr" in shadow_lower or "/movies" in nested_lower:
-            radarr_candidates.append((nested_root, shadow_root))
+        if "radarr" in library_lower or "/movies" in managed_lower:
+            radarr_candidates.append((managed_root, library_root))
 
     if has_sonarr_mapping:
-        return series_root_mappings
+        return [_normalize_root_mapping_keys(mapping) for mapping in series_root_mappings]
 
     additions: list[dict[str, str]] = []
-    for nested_root, shadow_root in radarr_candidates:
-        sonarr_nested = nested_root.replace("/movies/", "/series/").replace("/movies", "/series")
-        sonarr_shadow = shadow_root.replace(
+    for managed_root, library_root in radarr_candidates:
+        sonarr_managed = managed_root.replace("/movies/", "/series/").replace("/movies", "/series")
+        sonarr_library = library_root.replace(
             "/radarr_library/",
             "/sonarr_library/",
         ).replace("/radarr_library", "/sonarr_library")
-        if sonarr_nested == nested_root and sonarr_shadow == shadow_root:
+        if sonarr_managed == managed_root and sonarr_library == library_root:
             continue
 
-        mapped_pair = (sonarr_nested, sonarr_shadow)
+        mapped_pair = (sonarr_managed, sonarr_library)
         if mapped_pair in existing_pairs:
             continue
         existing_pairs.add(mapped_pair)
-        additions.append({"nested_root": sonarr_nested, "shadow_root": sonarr_shadow})
+        additions.append({"managed_root": sonarr_managed, "library_root": sonarr_library})
 
     if not additions and ("/data/series", "/data/sonarr_library") not in existing_pairs:
-        additions.append({"nested_root": "/data/series", "shadow_root": "/data/sonarr_library"})
+        additions.append({"managed_root": "/data/series", "library_root": "/data/sonarr_library"})
 
     if additions:
         series_root_mappings.extend(additions)
         LOG.info("Added %s Sonarr root mapping(s) for dev mode", len(additions))
 
-    return series_root_mappings
+    return [_normalize_root_mapping_keys(mapping) for mapping in series_root_mappings]
 
 
 def _query_arr_ids(
@@ -639,18 +657,21 @@ def main() -> None:
         sonarr_ids=sonarr_ids,
     )
     _ensure_container_paths(series_root_mappings)
-    _ensure_container_paths(movie_root_mappings, keys=("managed_root", "library_root"))
+    _ensure_container_paths(
+        movie_root_mappings,
+        keys=(("managed_root", None), ("library_root", None)),
+    )
 
     radarr_roots = [
-        str(m.get("managed_root", "")).strip()
+        str(m.get("library_root", "")).strip()
         for m in movie_root_mappings
-        if str(m.get("managed_root", "")).strip()
-    ] or ["/data/movies"]
+        if str(m.get("library_root", "")).strip()
+    ] or ["/data/radarr_library"]
     sonarr_roots = [
-        str(m.get("nested_root", "")).strip()
+        _mapping_value(m, "library_root", "shadow_root")
         for m in series_root_mappings
-        if str(m.get("nested_root", "")).strip()
-    ] or ["/data/series"]
+        if _mapping_value(m, "library_root", "shadow_root")
+    ] or ["/data/sonarr_library"]
 
     _sync_env_file(
         radarr_url=radarr_effective_url,

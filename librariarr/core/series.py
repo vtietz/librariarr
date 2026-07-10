@@ -87,7 +87,7 @@ class SeriesReconciler:
             except OSError as exc:
                 report.errors.append(f"series '{series.get('title')}': {exc}")
         if index is not None:
-            self._prune_shadow_roots(series_list, index, report, dry_run)
+            self._prune_library_roots(series_list, index, report, dry_run)
         self.cache.save()
         return series_list, arr_inodes
 
@@ -226,7 +226,7 @@ class SeriesReconciler:
         if not self.config.ingest.enabled:
             report.warn(f"Ingest disabled; new series left shadow-only: {shadow_folder}")
             return
-        managed_folder = Path(mapping.nested_root) / shadow_folder.name
+        managed_folder = Path(mapping.managed_root) / shadow_folder.name
         changed = False
         for file_path in self._relevant_files(shadow_folder):
             is_video = is_video_file(file_path, self.video_extensions)
@@ -265,7 +265,7 @@ class SeriesReconciler:
                 "ingest_link", "ingested episode into managed tree", str(shadow_path), str(target)
             )
         )
-        managed_root = self._nested_root_of(managed_folder)
+        managed_root = self._managed_root_of(managed_folder)
         for old_file in superseded:
             if old_file == target:
                 continue
@@ -343,7 +343,7 @@ class SeriesReconciler:
     # Prune shadow roots
     # ------------------------------------------------------------------
 
-    def _prune_shadow_roots(
+    def _prune_library_roots(
         self,
         series_list: list[dict],
         index: InodeIndex,
@@ -352,14 +352,14 @@ class SeriesReconciler:
     ) -> None:
         active = {str(Path(s["path"])) for s in series_list if s.get("path")}
         for mapping in self.config.paths.series_root_mappings:
-            shadow_root = Path(mapping.shadow_root)
-            if not shadow_root.is_dir():
+            library_root = Path(mapping.library_root)
+            if not library_root.is_dir():
                 continue
-            for entry in sorted(shadow_root.iterdir()):
+            for entry in sorted(library_root.iterdir()):
                 if not entry.is_dir() or str(entry) in active:
                     continue
                 self._prune_stale_shadow_folder(entry, index, report, dry_run)
-            prune_empty_dirs(shadow_root, dry_run=dry_run)
+            prune_empty_dirs(library_root, dry_run=dry_run)
 
     def _prune_stale_shadow_folder(
         self,
@@ -395,14 +395,14 @@ class SeriesReconciler:
             return None
         candidate = Path(path)
         for mapping in self.config.paths.series_root_mappings:
-            if is_within(candidate, Path(mapping.shadow_root)):
+            if is_within(candidate, Path(mapping.library_root)):
                 return mapping
         return None
 
-    def _nested_root_of(self, managed_folder: Path) -> Path | None:
+    def _managed_root_of(self, managed_folder: Path) -> Path | None:
         for mapping in self.config.paths.series_root_mappings:
-            if is_within(managed_folder, Path(mapping.nested_root)):
-                return Path(mapping.nested_root)
+            if is_within(managed_folder, Path(mapping.managed_root)):
+                return Path(mapping.managed_root)
         return None
 
     def _locate_managed_folder(

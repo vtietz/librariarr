@@ -9,7 +9,7 @@ Baseline: [config.yaml.example](../config.yaml.example). Env overrides:
 | Key | Type | Notes |
 |---|---|---|
 | `movie_root_mappings[]` | list | `managed_root` (your curated tree) + `library_root` (Radarr root folder). Absolute, non-overlapping; one library per managed root. Required when Radarr is enabled. |
-| `series_root_mappings[]` | list | `nested_root` (curated) + `shadow_root` (Sonarr root folder). Required when Sonarr is enabled. |
+| `series_root_mappings[]` | list | `managed_root` (your curated tree) + `library_root` (Sonarr root folder). Required when Sonarr is enabled. Legacy `nested_root`/`shadow_root` keys are still accepted as aliases. |
 | `exclude_paths[]` | list | Case-insensitive patterns skipped by sync and discovery. `name/` matches a directory segment anywhere, `/abs/path` excludes a subtree, anything else is a filename glob. Defaults (`.deletedByLibrariarr/`, sample patterns, ...) are always appended. |
 
 ## radarr / sonarr

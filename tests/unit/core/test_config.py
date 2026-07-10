@@ -12,8 +12,8 @@ paths:
     - managed_root: /data/movies/one
       library_root: /data/radarr_library/one
   series_root_mappings:
-    - nested_root: /data/series/one
-      shadow_root: /data/sonarr_library/one
+    - managed_root: /data/series/one
+      library_root: /data/sonarr_library/one
 radarr:
   url: http://radarr:7878
   api_key: test-key
@@ -38,6 +38,24 @@ def test_minimal_config_loads_with_defaults(tmp_path: Path) -> None:
     assert config.ingest.replacement_delete_mode == "soft"
     assert ".mkv" in config.radarr.projection.managed_video_extensions
     assert ".deletedByLibrariarr/" in config.paths.exclude_paths
+    series_mapping = config.paths.series_root_mappings[0]
+    assert series_mapping.managed_root == "/data/series/one"
+    assert series_mapping.library_root == "/data/sonarr_library/one"
+
+
+def test_legacy_series_mapping_keys_are_accepted(tmp_path: Path) -> None:
+    legacy_yaml = BASE_YAML.replace(
+        "managed_root: /data/series/one",
+        "nested_root: /data/series/one",
+    )
+    legacy_yaml = legacy_yaml.replace(
+        "library_root: /data/sonarr_library/one",
+        "shadow_root: /data/sonarr_library/one",
+    )
+    config = load_config(write(tmp_path, legacy_yaml))
+    series_mapping = config.paths.series_root_mappings[0]
+    assert series_mapping.managed_root == "/data/series/one"
+    assert series_mapping.library_root == "/data/sonarr_library/one"
 
 
 def test_env_overrides_arr_url_and_api_key(tmp_path: Path, monkeypatch) -> None:

@@ -137,7 +137,7 @@ class ReconcileEngine:
             roots.extend(Path(m.managed_root) for m in self.config.paths.movie_root_mappings)
             extensions.update(self.config.radarr.projection.managed_video_extensions)
         if self.sonarr is not None:
-            roots.extend(Path(m.nested_root) for m in self.config.paths.series_root_mappings)
+            roots.extend(Path(m.managed_root) for m in self.config.paths.series_root_mappings)
             extensions.update(self.config.sonarr.projection.managed_video_extensions)
         index = InodeIndex.build(roots, sorted(extensions), self.config.paths.exclude_paths)
         LOG.debug("Inode index built: %d video inodes across %d roots", len(index), len(roots))

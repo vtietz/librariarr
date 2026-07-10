@@ -83,23 +83,25 @@ def _extract_seed_targets(payload: dict[str, Any]) -> list[tuple[Path, str]]:
         roots.append((Path(managed_root), root_kind))
 
     for item in series_mappings:
-        nested_root = str(item.get("nested_root", "")).strip()
-        shadow_root = str(item.get("shadow_root", "")).strip().lower()
-        if not nested_root:
+        managed_root = str(item.get("managed_root") or item.get("nested_root") or "").strip()
+        library_root = (
+            str(item.get("library_root") or item.get("shadow_root") or "").strip().lower()
+        )
+        if not managed_root:
             continue
 
-        is_series_root = "sonarr" in shadow_root or "/series" in nested_root.lower()
+        is_series_root = "sonarr" in library_root or "/series" in managed_root.lower()
         root_kind = "series" if is_series_root else "movies"
 
-        if nested_root in seen:
-            existing_index = seen[nested_root]
+        if managed_root in seen:
+            existing_index = seen[managed_root]
             existing_kind = roots[existing_index][1]
             if existing_kind != "series" and root_kind == "series":
-                roots[existing_index] = (Path(nested_root), root_kind)
+                roots[existing_index] = (Path(managed_root), root_kind)
             continue
 
-        seen[nested_root] = len(roots)
-        roots.append((Path(nested_root), root_kind))
+        seen[managed_root] = len(roots)
+        roots.append((Path(managed_root), root_kind))
 
     return roots
 
@@ -171,30 +173,30 @@ def main() -> None:
     payload = _load_yaml(CONFIG_PATH)
     seed_targets = _extract_seed_targets(payload)
     if not seed_targets:
-        LOG.warning("No nested_root entries found in %s; nothing to seed", CONFIG_PATH)
+        LOG.warning("No managed_root entries found in %s; nothing to seed", CONFIG_PATH)
         return
 
     total_dirs = 0
     total_files = 0
 
-    for nested_root, root_kind in seed_targets:
+    for managed_root, root_kind in seed_targets:
         try:
-            nested_root.mkdir(parents=True, exist_ok=True)
+            managed_root.mkdir(parents=True, exist_ok=True)
             if root_kind == "series":
-                created_dirs, created_files = _seed_series_root(nested_root)
+                created_dirs, created_files = _seed_series_root(managed_root)
             else:
-                created_dirs, created_files = _seed_movie_root(nested_root)
+                created_dirs, created_files = _seed_movie_root(managed_root)
             total_dirs += created_dirs
             total_files += created_files
             LOG.info(
                 "Seeded %s [%s] (created_dirs=%s created_files=%s)",
-                nested_root,
+                managed_root,
                 root_kind,
                 created_dirs,
                 created_files,
             )
         except PermissionError:
-            LOG.warning("Skipping seed for %s due to permission constraints", nested_root)
+            LOG.warning("Skipping seed for %s due to permission constraints", managed_root)
 
     LOG.info("Dev seed completed (created_dirs=%s created_files=%s)", total_dirs, total_files)
 

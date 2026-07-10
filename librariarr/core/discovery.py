@@ -359,16 +359,18 @@ class SeriesDiscovery:
             if int((s.get("statistics") or {}).get("episodeFileCount") or 0) == 0
         ]
         for mapping in self.config.paths.series_root_mappings:
-            nested_root = Path(mapping.nested_root)
+            managed_root = Path(mapping.managed_root)
             for folder in find_series_folder_candidates(
-                nested_root, self.video_extensions, arr_inodes, self.config
+                managed_root, self.video_extensions, arr_inodes, self.config
             ):
-                self._handle_unmatched(folder, Path(mapping.shadow_root), fileless, report, dry_run)
+                self._handle_unmatched(
+                    folder, Path(mapping.library_root), fileless, report, dry_run
+                )
 
     def _handle_unmatched(
         self,
         folder: Path,
-        shadow_root: Path,
+        library_root: Path,
         fileless: list[dict],
         report: ReconcileReport,
         dry_run: bool,
@@ -384,7 +386,7 @@ class SeriesDiscovery:
                 UnmatchedFolder(str(folder), title, year, reason="auto_add_disabled")
             )
             return
-        self._auto_add(folder, shadow_root, title, year, report, dry_run)
+        self._auto_add(folder, library_root, title, year, report, dry_run)
 
     def _adopt_fileless_series(
         self,
@@ -426,7 +428,7 @@ class SeriesDiscovery:
     def _auto_add(
         self,
         folder: Path,
-        shadow_root: Path,
+        library_root: Path,
         title: str,
         year: int | None,
         report: ReconcileReport,
@@ -476,7 +478,7 @@ class SeriesDiscovery:
         folder_title = lookup.get("title") or title
         lookup_year = lookup.get("year")
         suffix = f" ({lookup_year})" if lookup_year else ""
-        target_path = shadow_root / f"{folder_title}{suffix}"
+        target_path = library_root / f"{folder_title}{suffix}"
         report.add(
             Action("add_to_arr", f"auto-add series '{folder_title}'", str(folder), str(target_path))
         )
@@ -485,7 +487,7 @@ class SeriesDiscovery:
         added = self.sonarr.add_series_from_lookup(
             lookup,
             path=str(target_path),
-            root_folder_path=str(shadow_root),
+            root_folder_path=str(library_root),
             quality_profile_id=int(profile_id),
             language_profile_id=self.config.sonarr.auto_add_language_profile_id,
             monitored=self.config.sonarr.auto_add_monitored,

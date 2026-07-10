@@ -86,10 +86,35 @@ class SonarrConfig:
     projection: SonarrProjectionConfig = field(default_factory=SonarrProjectionConfig)
 
 
-@dataclass
+@dataclass(init=False)
 class RootMapping:
-    nested_root: str
-    shadow_root: str
+    managed_root: str
+    library_root: str
+
+    def __init__(
+        self,
+        managed_root: str | None = None,
+        library_root: str | None = None,
+        *,
+        nested_root: str | None = None,
+        shadow_root: str | None = None,
+    ) -> None:
+        if managed_root is None:
+            managed_root = nested_root
+        if library_root is None:
+            library_root = shadow_root
+        if managed_root is None or library_root is None:
+            raise TypeError("RootMapping requires managed_root and library_root")
+        self.managed_root = managed_root
+        self.library_root = library_root
+
+    @property
+    def nested_root(self) -> str:
+        return self.managed_root
+
+    @property
+    def shadow_root(self) -> str:
+        return self.library_root
 
 
 @dataclass

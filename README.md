@@ -105,8 +105,8 @@ paths:
     - managed_root: "/data/movies/age_12"          # your curated tree
       library_root: "/data/radarr_library/age_12"  # Radarr's root folder
   series_root_mappings:
-    - nested_root: "/data/series/age_12"
-      shadow_root: "/data/sonarr_library/age_12"
+    - managed_root: "/data/series/age_12"          # your curated tree
+      library_root: "/data/sonarr_library/age_12"  # Sonarr's root folder
 
 radarr:
   url: "http://radarr:7878"
@@ -131,11 +131,11 @@ Full reference: [docs/configuration.md](docs/configuration.md).
 ### 2. Configure Radarr / Sonarr
 
 > [!WARNING]
-> **Radarr/Sonarr's Root Folder must be the flat `library_root`/`shadow_root` — never your managed tree.** This is the one misconfiguration that defeats the whole safety model: if Arr's root folder points at your curated tree, Arr will treat it as its own and rename/move/delete inside it directly. Double-check Settings → Media Management → Root Folders before going further.
+> **Radarr/Sonarr's Root Folder must be the flat `library_root` — never your managed tree.** This is the one misconfiguration that defeats the whole safety model: if Arr's root folder points at your curated tree, Arr will treat it as its own and rename/move/delete inside it directly. Double-check Settings → Media Management → Root Folders before going further.
 >
-> The example compose file mounts the whole `${MEDIA_ROOT}` into every container for simplicity, which means Radarr/Sonarr *can see* your managed folders on disk even though they must never write there. The Root Folder setting is what keeps them out — if you want a stronger, filesystem-level guarantee, bind-mount only the download-client folder + that Arr's own `library_root`/`shadow_root` into its container instead of the whole `/data` tree (Radarr/Sonarr never need to see the managed trees at all; only LibrariArr does).
+> The example compose file mounts the whole `${MEDIA_ROOT}` into every container for simplicity, which means Radarr/Sonarr *can see* your managed folders on disk even though they must never write there. The Root Folder setting is what keeps them out — if you want a stronger, filesystem-level guarantee, bind-mount only the download-client folder + that Arr's own `library_root` into its container instead of the whole `/data` tree (Radarr/Sonarr never need to see the managed trees at all; only LibrariArr does).
 
-- **Root folders**: add each `library_root` as a Radarr root folder, each `shadow_root` as a Sonarr root folder.
+- **Root folders**: add each `library_root` as a Radarr/Sonarr root folder.
 - **Hardlinks**: keep *"Use Hardlinks instead of Copy"* enabled (default) so imports from the download client are instant and space-free. Your download folder should be on the same `/data` mount.
 - **Renaming**: Radarr/Sonarr renaming settings only affect *their* side and are safe to use — your managed tree keeps its own names, identity is the inode.
 - **Recycle bin** (optional): if configured in Arr, upgrade-replaced library files land there; LibrariArr independently quarantines the managed-side old file to `.deletedByLibrariarr/`.

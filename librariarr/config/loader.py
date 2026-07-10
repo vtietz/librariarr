@@ -27,6 +27,14 @@ def _require(data: dict[str, Any], key: str) -> Any:
     return data[key]
 
 
+def _require_any(data: dict[str, Any], primary: str, legacy: str) -> Any:
+    if primary in data:
+        return data[primary]
+    if legacy in data:
+        return data[legacy]
+    raise ValueError(f"Missing required config key: {primary}")
+
+
 def _env_or_default(name: str, default: str) -> str:
     value = os.getenv(name)
     if value is None or not value.strip():
@@ -64,24 +72,26 @@ def _paths_overlap(left: Path, right: Path) -> bool:
     return False
 
 
-def _validate_movie_root_mappings(mappings: list[MovieRootMapping]) -> None:
+def _validate_root_mappings(
+    mappings: list[MovieRootMapping] | list[RootMapping], *, key_name: str
+) -> None:
     managed_to_library: dict[str, str] = {}
     for mapping in mappings:
         managed_root = Path(mapping.managed_root)
         library_root = Path(mapping.library_root)
         if not managed_root.is_absolute():
-            raise ValueError("paths.movie_root_mappings[].managed_root must be an absolute path")
+            raise ValueError(f"paths.{key_name}[].managed_root must be an absolute path")
         if not library_root.is_absolute():
-            raise ValueError("paths.movie_root_mappings[].library_root must be an absolute path")
+            raise ValueError(f"paths.{key_name}[].library_root must be an absolute path")
         if _paths_overlap(managed_root, library_root):
             raise ValueError(
-                "paths.movie_root_mappings entries must not overlap: managed_root and "
+                f"paths.{key_name} entries must not overlap: managed_root and "
                 "library_root must be distinct, non-nested paths"
             )
         existing = managed_to_library.get(str(managed_root))
         if existing is not None and existing != str(library_root):
             raise ValueError(
-                "Each managed_root may map to exactly one library_root in paths.movie_root_mappings"
+                f"Each managed_root may map to exactly one library_root in paths.{key_name}"
             )
         managed_to_library[str(managed_root)] = str(library_root)
 
@@ -94,8 +104,8 @@ def _load_paths(raw: dict[str, Any], radarr_enabled: bool, sonarr_enabled: bool)
         raise ValueError("paths.series_root_mappings must be a list")
     series_root_mappings = [
         RootMapping(
-            nested_root=str(_require(item, "nested_root")),
-            shadow_root=str(_require(item, "shadow_root")),
+            managed_root=str(_require_any(item, "managed_root", "nested_root")),
+            library_root=str(_require_any(item, "library_root", "shadow_root")),
         )
         for item in series_raw
     ]
@@ -112,9 +122,10 @@ def _load_paths(raw: dict[str, Any], radarr_enabled: bool, sonarr_enabled: bool)
     ]
     if radarr_enabled and not movie_root_mappings:
         raise ValueError("paths.movie_root_mappings is required when Radarr is enabled")
-    _validate_movie_root_mappings(movie_root_mappings)
+    _validate_root_mappings(movie_root_mappings, key_name="movie_root_mappings")
     if sonarr_enabled and not series_root_mappings:
         raise ValueError("paths.series_root_mappings is required when Sonarr is enabled")
+    _validate_root_mappings(series_root_mappings, key_name="series_root_mappings")
 
     exclude_raw = paths.get("exclude_paths") or []
     if not isinstance(exclude_raw, list):
