@@ -34,7 +34,8 @@ Test coverage, three layers:
   meaningful (first-contact adopt/auto-add with real metadata lookup,
   projection, idempotency, prune). Upgrade/replacement flows are not
   exercised live because they require a real download/import cycle; they are
-  fully covered by the two layers above.
+  covered instead by the unit and fs-e2e layers above, against fake Arr
+  clients rather than the real API.
 
 | # | Scenario | Mechanism | Expected result |
 |---|---|---|---|

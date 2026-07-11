@@ -164,7 +164,7 @@ Start the container, open `http://localhost:8787`, and click **Preview (dry-run)
 | Radarr upgrades quality | New file hardlinked into your tree; old managed file quarantined. |
 | Drop a `Title (Year)` folder into a managed root | Next full pass: auto-added on an exact match, otherwise listed in Unmatched. |
 | Unmatched entry you want to fix | Add the title in the Radarr/Sonarr UI — the next full pass links it. No paths needed. |
-| Rename/move folders in your tree (TMM, by hand) | Nothing breaks — identity is the inode. |
+| Rename/move folders in your tree (TMM, by hand) | Nothing breaks — identity is the inode. But Radarr/Sonarr keep showing the *old* name/path indefinitely — they never rewrite it themselves (invariant #3), and LibrariArr never writes back to Arr's side. This is expected, not a bug; the Status panel's **Naming differences** table shows both names side by side so it doesn't look like something's wrong. |
 | Replace a file in your tree with a better version | Radarr's file is relinked to yours + rescan. Make sure the new file has a fresh mtime. |
 | Remove a movie in Radarr (without deleting files) | Library projection pruned; your files untouched. (With auto-add on, it gets re-added — remove the managed folder too if you mean it.) |
 

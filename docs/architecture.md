@@ -8,6 +8,13 @@ The user-curated nested tree (**managed root**) is authoritative. Radarr/Sonarr
 work against flat roots (**library root** for movies, **shadow root** for
 series) that LibrariArr keeps in sync via hardlinks.
 
+A **bucket** is one configured `managed_root` <-> `library_root` pairing (one
+entry in `movie_root_mappings`/`series_root_mappings`). Buckets typically
+represent a content classification the user cares about — e.g. one bucket per
+age rating (`age_06`/`age_12`/`age_16`) — and a config can have several. The
+term appears throughout these docs and in the "bucket relocation"/"bucket
+move" scenario below.
+
 ## The Three Invariants
 
 1. **Identity by inode.** A movie's library file and its managed counterpart
