@@ -132,3 +132,40 @@ def is_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
+
+
+class RootFilesystemMismatch(ValueError):
+    """Configured roots do not all live on one filesystem.
+
+    Hardlinks (the only mechanism used to keep the managed tree and Arr's
+    library/shadow roots in sync) cannot cross a filesystem boundary — a
+    cross-device "move" silently becomes a copy there, breaking the
+    inode-identity guarantee reconcile depends on. Better to fail loudly at
+    startup than to discover it as a silently-duplicated file later.
+    """
+
+
+def check_single_filesystem(roots: Iterable[Path]) -> None:
+    """Raise RootFilesystemMismatch if any two *existing* roots differ in st_dev.
+
+    Roots that don't exist yet (e.g. not created before first run) are
+    skipped rather than treated as an error.
+    """
+    by_device: dict[int, list[Path]] = {}
+    for root in roots:
+        try:
+            device = root.stat().st_dev
+        except OSError:
+            continue
+        by_device.setdefault(device, []).append(root)
+    if len(by_device) <= 1:
+        return
+    groups = "; ".join(
+        f"filesystem {device}: {', '.join(str(p) for p in paths)}"
+        for device, paths in by_device.items()
+    )
+    raise RootFilesystemMismatch(
+        "Configured roots span more than one filesystem, which hardlinks cannot "
+        f"cross ({groups}). All managed/library/shadow roots must be on one "
+        "filesystem/volume — see docs/architecture.md Requirements."
+    )

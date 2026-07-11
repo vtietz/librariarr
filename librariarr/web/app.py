@@ -165,6 +165,14 @@ def _add_status_routes(app: FastAPI, state: WebState) -> None:
         service = _service_or_http(state)
         return service.manual_add(payload.path)
 
+    @app.get("/api/path-differences")
+    def path_differences() -> dict[str, Any]:
+        # Arr never rewrites its own path on a managed-tree rename (by
+        # design); this surfaces the expected mismatch instead of leaving it
+        # to look like a bug.
+        service = _service_or_http(state)
+        return {"differences": service.list_path_differences()}
+
     @app.get("/api/logs")
     def logs(limit: int = 200) -> dict[str, Any]:
         buffer = get_log_buffer()

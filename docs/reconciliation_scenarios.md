@@ -88,6 +88,17 @@ undetected). The following are known-untested as of this writing:
   parsed title+year, different managed roots) during discovery. Config
   validation rejects overlapping paths, but doesn't rule out two distinct,
   non-overlapping buckets independently producing the same folder name.
+- **A user manually moving a file to a location outside every configured
+  root** (e.g. off the tracked drive entirely). That can't be reconciled by
+  definition — the file has left the system this tool watches, same as it
+  would for Radarr/Sonarr's own tracking. The related, previously-silent
+  failure mode this surfaced during design discussion — a cross-filesystem
+  move *between two configured roots* producing a duplicate instead of a
+  relocation, because hardlinks can't cross a filesystem boundary — is now
+  caught up front instead: the engine refuses to start if any two configured
+  roots resolve to different filesystems (see architecture.md Requirements).
+  That closes the case for any misconfigured deployment; it doesn't help with
+  files moved somewhere unmanaged, which is out of scope for any reconciler.
 
 If you find another gap, treat it as expected rather than surprising: the
 matrix is a working document, not a formal proof of completeness.

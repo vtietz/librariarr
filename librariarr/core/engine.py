@@ -16,6 +16,7 @@ from pathlib import Path
 
 from ..config.models import AppConfig
 from .discovery import MovieDiscovery, SeriesDiscovery
+from .fsops import check_single_filesystem
 from .index import AdvisoryCache, InodeIndex
 from .model import ReconcileReport
 from .movies import MovieReconciler
@@ -48,9 +49,21 @@ class ReconcileEngine:
         cache_path: Path | None = None,
     ) -> None:
         self.config = config
+        check_single_filesystem(self._configured_roots(config))
         self.radarr = self._build_radarr(config) if radarr is _UNSET else radarr
         self.sonarr = self._build_sonarr(config) if sonarr is _UNSET else sonarr
         self.cache = cache or AdvisoryCache(cache_path or default_cache_path())
+
+    @staticmethod
+    def _configured_roots(config: AppConfig) -> list[Path]:
+        roots: list[Path] = []
+        for mapping in config.paths.movie_root_mappings:
+            roots.append(Path(mapping.managed_root))
+            roots.append(Path(mapping.library_root))
+        for mapping in config.paths.series_root_mappings:
+            roots.append(Path(mapping.managed_root))
+            roots.append(Path(mapping.library_root))
+        return roots
 
     @staticmethod
     def _build_radarr(config: AppConfig):
@@ -195,6 +208,55 @@ class ReconcileEngine:
             "ok": True,
             "actions": [f"{a.kind}: {a.detail}" for a in report.actions],
         }
+
+    def list_path_differences(self) -> list[dict]:
+        """Read-only: items whose Arr-shown folder name no longer matches the
+        managed folder LibrariArr projects it from.
+
+        Arr never rewrites its own path on a managed-tree rename (see
+        architecture.md invariant #3), so this is *expected*, not a fault —
+        it exists purely to make the difference visible instead of
+        confusing. Uses the advisory cache (stat-verified), so it's cheap:
+        no tree walk.
+        """
+        results: list[dict] = []
+        if self.radarr is not None:
+            for movie in self.radarr.get_movies():
+                arr_path = movie.get("path")
+                if not arr_path:
+                    continue
+                managed = self.cache.get_folder("radarr", int(movie["id"]))
+                if managed is None or not managed.is_dir():
+                    continue
+                arr_folder = Path(arr_path)
+                if arr_folder.name != managed.name:
+                    results.append(
+                        {
+                            "kind": "movie",
+                            "title": movie.get("title"),
+                            "arr_path": str(arr_folder),
+                            "managed_path": str(managed),
+                        }
+                    )
+        if self.sonarr is not None:
+            for series in self.sonarr.get_series():
+                arr_path = series.get("path")
+                if not arr_path:
+                    continue
+                managed = self.cache.get_folder("sonarr", int(series["id"]))
+                if managed is None or not managed.is_dir():
+                    continue
+                arr_folder = Path(arr_path)
+                if arr_folder.name != managed.name:
+                    results.append(
+                        {
+                            "kind": "series",
+                            "title": series.get("title"),
+                            "arr_path": str(arr_folder),
+                            "managed_path": str(managed),
+                        }
+                    )
+        return results
 
     def _build_index(self) -> InodeIndex:
         roots: list[Path] = []

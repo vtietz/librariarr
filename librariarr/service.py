@@ -46,6 +46,10 @@ class LibrariArrService:
         with self._reconcile_lock:
             return self.engine.manual_add(path)
 
+    def list_path_differences(self) -> list[dict]:
+        """Read-only; safe to call without the reconcile lock."""
+        return self.engine.list_path_differences()
+
     def reconcile_consistency(self, *, dry_run: bool = False) -> ReconcileReport:
         return self.reconcile(scope=SCOPE_CONSISTENCY, dry_run=dry_run)
 

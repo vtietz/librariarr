@@ -14,8 +14,8 @@ import {
   Tooltip
 } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
-import type { ReconcileReport, StatusResponse } from "../api/client";
-import { triggerReconcile } from "../api/client";
+import type { PathDifference, ReconcileReport, StatusResponse } from "../api/client";
+import { getPathDifferences, triggerReconcile } from "../api/client";
 
 const formatTime = (epochSeconds: number | null | undefined): string =>
   epochSeconds ? new Date(epochSeconds * 1000).toLocaleString() : "–";
@@ -114,6 +114,39 @@ function LibraryGauges({
   );
 }
 
+function PathDifferencesCard({ differences }: { differences: PathDifference[] }) {
+  if (differences.length === 0) return null;
+  return (
+    <Card withBorder>
+      <Title order={5}>Naming differences ({differences.length})</Title>
+      <Text size="xs" c="dimmed" mt={4}>
+        Radarr/Sonarr never rename their own copy when you reorganize your managed tree — this is
+        expected, not a sync failure. Nothing is broken; the two names just point at the same file.
+      </Text>
+      <Table mt="sm" striped withTableBorder>
+        <Table.Thead>
+          <Table.Tr>
+            <Table.Th>Title</Table.Th>
+            <Table.Th>Arr shows</Table.Th>
+            <Table.Th>You organized as</Table.Th>
+          </Table.Tr>
+        </Table.Thead>
+        <Table.Tbody>
+          {differences.map((diff, index) => (
+            <Table.Tr key={index}>
+              <Table.Td>
+                {diff.title ?? "–"} <Badge size="xs" variant="light">{diff.kind}</Badge>
+              </Table.Td>
+              <Table.Td style={{ wordBreak: "break-all" }}>{diff.arr_path}</Table.Td>
+              <Table.Td style={{ wordBreak: "break-all" }}>{diff.managed_path}</Table.Td>
+            </Table.Tr>
+          ))}
+        </Table.Tbody>
+      </Table>
+    </Card>
+  );
+}
+
 function ReportCard({ title, report }: { title: string; report: ReconcileReport }) {
   const fullScope = report.scope === "full";
 
@@ -207,10 +240,19 @@ export default function StatusPanel({
   const [preview, setPreview] = useState<ReconcileReport | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pathDifferences, setPathDifferences] = useState<PathDifference[]>([]);
   const pendingRef = useRef<PendingRun | null>(null);
   pendingRef.current = pending;
 
   const running = status?.running ?? false;
+
+  // Refresh whenever a full pass completes — that's the only time the
+  // advisory cache this is read from can have changed.
+  useEffect(() => {
+    getPathDifferences()
+      .then(setPathDifferences)
+      .catch(() => setPathDifferences([]));
+  }, [status?.last_full_finished_at]);
 
   // Poll faster while a run is queued or in flight so the lifecycle is visible.
   useEffect(() => {
@@ -346,6 +388,8 @@ export default function StatusPanel({
           No full pass has run yet — library state gauges appear after the first one.
         </Alert>
       )}
+
+      <PathDifferencesCard differences={pathDifferences} />
 
       {preview && <ReportCard title="Preview: what a full pass would do (dry-run)" report={preview} />}
 

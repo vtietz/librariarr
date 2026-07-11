@@ -140,3 +140,8 @@ def test_manual_add_endpoint_reports_reason(client):
 def test_logs_endpoint_shape(client):
     payload = client.get("/api/logs").json()
     assert "entries" in payload
+
+
+def test_path_differences_endpoint_shape(client):
+    payload = client.get("/api/path-differences").json()
+    assert payload == {"differences": []}

@@ -75,6 +75,13 @@ export interface LogEntry {
   seq: string;
 }
 
+export interface PathDifference {
+  kind: "movie" | "series";
+  title: string | null;
+  arr_path: string;
+  managed_path: string;
+}
+
 const api = axios.create({ baseURL: "/api" });
 
 export const getStatus = () => api.get<StatusResponse>("/status").then((r) => r.data);
@@ -113,3 +120,8 @@ export const getLogs = (limit = 300) =>
   api
     .get<{ entries: LogEntry[] }>("/logs", { params: { limit } })
     .then((r) => r.data.entries);
+
+export const getPathDifferences = () =>
+  api
+    .get<{ differences: PathDifference[] }>("/path-differences")
+    .then((r) => r.data.differences);

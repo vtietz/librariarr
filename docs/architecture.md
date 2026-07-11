@@ -140,4 +140,26 @@ season-like subfolders is found.
 
 - All roots (managed + library/shadow) must be on **one filesystem**
   (hardlinks), shared with the Arr containers under identical mount paths.
+  This is enforced, not just documented: the engine checks every configured
+  root's device id at startup and refuses to start if any two differ
+  (`RootFilesystemMismatch`, `core/fsops.py:check_single_filesystem`). A
+  cross-device "move" silently becomes a copy, which would otherwise let a
+  manual reorganization recreate a duplicate instead of relocating anything —
+  failing loudly at startup is cheaper than discovering that later. Roots
+  that don't exist yet (first run, before volumes are populated) are skipped
+  rather than treated as an error.
 - Library/shadow roots must not be written to by users (machine-only).
+
+## Naming Is Cosmetic, Not Synced
+
+Renaming/reorganizing inside the managed tree never breaks anything (same
+inode), but it also never changes what Radarr/Sonarr *display* — invariant #3
+means Arr's path is fixed at import time and LibrariArr never writes back to
+it. This is deliberate: the project's original design tried to keep paths
+synced in both directions, and that two-way reconciliation was the main
+source of fragility this architecture was built to escape. The resulting
+mismatch is cosmetic, not a bug, so instead of touching Arr's tracked files
+the web UI's Status panel surfaces it directly — a "Naming differences" table
+listing, for any item where Arr's folder name and the managed folder name
+have diverged, both paths side by side (backed by `GET /api/path-differences`,
+which reads the advisory cache only — no tree walk).
