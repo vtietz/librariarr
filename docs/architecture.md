@@ -117,11 +117,19 @@ Name parsing happens only here, at first contact:
 - exact title+year match against a **file-less Arr entry** → adopt: project
   into the Arr folder + rescan (this is also the manual resolution path — the
   user adds the title in the Arr UI, nothing else),
+- exact title+year match against an Arr entry **with a file** (movies): never
+  auto-add (it can only fail). If the entry is already synced from another
+  managed folder → reported as `duplicate`; if its Arr path is outside this
+  bucket's library root → reported as `already_in_arr` with guidance; if it
+  lives in this bucket's library root → adopt (cache association only; the
+  reconciler resolves the files on the next pass via the upgrade/replacement
+  tie-break),
 - confident lookup match (single exact title+year) and auto-add enabled →
-  add via API, project, rescan,
+  add via API, project, rescan — unless the looked-up tmdb/tvdb id already
+  exists in Arr (`already_in_arr`; retrying the add would 400 forever),
 - otherwise → reported in the unmatched list with a reason
   (`no_match` / `ambiguous` / `lookup_failed` / `unparseable` /
-  `auto_add_disabled`).
+  `auto_add_disabled` / `add_failed` / `duplicate` / `already_in_arr`).
 
 Movie candidates are directories that directly contain video files. Series
 candidates are the highest directories whose video files are all unknown,

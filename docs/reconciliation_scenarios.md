@@ -40,7 +40,7 @@ Test coverage, three layers:
 | # | Scenario | Mechanism | Expected result |
 |---|---|---|---|
 | 1 | New Arr import | Webhook → consistency pass. Library inode unknown, no managed folder for the item → ingest | Library folder content hardlinked into `<managed_root>/<Arr folder name>/`; Arr's files untouched; cache learns the mapping |
-| 2 | Quality/file upgrade | Library inode unknown, managed folder known, library file newer → ingest file | New inode hardlinked into managed folder; superseded managed videos (movies: all others; series: same SxxEyy only) quarantined to `.deletedByLibrariarr` (or deleted, per `ingest.replacement_delete_mode`) |
+| 2 | Quality/file upgrade | Library inode unknown, managed folder known, managed file not newer than both library mtime and import time → ingest file | New inode hardlinked into managed folder; superseded managed videos (movies: all others; series: same SxxEyy only) quarantined to `.deletedByLibrariarr` (or deleted, per `ingest.replacement_delete_mode`) |
 | 3 | User rename/move in managed tree | Inode unchanged → identity survives; full pass re-derives folder via index | No filesystem actions; cache updated; Arr never touched |
 | 4 | Manual add in managed root | Full pass discovery: video inodes unknown to Arr | Exact single lookup match + auto-add enabled → added + projected + rescan. Ambiguous/no match → unmatched report. Manual resolution: add the title in the Arr UI → adopted next full pass |
 | 5 | Arr entry without file (file-less) | Discovery adopt: exact title+year folder match | Managed folder projected into the Arr folder, rescan triggered, identity established by inode from then on |
@@ -48,7 +48,7 @@ Test coverage, three layers:
 | 7 | Missing sources | Library file missing on disk → restore from managed; nothing known anywhere → warn + rescan | No invalid projections; self-heals via scenario 5 once Arr marks the item file-less |
 | 8 | Idempotency / duplicate prevention | Inode comparison everywhere | Re-running any pass produces zero actions; projections are never re-ingested (their inodes are in the managed tree) |
 | 9 | Stale library/shadow folders (item removed from Arr) | Full pass prune | Folder removed when its contents are provably projections (inode in managed tree or nlink > 1); sole-copy videos are never deleted (warn + leave); managed data always survives |
-| 10 | User replaces a file in the managed tree | Library inode unknown, managed folder known, managed file newer → relink | Library path relinked to the managed inode; Arr rescan triggered; nothing quarantined |
+| 10 | User replaces a file in the managed tree | Library inode unknown, managed folder known, managed file newer than both library mtime and import time → relink | Library path relinked to the managed inode; Arr rescan triggered; nothing quarantined |
 | 11 | Arr-side root-folder reassignment (bucket move) | Radarr/Sonarr "move to another root folder"; item's Arr path now maps to a *different* `movie_root_mappings`/`series_root_mappings` entry than the one its managed folder currently lives under | Managed folder is moved (real rename, not a copy) to the corresponding location under the new bucket's `managed_root`, preserving the user's own subfolder structure and naming verbatim; cache updated; refused (warn only, nothing touched) if the destination already has content |
 
 ### Scenario 3 caveat: consistency-only passes cannot relocate
@@ -65,9 +65,18 @@ relocation), which is also full-pass-only for the same reason.
 
 When the library file's inode is unknown to the managed tree but a managed
 folder is known for the item, either Radarr wrote a new file (upgrade) or the
-user replaced the managed file. These are structurally identical; the **newer
-mtime wins** (the newer side is the intended change). Both directions are unit
-tested; the decision is logged as a warning when the user side wins.
+user replaced the managed file. These are structurally identical. The user
+replacement (relink) wins only when the managed file is newer than **both**
+the library file's mtime **and** Radarr's import time (`movieFile.dateAdded`,
+when available); otherwise the import wins and is ingested. Plain
+newest-mtime-wins is not safe here: downloaded files usually keep the
+release's original — often much older — mtime, so a stale managed copy would
+"win" against a fresh import and the download would be discarded (observed in
+production as imports vanishing and being re-grabbed). Ingest is also the
+safe default because it quarantines the superseded managed file instead of
+destroying anything, while relink overwrites Radarr's file irrecoverably.
+Both directions are unit tested; the decision is logged as a warning when the
+user side wins.
 
 ## Known Coverage Gaps
 

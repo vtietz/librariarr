@@ -149,7 +149,6 @@ class MovieDiscovery:
         progress=None,
     ) -> None:
         tick = progress or (lambda phase, current, total: None)
-        fileless = [m for m in movies if not (m.get("movieFile") or {}).get("path")]
         candidates = [
             (folder, mapping)
             for mapping in self.config.paths.movie_root_mappings
@@ -166,21 +165,18 @@ class MovieDiscovery:
             }
             if not inodes or inodes & arr_inodes:
                 continue
-            self._handle_unmatched(folder, Path(mapping.library_root), fileless, report, dry_run)
+            self._handle_unmatched(folder, Path(mapping.library_root), movies, report, dry_run)
 
     def manual_add(self, folder: Path, library_root: Path, report: ReconcileReport) -> None:
         """User-initiated add of one folder: bypasses the auto_add_unmatched gate."""
         movies = self.radarr.get_movies()
-        fileless = [m for m in movies if not (m.get("movieFile") or {}).get("path")]
-        self._handle_unmatched(
-            folder, library_root, fileless, report, dry_run=False, force_add=True
-        )
+        self._handle_unmatched(folder, library_root, movies, report, dry_run=False, force_add=True)
 
     def _handle_unmatched(
         self,
         folder: Path,
         library_root: Path,
-        fileless: list[dict],
+        movies: list[dict],
         report: ReconcileReport,
         dry_run: bool,
         force_add: bool = False,
@@ -191,8 +187,7 @@ class MovieDiscovery:
             return
         title, year = parsed
 
-        adopted = self._adopt_fileless_movie(folder, title, year, fileless, report, dry_run)
-        if adopted:
+        if self._adopt_existing_movie(folder, library_root, title, year, movies, report, dry_run):
             return
 
         if not self.config.radarr.auto_add_unmatched and not force_add:
@@ -200,37 +195,114 @@ class MovieDiscovery:
                 UnmatchedFolder(str(folder), title, year, reason="auto_add_disabled")
             )
             return
-        self._auto_add(folder, library_root, title, year, report, dry_run)
+        self._auto_add(folder, library_root, title, year, movies, report, dry_run)
+
+    def _adopt_existing_movie(
+        self,
+        folder: Path,
+        library_root: Path,
+        title: str,
+        year: int,
+        movies: list[dict],
+        report: ReconcileReport,
+        dry_run: bool,
+    ) -> bool:
+        """Link the folder to an existing Radarr movie with the exact same title+year.
+
+        Returns True when the folder was handled (adopted or reported), so no
+        auto-add must be attempted — adding an existing movie can only fail.
+        """
+        matches = [
+            m
+            for m in movies
+            if (m.get("title") or "").lower() == title.lower() and int(m.get("year") or 0) == year
+        ]
+        if not matches:
+            return False
+        movie = self._preferred_match(matches, library_root)
+        if not (movie.get("movieFile") or {}).get("path"):
+            self._adopt_fileless_movie(folder, movie, report, dry_run)
+            return True
+        return self._adopt_movie_with_file(folder, library_root, title, year, movie, report)
+
+    @staticmethod
+    def _preferred_match(matches: list[dict], library_root: Path) -> dict:
+        def rank(movie: dict) -> tuple[int, int]:
+            has_file = 1 if (movie.get("movieFile") or {}).get("path") else 0
+            in_bucket = 0 if is_within(Path(movie.get("path") or "/"), library_root) else 1
+            return (has_file, in_bucket)
+
+        return min(matches, key=rank)
 
     def _adopt_fileless_movie(
         self,
         folder: Path,
-        title: str,
-        year: int,
-        fileless: list[dict],
+        movie: dict,
         report: ReconcileReport,
         dry_run: bool,
+    ) -> None:
+        library_folder = Path(movie["path"])
+        self._project_all(folder, library_folder, report, dry_run)
+        report.add(
+            Action(
+                "adopt",
+                f"linked to file-less Radarr movie '{movie['title']}'",
+                str(folder),
+                str(library_folder),
+            )
+        )
+        self.cache.set_folder("radarr", int(movie["id"]), folder)
+        if not dry_run:
+            self.radarr.refresh_movie(int(movie["id"]))
+
+    def _adopt_movie_with_file(
+        self,
+        folder: Path,
+        library_root: Path,
+        title: str,
+        year: int,
+        movie: dict,
+        report: ReconcileReport,
     ) -> bool:
-        for movie in fileless:
-            if (movie.get("title") or "").lower() != title.lower():
-                continue
-            if int(movie.get("year") or 0) != year:
-                continue
-            library_folder = Path(movie["path"])
-            self._project_all(folder, library_folder, report, dry_run)
-            report.add(
-                Action(
-                    "adopt",
-                    f"linked to file-less Radarr movie '{movie['title']}'",
+        """The matching Radarr movie already has a file (not linked to this folder)."""
+        cached = self.cache.get_folder("radarr", int(movie["id"]))
+        if cached is not None and cached != folder and cached.is_dir():
+            report.unmatched.append(
+                UnmatchedFolder(
                     str(folder),
-                    str(library_folder),
+                    title,
+                    year,
+                    reason="duplicate",
+                    candidates=[f"'{movie['title']}' is already synced from {cached}"],
                 )
             )
-            self.cache.set_folder("radarr", int(movie["id"]), folder)
-            if not dry_run:
-                self.radarr.refresh_movie(int(movie["id"]))
             return True
-        return False
+        movie_path = Path(movie.get("path") or "")
+        if not is_within(movie_path, library_root):
+            report.unmatched.append(
+                UnmatchedFolder(
+                    str(folder),
+                    title,
+                    year,
+                    reason="already_in_arr",
+                    candidates=[
+                        f"exists in Radarr at {movie_path}; move its root folder to "
+                        f"{library_root} in Radarr (without moving files) so it can be linked"
+                    ],
+                )
+            )
+            return True
+        report.add(
+            Action(
+                "adopt",
+                f"linked to existing Radarr movie '{movie['title']}'; "
+                "files reconcile on the next pass",
+                str(folder),
+                str(movie_path),
+            )
+        )
+        self.cache.set_folder("radarr", int(movie["id"]), folder)
+        return True
 
     def _auto_add(
         self,
@@ -238,6 +310,7 @@ class MovieDiscovery:
         library_root: Path,
         title: str,
         year: int,
+        movies: list[dict],
         report: ReconcileReport,
         dry_run: bool,
     ) -> None:
@@ -281,6 +354,20 @@ class MovieDiscovery:
             return
 
         lookup = exact[0]
+        existing = self._existing_by_tmdb(lookup, movies)
+        if existing is not None:
+            report.unmatched.append(
+                UnmatchedFolder(
+                    str(folder),
+                    title,
+                    year,
+                    reason="already_in_arr",
+                    candidates=[
+                        f"already in Radarr as '{existing.get('title')}' at {existing.get('path')}"
+                    ],
+                )
+            )
+            return
         target_path = library_root / f"{title} ({year})"
         report.add(
             Action("add_to_arr", f"auto-add '{title} ({year})'", str(folder), str(target_path))
@@ -314,6 +401,13 @@ class MovieDiscovery:
         if movie_id:
             self.cache.set_folder("radarr", int(movie_id), folder)
             self.radarr.refresh_movie(int(movie_id))
+
+    @staticmethod
+    def _existing_by_tmdb(lookup: dict, movies: list[dict]) -> dict | None:
+        tmdb_id = lookup.get("tmdbId")
+        if not tmdb_id:
+            return None
+        return next((m for m in movies if m.get("tmdbId") == tmdb_id), None)
 
     def _project_all(
         self,
@@ -367,11 +461,6 @@ class SeriesDiscovery:
         progress=None,
     ) -> None:
         tick = progress or (lambda phase, current, total: None)
-        fileless = [
-            s
-            for s in series_list
-            if int((s.get("statistics") or {}).get("episodeFileCount") or 0) == 0
-        ]
         candidates = [
             (folder, mapping)
             for mapping in self.config.paths.series_root_mappings
@@ -381,25 +470,20 @@ class SeriesDiscovery:
         ]
         for idx, (folder, mapping) in enumerate(candidates, start=1):
             tick("discovery (series)", idx, len(candidates))
-            self._handle_unmatched(folder, Path(mapping.library_root), fileless, report, dry_run)
+            self._handle_unmatched(folder, Path(mapping.library_root), series_list, report, dry_run)
 
     def manual_add(self, folder: Path, library_root: Path, report: ReconcileReport) -> None:
         """User-initiated add of one folder: bypasses the auto_add_unmatched gate."""
         series_list = self.sonarr.get_series()
-        fileless = [
-            s
-            for s in series_list
-            if int((s.get("statistics") or {}).get("episodeFileCount") or 0) == 0
-        ]
         self._handle_unmatched(
-            folder, library_root, fileless, report, dry_run=False, force_add=True
+            folder, library_root, series_list, report, dry_run=False, force_add=True
         )
 
     def _handle_unmatched(
         self,
         folder: Path,
         library_root: Path,
-        fileless: list[dict],
+        series_list: list[dict],
         report: ReconcileReport,
         dry_run: bool,
         force_add: bool = False,
@@ -408,6 +492,11 @@ class SeriesDiscovery:
         title = parsed[0] if parsed else folder.name.strip()
         year = parsed[1] if parsed else None
 
+        fileless = [
+            s
+            for s in series_list
+            if int((s.get("statistics") or {}).get("episodeFileCount") or 0) == 0
+        ]
         if self._adopt_fileless_series(folder, title, year, fileless, report, dry_run):
             return
         if not self.config.sonarr.auto_add_unmatched and not force_add:
@@ -415,7 +504,7 @@ class SeriesDiscovery:
                 UnmatchedFolder(str(folder), title, year, reason="auto_add_disabled")
             )
             return
-        self._auto_add(folder, library_root, title, year, report, dry_run)
+        self._auto_add(folder, library_root, title, year, series_list, report, dry_run)
 
     def _adopt_fileless_series(
         self,
@@ -460,6 +549,7 @@ class SeriesDiscovery:
         library_root: Path,
         title: str,
         year: int | None,
+        series_list: list[dict],
         report: ReconcileReport,
         dry_run: bool,
     ) -> None:
@@ -504,6 +594,25 @@ class SeriesDiscovery:
             return
 
         lookup = exact[0]
+        tvdb_id = lookup.get("tvdbId")
+        existing = (
+            next((s for s in series_list if tvdb_id and s.get("tvdbId") == tvdb_id), None)
+            if tvdb_id
+            else None
+        )
+        if existing is not None:
+            report.unmatched.append(
+                UnmatchedFolder(
+                    str(folder),
+                    title,
+                    year,
+                    reason="already_in_arr",
+                    candidates=[
+                        f"already in Sonarr as '{existing.get('title')}' at {existing.get('path')}"
+                    ],
+                )
+            )
+            return
         folder_title = lookup.get("title") or title
         lookup_year = lookup.get("year")
         suffix = f" ({lookup_year})" if lookup_year else ""

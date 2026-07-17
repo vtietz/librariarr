@@ -8,6 +8,7 @@ is never renamed by us. See docs/architecture.md.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from pathlib import Path
 
 from ..config.models import AppConfig, MovieRootMapping
@@ -187,7 +188,12 @@ class MovieReconciler:
 
         Two possible truths: Radarr wrote a new file (quality upgrade) -> ingest
         wins; or the user replaced the managed file (managed leads) -> relink
-        wins. Tie-break by mtime: the newer side is the intended change.
+        wins. The user replacement only wins when the managed file is newer than
+        both the library file's mtime and Radarr's import time (movieFile
+        dateAdded, when known): downloaded files often carry the release's
+        original, much older mtime, so mtime alone would let a stale managed
+        copy clobber a fresh import. Ingest is the safe default — it
+        quarantines rather than destroys.
         """
         managed_video = self._primary_video(managed_folder)
         if managed_video is None:
@@ -197,10 +203,14 @@ class MovieReconciler:
 
         library_mtime = library_file.stat().st_mtime
         managed_mtime = managed_video.stat().st_mtime
-        if managed_mtime > library_mtime:
+        imported_at = self._movie_file_import_time(movie)
+        managed_is_latest = managed_mtime > library_mtime and (
+            imported_at is None or managed_mtime > imported_at
+        )
+        if managed_is_latest:
             report.warn(
-                f"Managed file is newer than Radarr's file for '{movie.get('title')}'; "
-                "relinking library to managed (user replacement wins)"
+                f"Managed file is newer than Radarr's file and its import time for "
+                f"'{movie.get('title')}'; relinking library to managed (user replacement wins)"
             )
             if ensure_hardlink(managed_video, library_file, dry_run=dry_run):
                 report.items_changed += 1
@@ -505,6 +515,17 @@ class MovieReconciler:
             if is_video_file(file_path, self.video_extensions)
             and (inode := inode_of(file_path)) is not None
         }
+
+    @staticmethod
+    def _movie_file_import_time(movie: dict) -> float | None:
+        """Wall-clock time Radarr imported its current file (movieFile dateAdded)."""
+        raw = (movie.get("movieFile") or {}).get("dateAdded")
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(str(raw).replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            return None
 
     def _primary_video(self, folder: Path | None) -> Path | None:
         if folder is None or not folder.is_dir():

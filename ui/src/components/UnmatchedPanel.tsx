@@ -10,7 +10,11 @@ const REASON_HINTS: Record<string, string> = {
   no_match: "No Arr lookup match. Add the title manually in the Radarr/Sonarr UI.",
   lookup_failed: "Arr lookup failed; will retry on the next full pass.",
   add_failed: "The Arr API rejected the add — see the details column.",
-  unparseable: "Folder name could not be parsed as 'Title (Year)'."
+  unparseable: "Folder name could not be parsed as 'Title (Year)'.",
+  duplicate:
+    "The matching Arr entry is already synced from another managed folder — this looks like a second copy.",
+  already_in_arr:
+    "The title already exists in Arr but cannot be linked automatically — see the details column."
 };
 
 const formatTime = (epochSeconds: number | null): string =>

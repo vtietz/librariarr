@@ -117,6 +117,80 @@ def test_fileless_arr_movie_is_adopted_by_matching_folder(config, cache, roots):
     assert any(a.kind == "adopt" for a in report.actions)
 
 
+def test_existing_movie_with_lost_file_is_adopted_and_self_heals(config, cache, roots):
+    """Radarr still records a file, but it is gone on disk and the cache lost the
+    managed association (the production add_failed loop): the folder must be
+    adopted instead of auto-added, and the next pass restores the library file."""
+    config.radarr.auto_add_unmatched = True
+    config.radarr.auto_add_quality_profile_id = 4
+    managed = write_file(roots["managed_movies"] / "Lady Bird (2017)" / "Lady.Bird.mkv")
+    lib_folder = roots["library_movies"] / "Lady Bird (2017)"
+    lib_file = lib_folder / "Lady.Bird.old.mkv"  # recorded in Radarr, gone on disk
+    radarr = FakeRadarr([movie_payload(6, "Lady Bird", 2017, lib_folder, lib_file)])
+    engine = make_engine(config, cache, radarr)
+
+    report = engine.run(scope=SCOPE_FULL)
+
+    assert not radarr.added, "must not attempt a doomed auto-add"
+    assert cache.get_folder("radarr", 6) == managed.parent
+    assert any(a.kind == "adopt" for a in report.actions)
+    assert not report.unmatched
+
+    second = engine.run(scope=SCOPE_FULL)
+    assert lib_file.exists()
+    assert lib_file.stat().st_ino == managed.stat().st_ino
+    assert any(a.kind == "relink" for a in second.actions)
+
+
+def test_second_folder_for_synced_movie_is_reported_as_duplicate(config, cache, roots):
+    from .conftest import hardlink
+
+    config.radarr.auto_add_unmatched = True
+    config.radarr.auto_add_quality_profile_id = 4
+    managed_a = write_file(roots["managed_movies"] / "kids" / "Twice (1994)" / "Twice.mkv")
+    lib_file = hardlink(managed_a, roots["library_movies"] / "Twice (1994)" / "Twice.mkv")
+    write_file(roots["managed_movies"] / "adults" / "Twice (1994)" / "Twice.other.mkv")
+    radarr = FakeRadarr([movie_payload(7, "Twice", 1994, lib_file.parent, lib_file)])
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert not radarr.added
+    assert [u.reason for u in report.unmatched] == ["duplicate"]
+    assert cache.get_folder("radarr", 7) == managed_a.parent, "sync association must not move"
+
+
+def test_existing_movie_outside_library_roots_is_reported(config, cache, roots, tmp_path):
+    config.radarr.auto_add_unmatched = True
+    config.radarr.auto_add_quality_profile_id = 4
+    write_file(roots["managed_movies"] / "Elsewhere (2005)" / "Elsewhere.mkv")
+    foreign_folder = tmp_path / "old-root" / "Elsewhere (2005)"
+    foreign_file = write_file(foreign_folder / "Elsewhere.mkv")
+    radarr = FakeRadarr([movie_payload(8, "Elsewhere", 2005, foreign_folder, foreign_file)])
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert not radarr.added
+    assert [u.reason for u in report.unmatched] == ["already_in_arr"]
+    assert "move its root folder" in report.unmatched[0].candidates[0]
+
+
+def test_auto_add_is_skipped_when_tmdb_id_already_in_radarr(config, cache, roots, tmp_path):
+    config.radarr.auto_add_unmatched = True
+    config.radarr.auto_add_quality_profile_id = 4
+    write_file(roots["managed_movies"] / "Retitled (2012)" / "Retitled.mkv")
+    foreign_folder = tmp_path / "old-root" / "Original Title (2012)"
+    foreign_file = write_file(foreign_folder / "Original.mkv")
+    existing = movie_payload(9, "Original Title", 2012, foreign_folder, foreign_file)
+    existing["tmdbId"] = 555
+    radarr = FakeRadarr([existing])
+    radarr.lookup_results = [{"title": "Retitled", "year": 2012, "tmdbId": 555}]
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert not radarr.added, "adding an already-present tmdbId would 400 forever"
+    assert [u.reason for u in report.unmatched] == ["already_in_arr"]
+
+
 def test_matched_folders_are_not_reported_unmatched(config, cache, roots):
     from .conftest import hardlink
 

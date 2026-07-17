@@ -154,11 +154,18 @@ def hardlink(source: Path, target: Path) -> Path:
 
 
 def movie_payload(
-    movie_id: int, title: str, year: int, folder: Path, file_path: Path | None
+    movie_id: int,
+    title: str,
+    year: int,
+    folder: Path,
+    file_path: Path | None,
+    date_added: str | None = None,
 ) -> dict:
     payload: dict = {"id": movie_id, "title": title, "year": year, "path": str(folder)}
     if file_path is not None:
         payload["movieFile"] = {"path": str(file_path)}
+        if date_added is not None:
+            payload["movieFile"]["dateAdded"] = date_added
     return payload
 
 

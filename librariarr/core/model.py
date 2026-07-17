@@ -21,7 +21,9 @@ class UnmatchedFolder:
     path: str
     parsed_title: str | None
     parsed_year: int | None
-    reason: str  # no_match | ambiguous | lookup_failed | auto_add_disabled
+    # no_match | ambiguous | lookup_failed | auto_add_disabled | add_failed
+    # | unparseable | duplicate | already_in_arr
+    reason: str
     candidates: list[str] = field(default_factory=list)
 
 

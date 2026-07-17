@@ -98,6 +98,58 @@ def test_user_replacement_wins_when_managed_file_is_newer(config, cache, roots):
     assert 1 in radarr.refreshed, "Radarr must rescan after relink"
 
 
+def _iso_utc(epoch: int) -> str:
+    from datetime import UTC, datetime
+
+    return datetime.fromtimestamp(epoch, tz=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def test_fresh_import_with_old_release_mtime_is_ingested(config, cache, roots):
+    """A downloaded file often keeps the release's original (old) mtime. The
+    import time (movieFile dateAdded) must win over the mtime comparison —
+    otherwise a stale managed copy silently discards the fresh download."""
+    managed_old = write_file(roots["managed_movies"] / "Foo (2020)" / "Foo.old.mkv", "old")
+    cache.set_folder("radarr", 1, managed_old.parent)
+    lib_folder = roots["library_movies"] / "Foo (2020)"
+    lib_new = write_file(lib_folder / "Foo.2020.bluray.mkv", "fresh-download")
+    os.utime(lib_new, (1_000_000_000, 1_000_000_000))  # torrent-preserved old mtime
+    os.utime(managed_old, (1_600_000_000, 1_600_000_000))  # newer than the file...
+    imported_at = _iso_utc(1_700_000_000)  # ...but older than the import
+    radarr = FakeRadarr(
+        [movie_payload(1, "Foo", 2020, lib_folder, lib_new, date_added=imported_at)]
+    )
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_CONSISTENCY)
+
+    managed_new = managed_old.parent / "Foo.2020.bluray.mkv"
+    assert managed_new.exists()
+    assert inode(managed_new) == inode(lib_new)
+    assert lib_new.read_text() == "fresh-download", "the download must never be discarded"
+    assert not managed_old.exists()
+    assert any(a.kind == "ingest_link" for a in report.actions)
+    assert not any(a.kind == "relink" for a in report.actions)
+
+
+def test_user_replacement_after_import_relinks(config, cache, roots):
+    managed_folder = roots["managed_movies"] / "Foo (2020)"
+    managed_new = write_file(managed_folder / "Foo.better.mkv", "user-upgrade")
+    cache.set_folder("radarr", 1, managed_folder)
+    lib_folder = roots["library_movies"] / "Foo (2020)"
+    lib_old = write_file(lib_folder / "Foo.2020.mkv", "old-arr-file")
+    os.utime(lib_old, (1_000_000_000, 1_000_000_000))
+    os.utime(managed_new, (1_800_000_000, 1_800_000_000))  # replaced after the import
+    imported_at = _iso_utc(1_700_000_000)
+    radarr = FakeRadarr(
+        [movie_payload(1, "Foo", 2020, lib_folder, lib_old, date_added=imported_at)]
+    )
+
+    report = make_engine(config, cache, radarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert inode(lib_old) == inode(managed_new)
+    assert any(a.kind == "relink" for a in report.actions)
+    assert 1 in radarr.refreshed
+
+
 def test_managed_rename_is_recovered_via_index(config, cache, roots):
     managed = write_file(roots["managed_movies"] / "old-bucket" / "Foo (2020)" / "Foo.mkv")
     lib_file = hardlink(managed, roots["library_movies"] / "Foo (2020)" / "Foo.mkv")
