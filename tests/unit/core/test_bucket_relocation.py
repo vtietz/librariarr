@@ -7,84 +7,19 @@ the single-mapping fixtures in conftest.py, so it builds its own config.
 from __future__ import annotations
 
 import os
+import time
 
-import pytest
+from librariarr.core.engine import SCOPE_CONSISTENCY, SCOPE_FULL, ReconcileEngine
 
-from librariarr.config.defaults import DEFAULT_EXCLUDE_PATH_PATTERNS
-from librariarr.config.models import (
-    AppConfig,
-    IngestConfig,
-    MovieRootMapping,
-    PathsConfig,
-    RadarrConfig,
-    RootMapping,
-    RuntimeConfig,
-    SonarrConfig,
+from .conftest import (
+    FakeRadarr,
+    FakeSonarr,
+    hardlink,
+    move_same_filesystem,
+    movie_payload,
+    series_payload,
+    write_file,
 )
-from librariarr.core.engine import SCOPE_FULL, ReconcileEngine
-from librariarr.core.index import AdvisoryCache
-
-from .conftest import FakeRadarr, FakeSonarr, hardlink, movie_payload, series_payload, write_file
-
-
-@pytest.fixture
-def buckets(tmp_path):
-    paths = {
-        "managed_a": tmp_path / "movies" / "FSK12",
-        "library_a": tmp_path / "radarr_library" / "FSK12",
-        "managed_b": tmp_path / "movies" / "FSK16",
-        "library_b": tmp_path / "radarr_library" / "FSK16",
-        "series_managed_a": tmp_path / "series" / "FSK12",
-        "series_shadow_a": tmp_path / "sonarr_library" / "FSK12",
-        "series_managed_b": tmp_path / "series" / "FSK16",
-        "series_shadow_b": tmp_path / "sonarr_library" / "FSK16",
-    }
-    for p in paths.values():
-        p.mkdir(parents=True)
-    return paths
-
-
-@pytest.fixture
-def multi_bucket_config(buckets):
-    return AppConfig(
-        paths=PathsConfig(
-            movie_root_mappings=[
-                MovieRootMapping(
-                    managed_root=str(buckets["managed_a"]), library_root=str(buckets["library_a"])
-                ),
-                MovieRootMapping(
-                    managed_root=str(buckets["managed_b"]), library_root=str(buckets["library_b"])
-                ),
-            ],
-            series_root_mappings=[
-                RootMapping(
-                    managed_root=str(buckets["series_managed_a"]),
-                    library_root=str(buckets["series_shadow_a"]),
-                ),
-                RootMapping(
-                    managed_root=str(buckets["series_managed_b"]),
-                    library_root=str(buckets["series_shadow_b"]),
-                ),
-            ],
-            exclude_paths=list(DEFAULT_EXCLUDE_PATH_PATTERNS),
-        ),
-        radarr=RadarrConfig(url="http://radarr:7878", api_key="x"),
-        sonarr=SonarrConfig(enabled=True, url="http://sonarr:8989", api_key="x"),
-        runtime=RuntimeConfig(),
-        ingest=IngestConfig(),
-    )
-
-
-@pytest.fixture
-def cache(tmp_path):
-    return AdvisoryCache(tmp_path / "cache.json")
-
-
-def move_same_filesystem(source, target):
-    """Simulate Radarr/Sonarr's same-filesystem 'move files' -- inode preserved."""
-    target.parent.mkdir(parents=True, exist_ok=True)
-    os.link(source, target)
-    source.unlink()
 
 
 def test_movie_follows_radarr_root_folder_change_to_new_bucket(multi_bucket_config, cache, buckets):
@@ -180,6 +115,91 @@ def test_movie_relocation_dry_run_reports_without_moving(multi_bucket_config, ca
     assert managed_file.exists(), "dry-run must not move anything"
     assert not (buckets["managed_b"] / "Foo (2020)").exists()
     assert any(a.kind == "relocate" for a in report.actions)
+
+
+def test_relocation_moves_the_whole_movie_folder_not_just_the_videos_parent(
+    multi_bucket_config, cache, buckets
+):
+    """Multi-disc / subfolder layout: the video sits below the movie folder, so
+    relocating only its parent would strand the rest of the movie in the old
+    bucket."""
+    managed_folder = buckets["managed_a"] / "Foo (2020)"
+    managed_file = write_file(managed_folder / "Disc1" / "Foo.mkv")
+    write_file(managed_folder / "movie.nfo", "meta")
+    old_lib_file = hardlink(managed_file, buckets["library_a"] / "Foo (2020)" / "Foo.mkv")
+    cache.set_folder("radarr", 1, managed_folder)
+    radarr = FakeRadarr([movie_payload(1, "Foo", 2020, old_lib_file.parent, old_lib_file)])
+    engine = ReconcileEngine(multi_bucket_config, radarr=radarr, sonarr=None, cache=cache)
+
+    new_lib_file = buckets["library_b"] / "Foo (2020)" / "Foo.mkv"
+    move_same_filesystem(old_lib_file, new_lib_file)
+    radarr.movies[0]["path"] = str(new_lib_file.parent)
+    radarr.movies[0]["movieFile"]["path"] = str(new_lib_file)
+
+    engine.run(scope=SCOPE_CONSISTENCY)
+
+    assert (buckets["managed_b"] / "Foo (2020)" / "Disc1" / "Foo.mkv").exists()
+    assert (buckets["managed_b"] / "Foo (2020)" / "movie.nfo").exists(), (
+        "the whole movie folder must move, not just the video's parent"
+    )
+    assert not managed_folder.exists(), "nothing may be left behind in the old bucket"
+
+
+def test_relocation_refuses_when_two_arr_items_claim_the_same_managed_folder(
+    multi_bucket_config, cache, buckets
+):
+    """A folder with two owners cannot be reclassified on behalf of one of them
+    without silently reclassifying the other."""
+    managed_file = write_file(buckets["managed_a"] / "Foo (2020)" / "Foo.mkv")
+    old_lib_file = hardlink(managed_file, buckets["library_a"] / "Foo (2020)" / "Foo.mkv")
+    cache.set_folder("radarr", 1, managed_file.parent)
+    cache.set_folder("radarr", 2, managed_file.parent)  # duplicate Radarr entry
+    radarr = FakeRadarr([movie_payload(1, "Foo", 2020, old_lib_file.parent, old_lib_file)])
+    engine = ReconcileEngine(multi_bucket_config, radarr=radarr, sonarr=None, cache=cache)
+
+    new_lib_file = buckets["library_b"] / "Foo (2020)" / "Foo.mkv"
+    move_same_filesystem(old_lib_file, new_lib_file)
+    radarr.movies[0]["path"] = str(new_lib_file.parent)
+    radarr.movies[0]["movieFile"]["path"] = str(new_lib_file)
+
+    report = engine.run(scope=SCOPE_CONSISTENCY)
+
+    assert managed_file.exists(), "an ambiguous folder must stay put"
+    assert not (buckets["managed_b"] / "Foo (2020)").exists()
+    assert not any(action.kind == "relocate" for action in report.actions)
+    assert report.stats.get("relocations_blocked_ambiguous_owner") == 1
+    assert any("more than one owner" in warning for warning in report.warnings)
+
+
+def test_relocation_happens_even_when_the_library_inode_is_unresolved(
+    multi_bucket_config, cache, buckets
+):
+    """Known coverage gap, now closed: a bucket move can coincide with an
+    unresolved inode (Radarr copied instead of renaming, or an upgrade landed in
+    the same cycle). The relocation must happen first, so the ingest lands in
+    the new bucket instead of duplicating into the old one."""
+    managed_file = write_file(buckets["managed_a"] / "Foo (2020)" / "Foo.old.mkv", "old")
+    old_mtime = time.time() - 3600
+    os.utime(managed_file, (old_mtime, old_mtime))
+    cache.set_folder("radarr", 1, managed_file.parent)
+
+    # Radarr's file is in the new bucket *and* a different inode than ours.
+    new_lib_file = write_file(buckets["library_b"] / "Foo (2020)" / "Foo.new.mkv", "new")
+    radarr = FakeRadarr([movie_payload(1, "Foo", 2020, new_lib_file.parent, new_lib_file)])
+    engine = ReconcileEngine(multi_bucket_config, radarr=radarr, sonarr=None, cache=cache)
+
+    report = engine.run(scope=SCOPE_CONSISTENCY)
+
+    assert any(action.kind == "relocate" for action in report.actions)
+    assert not (buckets["managed_a"] / "Foo (2020)").exists(), (
+        "the managed folder must not stay in the old bucket"
+    )
+    ingested = buckets["managed_b"] / "Foo (2020)" / "Foo.new.mkv"
+    assert ingested.exists() and ingested.stat().st_ino == new_lib_file.stat().st_ino
+    assert cache.get_folder("radarr", 1) == buckets["managed_b"] / "Foo (2020)"
+    assert (
+        buckets["managed_b"] / ".deletedByLibrariarr" / "Foo (2020)" / "Foo.old.mkv"
+    ).exists(), "the superseded managed video is quarantined in the new bucket"
 
 
 def test_series_follows_sonarr_root_folder_change_to_new_bucket(

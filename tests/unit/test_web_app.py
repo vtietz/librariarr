@@ -78,31 +78,136 @@ def test_reconcile_rejects_unknown_scope(client):
     assert response.status_code == 400
 
 
-def test_hook_post_triggers_consistency_on_the_loop(client):
-    class StubLoop:
-        def __init__(self):
-            self.consistency_calls = []
-            self.full_calls = []
+class StubLoop:
+    def __init__(self):
+        self.consistency_calls = []
+        self.full_calls = []
+        self.targeted_calls = []
 
-        def trigger_consistency(self, reason=""):
-            self.consistency_calls.append(reason)
+    def trigger_consistency(self, reason=""):
+        self.consistency_calls.append(reason)
 
-        def trigger_full(self, reason=""):
-            self.full_calls.append(reason)
+    def trigger_full(self, reason=""):
+        self.full_calls.append(reason)
 
+    def trigger_targeted(self, reason="", *, movie_ids=(), series_ids=()):
+        self.targeted_calls.append((reason, list(movie_ids), list(series_ids)))
+
+
+@pytest.fixture
+def loop_stub(client):
     stub = StubLoop()
     client.app.state.web.runtime_loop = stub
+    try:
+        yield stub
+    finally:
+        client.app.state.web.runtime_loop = None
 
+
+def test_hook_without_item_id_triggers_consistency_on_the_loop(client, loop_stub):
     response = client.post("/api/hooks/radarr", json={"eventType": "Download"})
     assert response.status_code == 200
     assert response.json()["queued"] is True
-    assert stub.consistency_calls == ["webhook:Download"]
+    assert response.json()["scope"] == "consistency"
+    assert loop_stub.consistency_calls == ["webhook:Download"]
 
     response = client.post("/api/reconcile", json={"scope": "full"})
     assert response.json()["queued"] is True
-    assert stub.full_calls == ["api"]
+    assert loop_stub.full_calls == ["api"]
 
-    client.app.state.web.runtime_loop = None
+
+def test_radarr_hook_with_a_movie_id_targets_just_that_movie(client, loop_stub):
+    """The payload is a hint: only the id is taken from it, and it decides the
+    scope of the pass — that is what keeps an import off the whole library."""
+    response = client.post(
+        "/api/hooks/radarr",
+        json={"eventType": "Download", "movie": {"id": 4473, "title": "Virtual Weapon"}},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["scope"] == "targeted"
+    assert payload["item_id"] == 4473
+    assert loop_stub.targeted_calls == [("webhook:Download", [4473], [])]
+    assert loop_stub.consistency_calls == []
+
+
+def test_sonarr_hook_with_a_series_id_targets_just_that_series(client, loop_stub):
+    response = client.post(
+        "/api/hooks/sonarr",
+        json={"eventType": "Download", "series": {"id": 12, "title": "Show"}},
+    )
+    assert response.json()["scope"] == "targeted"
+    assert loop_stub.targeted_calls == [("webhook:Download", [], [12])]
+
+
+def test_test_event_keeps_the_global_consistency_pass(client, loop_stub):
+    """Radarr's test payload carries a dummy movie id; it describes no library
+    change, so it must not be mistaken for real work."""
+    response = client.post(
+        "/api/hooks/radarr", json={"eventType": "Test", "movie": {"id": 1, "title": "Test Title"}}
+    )
+    assert response.json()["scope"] == "consistency"
+    assert loop_stub.targeted_calls == []
+    assert loop_stub.consistency_calls == ["webhook:Test"]
+
+
+def test_hook_with_unusable_item_id_falls_back_to_consistency(client, loop_stub):
+    for payload in (
+        {"eventType": "Download", "movie": {"title": "no id"}},
+        {"eventType": "Download", "movie": {"id": 0}},
+        {"eventType": "Download", "movie": "not-an-object"},
+        {"eventType": "Rename"},
+    ):
+        client.post("/api/hooks/radarr", json=payload)
+    assert loop_stub.targeted_calls == []
+    assert len(loop_stub.consistency_calls) == 4
+
+
+def test_reconcile_targeted_queues_the_given_ids(client, loop_stub):
+    response = client.post(
+        "/api/reconcile",
+        json={"scope": "targeted", "radarr_movie_ids": [5, 5, 7], "sonarr_series_ids": [2]},
+    )
+    assert response.status_code == 200
+    assert response.json()["queued"] is True
+    assert loop_stub.targeted_calls == [("api", [5, 7], [2])]
+
+
+def test_reconcile_targeted_requires_ids(client):
+    response = client.post("/api/reconcile", json={"scope": "targeted"})
+    assert response.status_code == 400
+    assert "targeted" in response.json()["detail"]
+
+
+def test_reconcile_targeted_rejects_unusable_ids(client):
+    response = client.post(
+        "/api/reconcile", json={"scope": "targeted", "radarr_movie_ids": [0, -3]}
+    )
+    assert response.status_code == 400
+
+
+def test_reconcile_targeted_rejects_oversized_id_lists(client):
+    response = client.post(
+        "/api/reconcile",
+        json={"scope": "targeted", "radarr_movie_ids": list(range(1, 500))},
+    )
+    assert response.status_code == 400
+    assert "full" in response.json()["detail"]
+
+
+def test_reconcile_targeted_dry_run_returns_a_report(client):
+    response = client.post(
+        "/api/reconcile", json={"scope": "targeted", "radarr_movie_ids": [1], "dry_run": True}
+    )
+    assert response.status_code == 200
+    report = response.json()["report"]
+    assert report["scope"] == "targeted"
+    assert report["dry_run"] is True
+
+
+def test_bucket_drift_endpoint_shape(client):
+    payload = client.get("/api/bucket-drift").json()
+    assert payload == {"drift": []}
 
 
 def test_hooks_accept_payload_without_runtime_loop(client):

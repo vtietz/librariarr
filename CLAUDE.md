@@ -39,19 +39,20 @@ LIBRARIARR_PYTEST_ARGS="tests/unit/core/test_movies_reconcile.py -v" ./run.sh te
 
 ### Core (`librariarr/core/`) — the whole product
 
-- `engine.py` — `ReconcileEngine`: two scopes. `consistency` (no tree walk; per-item stat/inode verification, webhook-triggered) and `full` (one managed-tree walk building the `InodeIndex`, plus discovery/auto-add and stale prune).
+- `engine.py` — `ReconcileEngine`: three scopes. `targeted` (an explicit list of Arr ids — same per-item decisions, narrowed iteration; no prune, no discovery), `consistency` (no tree walk; per-item stat/inode verification; the interval safety net) and `full` (one managed-tree walk building the `InodeIndex`, plus discovery/auto-add and stale prune). Also `list_bucket_drift()`: cheap poll for Arr root-folder reassignments, which Arr reports via no webhook.
 - `movies.py` — `MovieReconciler`: per-movie decision tree (identity holds → project; library inode unknown + managed folder known → mtime tie-break between Arr upgrade (ingest) and user replacement (relink); no managed folder → ingest new import).
 - `series.py` — `SeriesReconciler`: same model per episode file; supersession only within the same SxxEyy key; user-added episodes are projected + rescanned so Sonarr imports them.
 - `discovery.py` — unmatched managed folders: adopt file-less Arr entries (exact title+year), conservative auto-add (single exact lookup match), otherwise report with reason. Name parsing happens only here, at first contact.
 - `index.py` — `InodeIndex` (rebuilt per full pass) and `AdvisoryCache` (id → managed folder JSON; advisory only, always stat-verified).
+- `relocate.py` — bucket relocation (scenario 11): the one place a managed folder moves between buckets, shared by movies and series so every scope applies identical rules. Refuses on `destination_exists` / `ambiguous_owner` / `cross_filesystem`.
 - `fsops.py` — hardlink/trash/prune primitives, exclusion pattern matching. Ingest = hardlink (data never moves). Trash = `<managed_root>/.deletedByLibrariarr/`.
 - `model.py` / `status.py` — `ReconcileReport`/`Action`/`UnmatchedFolder` and the thread-safe status snapshot.
 
 ### Shell around the core
 
 - `service.py` — thin facade (config + engine + status), serializes reconciles.
-- `runtime/loop.py` — interval scheduler + debounced webhook triggers. No filesystem watchers.
-- `web/app.py` — slim FastAPI: `/api/status`, `/api/reconcile`, `/api/unmatched`, `/api/config` (raw YAML + validation), `/api/logs`, `/api/hooks/{radarr,sonarr}`, static UI.
+- `runtime/loop.py` — interval scheduler + debounced triggers (accumulating item ids for targeted passes) + the bucket-drift poll. No filesystem watchers.
+- `web/app.py` — slim FastAPI: `/api/status`, `/api/reconcile` (scope `targeted` takes `radarr_movie_ids`/`sonarr_series_ids`), `/api/bucket-drift`, `/api/unmatched`, `/api/config` (raw YAML + validation), `/api/logs`, `/api/hooks/{radarr,sonarr}` (per-item when the payload names one), static UI.
 - `clients/` — Radarr/Sonarr HTTP wrappers (retries, circuit breaker).
 - `config/` — dataclasses (`models.py`) + YAML loader (`loader.py`); env overrides `LIBRARIARR_RADARR_URL` etc.
 - `sync/naming.py` — `Title (Year)` parsing (first-contact only).

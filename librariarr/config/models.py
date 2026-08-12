@@ -14,6 +14,10 @@ class RuntimeConfig:
     consistency_interval_seconds: int = 300
     full_interval_minutes: int = 1440
     startup_scope: str = "full"  # full | consistency | off
+    # Seconds between bucket-drift polls (Arr root-folder reassignments, which
+    # Arr reports via no webhook). Cheaper than a consistency pass: one Arr list
+    # call, no tree walk. 0 disables the poll.
+    bucket_drift_interval_seconds: int = 300
 
 
 @dataclass

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from ..config.models import AppConfig, RootMapping
@@ -26,6 +27,7 @@ from .fsops import (
 )
 from .index import AdvisoryCache, InodeIndex
 from .model import Action, ReconcileReport
+from .relocate import relocate_managed_folder
 
 LOG = logging.getLogger(__name__)
 
@@ -67,9 +69,17 @@ class SeriesReconciler:
         index: InodeIndex | None = None,
         dry_run: bool = False,
         progress=None,
+        series_ids: Sequence[int] | None = None,
     ) -> tuple[list[dict], set[int]]:
-        series_list = self.sonarr.get_series()
-        LOG.info("Sonarr reconcile start: series=%d", len(series_list))
+        """``series_ids`` narrows the pass to those Sonarr ids (targeted scope);
+        the per-series logic is identical for every scope. See
+        MovieReconciler.reconcile."""
+        series_list = self._fetch_series(series_ids)
+        LOG.info(
+            "Sonarr reconcile start: series=%d%s",
+            len(series_list),
+            " (targeted)" if series_ids is not None else "",
+        )
         tick = progress or (lambda phase, current, total: None)
         arr_inodes: set[int] = set()
         for idx, series in enumerate(series_list, start=1):
@@ -90,10 +100,17 @@ class SeriesReconciler:
                 self._reconcile_series(series, mapping, index, arr_inodes, report, dry_run)
             except OSError as exc:
                 report.errors.append(f"series '{series.get('title')}': {exc}")
-        if index is not None:
+        # Never prune against a partial series list -- see
+        # MovieReconciler.reconcile for why.
+        if index is not None and series_ids is None:
             self._prune_library_roots(series_list, index, report, dry_run)
         self.cache.save()
         return series_list, arr_inodes
+
+    def _fetch_series(self, series_ids: Sequence[int] | None) -> list[dict]:
+        if series_ids is None:
+            return self.sonarr.get_series()
+        return self.sonarr.get_series_by_ids(series_ids)
 
     # ------------------------------------------------------------------
     # Per-series reconcile
@@ -260,7 +277,10 @@ class SeriesReconciler:
                         "ingest_link", "ingested new series content", str(file_path), str(target)
                     )
                 )
-        if changed or managed_folder.is_dir():
+        # Not during a dry run: nothing was created, and a hint to a folder that
+        # does not exist reads as "known before, now moved" on the next real
+        # pass, which defers the ingest instead of doing it.
+        if not dry_run and (changed or managed_folder.is_dir()):
             self.cache.set_folder("sonarr", int(series["id"]), managed_folder)
 
     def _ingest_episode(
@@ -432,45 +452,23 @@ class SeriesReconciler:
         report: ReconcileReport,
         dry_run: bool,
     ) -> Path:
-        """Follow a Sonarr root-folder reassignment: if the series' managed
-        folder currently lives under a different bucket than the one Sonarr's
-        root folder now maps to, move it to match. See
-        MovieReconciler._reconcile_bucket for the full rationale; refuses
-        (warns) rather than overwrites if the destination already exists.
+        """Follow a Sonarr root-folder reassignment (scenario 11).
+
+        The rules live in relocate.py so full, consistency and targeted passes
+        move a managed folder on exactly the same terms.
         """
-        target_root = Path(mapping.managed_root)
-        current_root = self._managed_root_of(managed_folder)
-        if current_root is None or current_root == target_root:
-            return managed_folder
-        try:
-            relative = managed_folder.relative_to(current_root)
-        except ValueError:
-            return managed_folder
-
-        new_folder = target_root / relative
-        if new_folder.exists():
-            report.warn(
-                f"'{series.get('title')}' is in bucket '{current_root}' but Sonarr now has "
-                f"it under '{target_root}'; cannot auto-relocate because {new_folder} "
-                "already exists"
-            )
-            return managed_folder
-
-        report.items_changed += 1
-        report.add(
-            Action(
-                "relocate",
-                f"moved to bucket matching Sonarr's root folder for '{series.get('title')}'",
-                str(managed_folder),
-                str(new_folder),
-            )
+        series_id = int(series["id"])
+        outcome = relocate_managed_folder(
+            managed_folder,
+            target_root=Path(mapping.managed_root),
+            current_root=self._managed_root_of(managed_folder),
+            label=str(series.get("title") or series_id),
+            arr_name="Sonarr",
+            report=report,
+            dry_run=dry_run,
+            other_owners=self.cache.folder_owners("sonarr", managed_folder, exclude=series_id),
         )
-        if dry_run:
-            return managed_folder
-        new_folder.parent.mkdir(parents=True, exist_ok=True)
-        managed_folder.rename(new_folder)
-        prune_empty_dirs(current_root, dry_run=False)
-        return new_folder
+        return outcome.folder
 
     def _locate_managed_folder(
         self,

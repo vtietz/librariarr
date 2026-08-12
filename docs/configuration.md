@@ -35,7 +35,8 @@ Baseline: [config.yaml.example](../config.yaml.example). Env overrides:
 | Key | Default | Notes |
 |---|---|---|
 | `debounce_seconds` | `8` | webhook burst debounce |
-| `consistency_interval_seconds` | `300` | cheap pass; no tree walk (min 30) |
+| `consistency_interval_seconds` | `300` | cheap pass; no tree walk (min 30). Keep it enabled: it is the safety net behind the per-item webhook passes |
+| `bucket_drift_interval_seconds` | `300` | how often to poll for Arr root-folder reassignments, which Arr reports via no webhook (min 30, `0` disables). One Arr list call, no tree walk; only drifted items are then reconciled |
 | `full_interval_minutes` | `1440` | tree walk + discovery + prune (min 1). Only this pass costs anything meaningful; lower it if you drop/reorganize managed folders by hand often, or just trigger it on demand ("Run full pass now" in the UI, or `POST /api/reconcile {"scope": "full"}`) right after doing so |
 | `startup_scope` | `full` | `full` \| `consistency` \| `off` (quote `"off"` in YAML) |
 

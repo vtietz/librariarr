@@ -97,13 +97,36 @@ export const getUnmatched = () =>
 export const manualAdd = (path: string) =>
   api.post<ManualAddResult>("/unmatched/add", { path }).then((r) => r.data);
 
-export const triggerReconcile = (scope: "full" | "consistency", dryRun = false) =>
+export interface BucketDrift {
+  kind: "movie" | "series";
+  id: number;
+  title: string | null;
+  arr_path: string;
+  managed_path: string;
+  current_bucket: string;
+  target_bucket: string;
+}
+
+export interface TargetedIds {
+  radarr_movie_ids?: number[];
+  sonarr_series_ids?: number[];
+}
+
+export const triggerReconcile = (
+  scope: "full" | "consistency" | "targeted",
+  dryRun = false,
+  ids: TargetedIds = {}
+) =>
   api
     .post<{ ok: boolean; queued?: boolean; report?: ReconcileReport }>("/reconcile", {
       scope,
-      dry_run: dryRun
+      dry_run: dryRun,
+      ...ids
     })
     .then((r) => r.data);
+
+export const getBucketDrift = () =>
+  api.get<{ drift: BucketDrift[] }>("/bucket-drift").then((r) => r.data.drift);
 
 export const getConfigYaml = () =>
   api.get<{ yaml: string }>("/config").then((r) => r.data.yaml);

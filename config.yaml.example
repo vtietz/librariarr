@@ -98,6 +98,12 @@ runtime:
   # those). Lower this if you frequently drop/reorganize folders by hand, or
   # just click "Run full pass now" in the UI right after doing so.
   full_interval_minutes: 1440
+  # Seconds between bucket-drift polls: one Arr list call, no tree walk, no
+  # per-file work. This is how a root-folder reassignment ("move to another
+  # root folder" in Radarr/Sonarr) gets noticed -- Arr sends no webhook for it,
+  # so it has to be polled. Only the drifted items are then reconciled. 0
+  # disables the poll and leaves those moves to the next full pass.
+  bucket_drift_interval_seconds: 300
   # Reconcile scope at startup: full | consistency | off
   startup_scope: "full"
 

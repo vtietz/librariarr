@@ -23,7 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from ..config import load_config
-from ..core.engine import SCOPE_CONSISTENCY, SCOPE_FULL
+from ..core.engine import SCOPE_CONSISTENCY, SCOPE_FULL, SCOPE_TARGETED, SCOPES
 from ..core.status import get_status_tracker
 from ..runtime.loop import RuntimeLoop
 from ..service import LibrariArrService
@@ -48,10 +48,45 @@ class ConfigPayload(BaseModel):
 class ReconcileRequest(BaseModel):
     scope: str = SCOPE_FULL
     dry_run: bool = False
+    # Only meaningful for scope="targeted": the Arr items to reconcile. No
+    # paths, files or inodes are accepted from clients — everything else is read
+    # fresh from the Arr APIs and the filesystem.
+    radarr_movie_ids: list[int] = []
+    sonarr_series_ids: list[int] = []
 
 
 class ManualAddRequest(BaseModel):
     path: str
+
+
+# Webhook events that describe no library change, so they keep triggering the
+# global consistency pass instead of a targeted one (a Radarr test payload
+# carries a dummy movie id, which must not be mistaken for real work).
+_NON_ITEM_EVENT_TYPES = frozenset({"test", "health", "healthissue", "healthrestored"})
+
+_MAX_TARGETED_IDS = 200
+
+
+def _clean_item_ids(raw: list[int]) -> list[int]:
+    return sorted({int(item_id) for item_id in raw if isinstance(item_id, int) and item_id > 0})
+
+
+def _webhook_item_id(payload: dict | None, key: str) -> int | None:
+    """The Arr item id a webhook payload names, if any.
+
+    The payload is treated as a hint only: the id is all that is taken from it,
+    and the item is then read fresh from the Arr API.
+    """
+    event_type = str((payload or {}).get("eventType", "")).strip().lower()
+    if event_type in _NON_ITEM_EVENT_TYPES:
+        return None
+    item = (payload or {}).get(key)
+    if not isinstance(item, dict):
+        return None
+    raw = item.get("id")
+    if not isinstance(raw, int) or isinstance(raw, bool) or raw <= 0:
+        return None
+    return int(raw)
 
 
 def _validate_yaml_text(yaml_text: str) -> str | None:
@@ -181,36 +216,120 @@ def _add_status_routes(app: FastAPI, state: WebState) -> None:
         return {"entries": buffer.get_entries(tail=max(1, min(limit, 2000)))}
 
 
+def _validated_reconcile_ids(request: ReconcileRequest) -> tuple[list[int], list[int]]:
+    """Item ids for a reconcile request; only scope 'targeted' requires any."""
+    movie_ids = _clean_item_ids(request.radarr_movie_ids)
+    series_ids = _clean_item_ids(request.sonarr_series_ids)
+    if request.scope != SCOPE_TARGETED:
+        return movie_ids, series_ids
+    if not movie_ids and not series_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="scope 'targeted' needs radarr_movie_ids and/or sonarr_series_ids "
+            "(positive integers)",
+        )
+    if len(movie_ids) + len(series_ids) > _MAX_TARGETED_IDS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"at most {_MAX_TARGETED_IDS} ids per targeted reconcile; "
+            "use scope 'full' for library-wide work",
+        )
+    return movie_ids, series_ids
+
+
+def _queue_on_loop(loop, scope: str, movie_ids: list[int], series_ids: list[int]) -> None:
+    if scope == SCOPE_FULL:
+        loop.trigger_full("api")
+    elif scope == SCOPE_TARGETED:
+        loop.trigger_targeted("api", movie_ids=movie_ids, series_ids=series_ids)
+    else:
+        loop.trigger_consistency("api")
+
+
 def _add_reconcile_routes(app: FastAPI, state: WebState) -> None:
     @app.post("/api/reconcile")
     def reconcile(request: ReconcileRequest) -> dict[str, Any]:
-        if request.scope not in (SCOPE_FULL, SCOPE_CONSISTENCY):
-            raise HTTPException(status_code=400, detail="scope must be 'full' or 'consistency'")
+        if request.scope not in SCOPES:
+            raise HTTPException(
+                status_code=400, detail=f"scope must be one of: {', '.join(SCOPES)}"
+            )
+        movie_ids, series_ids = _validated_reconcile_ids(request)
         service = _service_or_http(state)
         if request.dry_run:
-            report = service.reconcile(scope=request.scope, dry_run=True)
+            report = service.reconcile(
+                scope=request.scope,
+                dry_run=True,
+                radarr_movie_ids=movie_ids,
+                sonarr_series_ids=series_ids,
+            )
             return {"ok": True, "report": report.to_dict()}
         if state.runtime_loop is not None:
-            if request.scope == SCOPE_FULL:
-                state.runtime_loop.trigger_full("api")
-            else:
-                state.runtime_loop.trigger_consistency("api")
+            _queue_on_loop(state.runtime_loop, request.scope, movie_ids, series_ids)
             return {"ok": True, "queued": True}
-        report = service.reconcile(scope=request.scope)
+        report = service.reconcile(
+            scope=request.scope,
+            radarr_movie_ids=movie_ids,
+            sonarr_series_ids=series_ids,
+        )
         return {"ok": True, "report": report.to_dict()}
 
+    @app.get("/api/bucket-drift")
+    def bucket_drift() -> dict[str, Any]:
+        # Read-only. An Arr root-folder reassignment reaches us through no
+        # webhook (see ReconcileEngine.list_bucket_drift), so the UI polls this
+        # and can hand the ids straight to a targeted reconcile.
+        service = _service_or_http(state)
+        return {"drift": service.list_bucket_drift()}
+
     @app.post("/api/hooks/radarr")
-    @app.post("/api/hooks/sonarr")
-    def arr_hook(
+    def radarr_hook(
         payload: dict | None = None,
         x_librariarr_webhook_secret: str | None = Header(default=None),
     ) -> dict[str, Any]:
-        _validate_webhook_secret(x_librariarr_webhook_secret)
-        event_type = str((payload or {}).get("eventType", "")).strip()
-        if state.runtime_loop is None:
-            return {"ok": True, "queued": False, "reason": "runtime loop not active"}
-        state.runtime_loop.trigger_consistency(f"webhook:{event_type or 'unknown'}")
-        return {"ok": True, "queued": True, "event_type": event_type or None}
+        return _handle_arr_hook(state, payload, x_librariarr_webhook_secret, "movie")
+
+    @app.post("/api/hooks/sonarr")
+    def sonarr_hook(
+        payload: dict | None = None,
+        x_librariarr_webhook_secret: str | None = Header(default=None),
+    ) -> dict[str, Any]:
+        return _handle_arr_hook(state, payload, x_librariarr_webhook_secret, "series")
+
+
+def _handle_arr_hook(
+    state: WebState, payload: dict | None, secret: str | None, item_key: str
+) -> dict[str, Any]:
+    """Queue work for one webhook.
+
+    When the payload names an item, only that item is reconciled — that is what
+    keeps an import from costing a pass over the whole library. Anything without
+    a usable id falls back to the global consistency pass, exactly as before.
+    """
+    _validate_webhook_secret(secret)
+    event_type = str((payload or {}).get("eventType", "")).strip()
+    if state.runtime_loop is None:
+        return {"ok": True, "queued": False, "reason": "runtime loop not active"}
+    item_id = _webhook_item_id(payload, item_key)
+    reason = f"webhook:{event_type or 'unknown'}"
+    if item_id is None:
+        state.runtime_loop.trigger_consistency(reason)
+        return {
+            "ok": True,
+            "queued": True,
+            "scope": SCOPE_CONSISTENCY,
+            "event_type": event_type or None,
+        }
+    if item_key == "movie":
+        state.runtime_loop.trigger_targeted(reason, movie_ids=[item_id])
+    else:
+        state.runtime_loop.trigger_targeted(reason, series_ids=[item_id])
+    return {
+        "ok": True,
+        "queued": True,
+        "scope": SCOPE_TARGETED,
+        "event_type": event_type or None,
+        "item_id": item_id,
+    }
 
 
 def _add_config_routes(app: FastAPI, state: WebState) -> None:

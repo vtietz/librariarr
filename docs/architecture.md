@@ -41,6 +41,7 @@ librariarr/
     series.py      SeriesReconciler: per-episode variant of the same model
     discovery.py   Unmatched-folder discovery, adopt, conservative auto-add
     index.py       InodeIndex (one walk) + AdvisoryCache (id -> managed folder)
+    relocate.py    Bucket relocation: the one place a managed folder moves
     fsops.py       Hardlink/trash/prune primitives, exclusion matching
     model.py       Action / ReconcileReport / UnmatchedFolder
     status.py      Thread-safe status snapshot for the API
@@ -51,19 +52,47 @@ librariarr/
   config/          Dataclasses + YAML loader
 ```
 
-## Two Reconcile Scopes
+## Three Reconcile Scopes
+
+**Targeted pass** (`scope=targeted`) — the per-item flow for an explicit list
+of Arr ids, fetched with `get_movies_by_ids`/`get_series_by_ids`. Identical
+decisions to a consistency pass; only the iteration narrows, and an Arr with no
+ids in the request is skipped entirely (a Radarr webhook never touches the
+Sonarr library). Two things stay off, both because a partial item list cannot
+support them: pruning ("delete what Arr no longer lists" would condemn every
+folder outside the subset) and discovery. Runs on a webhook that names an item,
+on a detected bucket drift, and from `POST /api/reconcile {"scope":
+"targeted", "radarr_movie_ids": [...]}`.
 
 **Consistency pass** (`scope=consistency`) — no tree walk. One bulk Arr API
 call, then per item: stat the library file, stat the cached managed path,
-compare inodes. Runs on every webhook (debounced) and every
-`runtime.consistency_interval_seconds`. Handles: new imports, upgrades,
-user-replacements, missing-file restore.
+compare inodes. Runs every `runtime.consistency_interval_seconds`, and on any
+webhook that does not name an item. It is also the safety net that makes the
+targeted path safe to rely on: anything a lost or unidentifiable webhook left
+unreconciled is picked up here within one interval. Handles: new imports,
+upgrades, user-replacements, missing-file restore.
 
 **Full pass** (`scope=full`) — everything above, plus: builds the inode index
 (the only managed-tree walk), resolves items with no cache hint (e.g. after a
 user move), runs discovery/auto-add for unmatched folders, and prunes stale
 library/shadow folders. Runs at startup (configurable) and every
 `runtime.full_interval_minutes`.
+
+### Bucket-Drift Poll
+
+One Arr-side change reaches LibrariArr through no webhook at all: reassigning an
+item's root folder. Radarr's `MoveMovieService` publishes `MovieMovedEvent`,
+which only health checks consume — it is never routed to notification providers
+— and the `OnMovieRename` notification fires for file renames, not folder moves.
+So scenario 11 is **polled, not pushed**: every
+`runtime.bucket_drift_interval_seconds`, `ReconcileEngine.list_bucket_drift`
+compares each item's Arr path (mapped to a bucket) against the bucket its cached
+managed folder sits in. That costs one Arr list call, in-memory comparisons and
+one `is_dir` per cached item — no tree walk, nothing per file — and the drifted
+ids then go through a targeted pass. Items with no cached folder are skipped
+rather than searched for; the full pass owns whatever the poll cannot see.
+Exposed read-only as `GET /api/bucket-drift` (the Status panel's "Pending bucket
+moves" card).
 
 The advisory cache (`librariarr-idcache.json` next to the config) maps Arr ids
 to managed folders so consistency passes never need the walk. It is **advisory
@@ -79,18 +108,13 @@ For each Radarr movie with a file (`movieFile.path` = the library file):
    warn and rescan so Radarr flags it file-less (self-heals via adopt on a
    later full pass).
 2. **Library inode found in managed tree** (cache hint or index) → identity
-   holds. First, **bucket reconciliation**: if the movie's current Arr root
-   folder maps to a *different* `movie_root_mappings` entry than the one its
-   managed folder is physically under (e.g. the user moved it to another root
-   folder in Radarr's UI), the managed folder is relocated — a real rename,
-   preserving the user's own subfolder structure and naming — to the
-   corresponding location under the new bucket's `managed_root`; refused
-   (warn only) if the destination already has content. This treats an
-   Arr-side root-folder change as a deliberate reclassification signal, same
-   as moving the folder in the managed tree directly would be. Then: sync
-   projection, hardlink managed extras/additional videos into the library
-   folder, remove stale projections.
-3. **Library inode unknown, managed folder known** → two possible truths,
+   holds. First, **bucket reconciliation** (see below), then: sync projection,
+   hardlink managed extras/additional videos into the library folder, remove
+   stale projections.
+3. **Library inode unknown, managed folder known** → bucket reconciliation runs
+   here too, *before* the inode question is resolved, so an ingest lands in the
+   bucket Arr now says the item belongs to rather than duplicating into the old
+   one. Then two possible truths,
    resolved by mtime (the newer side is the intended change — so a manual
    replacement must carry a fresh mtime; copies that preserve old timestamps
    read as the losing side):
@@ -103,6 +127,29 @@ For each Radarr movie with a file (`movieFile.path` = the library file):
    library folder's videos + allowlisted extras into
    `<managed_root>/<Arr folder name>/`. The user can sort it deeper into the
    hierarchy at any time — identity survives the move.
+
+### Bucket Reconciliation
+
+If an item's current Arr root folder maps to a *different*
+`movie_root_mappings`/`series_root_mappings` entry than the one its managed
+folder is physically under (e.g. the user moved it to another root folder in
+Arr's UI), the managed folder is relocated — a real same-filesystem rename, so
+the inode and therefore the Arr-side hardlink survive — to the corresponding
+location under the new bucket's `managed_root`, preserving the user's own
+subfolder structure and naming verbatim. This treats an Arr-side root-folder
+change as a deliberate reclassification signal, same as moving the folder in the
+managed tree directly would be.
+
+The rules live in `core/relocate.py` so that full, consistency and targeted
+passes move a folder on identical terms — divergent rules per trigger would mean
+one pass refusing what the next performs. It refuses, warning and touching
+nothing, when: the destination already exists (`destination_exists` — no merge,
+no overwrite), more than one Arr item claims the same managed folder
+(`ambiguous_owner` — a folder with two owners cannot be reclassified for one of
+them without silently reclassifying the other), or the two buckets turn out to
+be on different filesystems (`cross_filesystem`, the per-move backstop behind
+the startup check). The unit that moves is the managed *folder*, not the video's
+parent directory, so multi-disc and subfolder layouts move whole.
 
 Series work the same way per **episode file**, with two additions: superseding
 only applies to files with the same SxxEyy key, and managed videos unknown to

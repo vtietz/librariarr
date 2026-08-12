@@ -32,10 +32,17 @@ class FakeRadarr:
         self.refreshed: list[int] = []
         self.lookup_results: list[dict] = []
         self.added: list[dict] = []
+        self.calls: list[str] = []
         self._next_id = 1000
 
     def get_movies(self) -> list[dict]:
+        self.calls.append("get_movies")
         return self.movies
+
+    def get_movies_by_ids(self, movie_ids) -> list[dict]:
+        wanted = {int(movie_id) for movie_id in movie_ids}
+        self.calls.append(f"get_movies_by_ids:{sorted(wanted)}")
+        return [movie for movie in self.movies if int(movie["id"]) in wanted]
 
     def refresh_movie(self, movie_id: int, force: bool = False) -> bool:
         self.refreshed.append(int(movie_id))
@@ -72,10 +79,17 @@ class FakeSonarr:
         self.refreshed: list[int] = []
         self.lookup_results: list[dict] = []
         self.added: list[dict] = []
+        self.calls: list[str] = []
         self._next_id = 2000
 
     def get_series(self) -> list[dict]:
+        self.calls.append("get_series")
         return self.series
+
+    def get_series_by_ids(self, series_ids) -> list[dict]:
+        wanted = {int(series_id) for series_id in series_ids}
+        self.calls.append(f"get_series_by_ids:{sorted(wanted)}")
+        return [series for series in self.series if int(series["id"]) in wanted]
 
     def get_episode_files(self, series_id: int) -> list[dict]:
         return self.episode_files.get(int(series_id), [])

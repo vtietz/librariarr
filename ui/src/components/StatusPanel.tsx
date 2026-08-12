@@ -14,8 +14,9 @@ import {
   Tooltip
 } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
-import type { PathDifference, ReconcileReport, StatusResponse } from "../api/client";
-import { getPathDifferences, triggerReconcile } from "../api/client";
+import type { BucketDrift, PathDifference, ReconcileReport, StatusResponse } from "../api/client";
+import { getBucketDrift, getPathDifferences, triggerReconcile } from "../api/client";
+import { BucketDriftCard, PathDifferencesCard } from "./DivergenceCards";
 
 const formatTime = (epochSeconds: number | null | undefined): string =>
   epochSeconds ? new Date(epochSeconds * 1000).toLocaleString() : "–";
@@ -114,39 +115,6 @@ function LibraryGauges({
   );
 }
 
-function PathDifferencesCard({ differences }: { differences: PathDifference[] }) {
-  if (differences.length === 0) return null;
-  return (
-    <Card withBorder>
-      <Title order={5}>Naming differences ({differences.length})</Title>
-      <Text size="xs" c="dimmed" mt={4}>
-        Radarr/Sonarr never rename their own copy when you reorganize your managed tree — this is
-        expected, not a sync failure. Nothing is broken; the two names just point at the same file.
-      </Text>
-      <Table mt="sm" striped withTableBorder>
-        <Table.Thead>
-          <Table.Tr>
-            <Table.Th>Title</Table.Th>
-            <Table.Th>Arr shows</Table.Th>
-            <Table.Th>You organized as</Table.Th>
-          </Table.Tr>
-        </Table.Thead>
-        <Table.Tbody>
-          {differences.map((diff, index) => (
-            <Table.Tr key={index}>
-              <Table.Td>
-                {diff.title ?? "–"} <Badge size="xs" variant="light">{diff.kind}</Badge>
-              </Table.Td>
-              <Table.Td style={{ wordBreak: "break-all" }}>{diff.arr_path}</Table.Td>
-              <Table.Td style={{ wordBreak: "break-all" }}>{diff.managed_path}</Table.Td>
-            </Table.Tr>
-          ))}
-        </Table.Tbody>
-      </Table>
-    </Card>
-  );
-}
-
 function ReportCard({ title, report }: { title: string; report: ReconcileReport }) {
   const fullScope = report.scope === "full";
 
@@ -241,6 +209,7 @@ export default function StatusPanel({
   const [previewLoading, setPreviewLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pathDifferences, setPathDifferences] = useState<PathDifference[]>([]);
+  const [bucketDrift, setBucketDrift] = useState<BucketDrift[]>([]);
   const pendingRef = useRef<PendingRun | null>(null);
   pendingRef.current = pending;
 
@@ -253,6 +222,18 @@ export default function StatusPanel({
       .then(setPathDifferences)
       .catch(() => setPathDifferences([]));
   }, [status?.last_full_finished_at]);
+
+  // A root-folder change happens in Arr, not here, so this is polled: after
+  // every finished pass and on a slow timer in between.
+  useEffect(() => {
+    const load = () =>
+      getBucketDrift()
+        .then(setBucketDrift)
+        .catch(() => setBucketDrift([]));
+    load();
+    const timer = setInterval(load, 30000);
+    return () => clearInterval(timer);
+  }, [status?.last_finished_at]);
 
   // Poll faster while a run is queued or in flight so the lifecycle is visible.
   useEffect(() => {
@@ -303,6 +284,42 @@ export default function StatusPanel({
       setError(`Preview failed: ${String(requestError)}`);
     } finally {
       setPreviewLoading(false);
+    }
+  };
+
+  const driftIds = () => ({
+    radarr_movie_ids: bucketDrift.filter((d) => d.kind === "movie").map((d) => d.id),
+    sonarr_series_ids: bucketDrift.filter((d) => d.kind === "series").map((d) => d.id)
+  });
+
+  const previewDrift = async () => {
+    setError(null);
+    setFinishedNote(null);
+    setPreviewLoading(true);
+    try {
+      const result = await triggerReconcile("targeted", true, driftIds());
+      setPreview(result.report ?? null);
+    } catch (requestError) {
+      setError(`Preview failed: ${String(requestError)}`);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const applyDrift = async () => {
+    setError(null);
+    setFinishedNote(null);
+    setPreview(null);
+    try {
+      const result = await triggerReconcile("targeted", false, driftIds());
+      if (result.queued) {
+        setPending({ scope: "targeted", since: Date.now() / 1000 });
+      } else if (result.report) {
+        setFinishedNote("targeted pass finished — results below.");
+      }
+      onRefresh();
+    } catch (requestError) {
+      setError(`Could not start reconcile: ${String(requestError)}`);
     }
   };
 
@@ -389,9 +406,21 @@ export default function StatusPanel({
         </Alert>
       )}
 
+      <BucketDriftCard
+        drift={bucketDrift}
+        busy={busy}
+        onPreview={previewDrift}
+        onApply={applyDrift}
+      />
+
       <PathDifferencesCard differences={pathDifferences} />
 
-      {preview && <ReportCard title="Preview: what a full pass would do (dry-run)" report={preview} />}
+      {preview && (
+        <ReportCard
+          title={`Preview: what a ${preview.scope} pass would do (dry-run)`}
+          report={preview}
+        />
+      )}
 
       {status.last_report && (
         <ReportCard

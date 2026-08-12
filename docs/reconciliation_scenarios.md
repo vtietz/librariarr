@@ -39,7 +39,7 @@ Test coverage, three layers:
 
 | # | Scenario | Mechanism | Expected result |
 |---|---|---|---|
-| 1 | New Arr import | Webhook → consistency pass. Library inode unknown, no managed folder for the item → ingest | Library folder content hardlinked into `<managed_root>/<Arr folder name>/`; Arr's files untouched; cache learns the mapping |
+| 1 | New Arr import | Webhook → targeted pass for that item (consistency pass if the payload names none). Library inode unknown, no managed folder for the item → ingest | Library folder content hardlinked into `<managed_root>/<Arr folder name>/`; Arr's files untouched; cache learns the mapping |
 | 2 | Quality/file upgrade | Library inode unknown, managed folder known, managed file not newer than both library mtime and import time → ingest file | New inode hardlinked into managed folder; superseded managed videos (movies: all others; series: same SxxEyy only) quarantined to `.deletedByLibrariarr` (or deleted, per `ingest.replacement_delete_mode`) |
 | 3 | User rename/move in managed tree | Inode unchanged → identity survives; full pass re-derives folder via index | No filesystem actions; cache updated; Arr never touched |
 | 4 | Manual add in managed root | Full pass discovery: video inodes unknown to Arr | Exact single lookup match + auto-add enabled → added + projected + rescan. Ambiguous/no match → unmatched report. Manual resolution: add the title in the Arr UI → adopted next full pass |
@@ -49,17 +49,33 @@ Test coverage, three layers:
 | 8 | Idempotency / duplicate prevention | Inode comparison everywhere | Re-running any pass produces zero actions; projections are never re-ingested (their inodes are in the managed tree) |
 | 9 | Stale library/shadow folders (item removed from Arr) | Full pass prune | Folder removed when its contents are provably projections (inode in managed tree or nlink > 1); sole-copy videos are never deleted (warn + leave); managed data always survives |
 | 10 | User replaces a file in the managed tree | Library inode unknown, managed folder known, managed file newer than both library mtime and import time → relink | Library path relinked to the managed inode; Arr rescan triggered; nothing quarantined |
-| 11 | Arr-side root-folder reassignment (bucket move) | Radarr/Sonarr "move to another root folder"; item's Arr path now maps to a *different* `movie_root_mappings`/`series_root_mappings` entry than the one its managed folder currently lives under | Managed folder is moved (real rename, not a copy) to the corresponding location under the new bucket's `managed_root`, preserving the user's own subfolder structure and naming verbatim; cache updated; refused (warn only, nothing touched) if the destination already has content |
+| 11 | Arr-side root-folder reassignment (bucket move) | Radarr/Sonarr "move to another root folder"; item's Arr path now maps to a *different* `movie_root_mappings`/`series_root_mappings` entry than the one its managed folder currently lives under. **Detected by the bucket-drift poll — Arr sends no webhook for this** (see below) | Managed folder is moved (real rename, not a copy) to the corresponding location under the new bucket's `managed_root`, preserving the user's own subfolder structure and naming verbatim; cache updated; refused (warn only, nothing touched) if the destination already has content |
 
-### Scenario 3 caveat: consistency-only passes cannot relocate
+### Scenario 3 caveat: relocating after a *user* move needs the full pass
 
-Recovering identity after a rename/move (scenario 3) requires the inode index,
-which only exists during a **full** pass. If a consistency-only pass (e.g. an
-unrelated webhook) runs after a rename but before the next full pass, the item
-is deferred with a warning ("could not be located, likely moved") rather than
-guessed at — guessing wrong would otherwise hardlink a duplicate at the
-default location. This applies equally to scenario 11 (bucket-move
-relocation), which is also full-pass-only for the same reason.
+Recovering identity after a rename/move **in the managed tree** (scenario 3)
+requires the inode index, which only exists during a **full** pass. If a
+consistency or targeted pass runs after such a move but before the next full
+pass, the item is deferred with a warning ("could not be located, likely
+moved") rather than guessed at — guessing wrong would otherwise hardlink a
+duplicate at the default location.
+
+This does **not** apply to scenario 11: a bucket move needs no index, because
+the managed folder is found through the cache hint (stat-verified as always)
+and Arr's own root folder says where it belongs. Every scope therefore performs
+it, and the same rules apply to all of them (`core/relocate.py`). Only when the
+cache hint is stale as well does scenario 11 wait for the full pass.
+
+### Scenario 11 is polled, not pushed
+
+Arr sends no webhook for a root-folder reassignment: Radarr's
+`MoveMovieService` publishes `MovieMovedEvent`, which only health checks
+consume (never notification providers), and the `OnMovieRename` notification
+fires for file renames, not folder moves. So this scenario is detected by the
+bucket-drift poll (`runtime.bucket_drift_interval_seconds`, `GET
+/api/bucket-drift`), which costs one Arr list call and no tree walk, and the
+drifted items are then reconciled by a targeted pass. See
+[architecture.md](architecture.md).
 
 ## Conflict Tie-Break (Scenarios 2 vs 10)
 
@@ -84,14 +100,16 @@ Documented deliberately rather than left implicit — this matrix was, for a
 while, tested only with a single bucket/mapping configured, which missed
 scenario 11 entirely (a Radarr/Sonarr root-folder reassignment silently left
 the managed tree and Arr's view of an item's bucket permanently out of sync,
-undetected). The following are known-untested as of this writing:
+undetected).
 
-- **A bucket move (scenario 11) happening in the *same* reconcile cycle as an
-  upgrade/replacement (scenario 2/10) for the same item.** Bucket relocation
-  currently only runs on the "identity holds" path; if the library inode is
-  *also* unresolved that cycle, relocation is skipped for that pass and
-  picked up once identity resolves on a later pass. Not believed to cause
-  incorrect behavior, but not explicitly tested.
+Closed since: a bucket move coinciding with an unresolved inode in the same
+cycle. Relocation used to run only on the "identity holds" path, so that
+combination ingested into the *old* bucket and quarantined a managed file for
+nothing; relocation now runs before the inode question is resolved and the case
+is tested.
+
+The following are known-untested as of this writing:
+
 - **A `movie_root_mappings`/`series_root_mappings` entry being removed from
   config while its `managed_root` still has content.** Undefined/untested.
 - **Two configured buckets whose folders could plausibly collide** (same

@@ -1,8 +1,12 @@
-"""Reconcile engine: wires config, Arr clients, cache, and the two flows.
+"""Reconcile engine: wires config, Arr clients, cache, and the reconcile flows.
 
 Scopes:
+- ``targeted``: the per-item flow for an explicit list of Arr ids. Same
+  decisions as ``consistency``, only the iteration narrows — so a webhook that
+  names one movie costs one movie's worth of work instead of the whole library.
 - ``consistency``: no tree walk; cache + stat verification per Arr item.
-  Cheap enough to run on every webhook and short interval.
+  Cheap enough to run on a short interval, and the safety net that heals
+  anything a missed webhook would otherwise leave behind.
 - ``full``: builds the inode index (one walk), additionally resolves unknown
   items, runs discovery/auto-add, and prunes stale library/shadow folders.
 """
@@ -12,11 +16,12 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from ..config.models import AppConfig
 from .discovery import MovieDiscovery, SeriesDiscovery
-from .fsops import check_single_filesystem
+from .fsops import check_single_filesystem, is_within
 from .index import AdvisoryCache, InodeIndex
 from .model import ReconcileReport
 from .movies import MovieReconciler
@@ -26,6 +31,8 @@ LOG = logging.getLogger(__name__)
 
 SCOPE_CONSISTENCY = "consistency"
 SCOPE_FULL = "full"
+SCOPE_TARGETED = "targeted"
+SCOPES = (SCOPE_TARGETED, SCOPE_CONSISTENCY, SCOPE_FULL)
 
 _UNSET = object()
 
@@ -101,7 +108,16 @@ class ReconcileEngine:
         scope: str = SCOPE_CONSISTENCY,
         dry_run: bool = False,
         progress=None,
+        radarr_movie_ids: Sequence[int] | None = None,
+        sonarr_series_ids: Sequence[int] | None = None,
     ) -> ReconcileReport:
+        """Run one reconcile pass.
+
+        In ``targeted`` scope the id lists select the work: an Arr with no ids
+        is skipped entirely, so a Radarr webhook never drags the Sonarr library
+        along (and vice versa). The ids are ignored in the other scopes, which
+        by definition already cover every item.
+        """
         started = time.monotonic()
         report = ReconcileReport(dry_run=dry_run, scope=scope)
         tick = progress or (lambda phase, current, total: None)
@@ -111,11 +127,21 @@ class ReconcileEngine:
             index = self._build_index()
             report.stats["managed_video_files"] = len(index)
 
-        if self.radarr is not None:
+        targeted = scope == SCOPE_TARGETED
+        movie_ids = self._targeted_ids(radarr_movie_ids) if targeted else None
+        series_ids = self._targeted_ids(sonarr_series_ids) if targeted else None
+        if targeted and not movie_ids and not series_ids:
+            report.warn("Targeted reconcile requested without any Arr item ids; nothing to do")
+            report.duration_seconds = time.monotonic() - started
+            return report
+
+        if self.radarr is not None and not (targeted and not movie_ids):
             try:
                 movies, movie_inodes = MovieReconciler(
                     self.config, self.radarr, self.cache
-                ).reconcile(report, index=index, dry_run=dry_run, progress=tick)
+                ).reconcile(
+                    report, index=index, dry_run=dry_run, progress=tick, movie_ids=movie_ids
+                )
                 if scope == SCOPE_FULL:
                     MovieDiscovery(self.config, self.radarr, self.cache).run(
                         movies, movie_inodes, report, dry_run, progress=tick
@@ -124,11 +150,13 @@ class ReconcileEngine:
                 LOG.exception("Radarr reconcile failed")
                 report.errors.append(f"radarr: {exc}")
 
-        if self.sonarr is not None:
+        if self.sonarr is not None and not (targeted and not series_ids):
             try:
                 series_list, series_inodes = SeriesReconciler(
                     self.config, self.sonarr, self.cache
-                ).reconcile(report, index=index, dry_run=dry_run, progress=tick)
+                ).reconcile(
+                    report, index=index, dry_run=dry_run, progress=tick, series_ids=series_ids
+                )
                 if scope == SCOPE_FULL:
                     SeriesDiscovery(self.config, self.sonarr, self.cache).run(
                         series_list, series_inodes, report, dry_run, progress=tick
@@ -153,6 +181,103 @@ class ReconcileEngine:
             report.duration_seconds,
         )
         return report
+
+    @staticmethod
+    def _targeted_ids(raw: Sequence[int] | None) -> list[int]:
+        """Sorted, de-duplicated positive ids. Anything else is dropped: a
+        targeted pass acts on ids only, and a malformed id is not a reason to
+        widen the scope."""
+        if not raw:
+            return []
+        return sorted(
+            {
+                int(item_id)
+                for item_id in raw
+                if isinstance(item_id, int) and not isinstance(item_id, bool) and item_id > 0
+            }
+        )
+
+    def list_bucket_drift(self) -> list[dict]:
+        """Read-only: items whose Arr root folder now maps to a different bucket
+        than the one their managed folder lives under (scenario 11 pending).
+
+        A root-folder reassignment is the one Arr-side change that arrives
+        without a webhook: Radarr's ``MoveMovieService`` publishes
+        ``MovieMovedEvent``, which only health checks consume — it is never
+        routed to notification providers — and ``OnMovieRename`` fires for file
+        renames, not folder moves. So this drift is polled instead of pushed.
+
+        Cost is one Arr list call plus in-memory comparisons and a single
+        ``is_dir`` per cached item: no tree walk, nothing per file. Cheap enough
+        for a short interval, which is what makes a reclassification visible in
+        minutes instead of at the next full pass.
+
+        Items without a cached managed folder are skipped rather than searched
+        for: the cache stays advisory, and the full pass owns whatever it
+        cannot see.
+        """
+        drift: list[dict] = []
+        if self.radarr is not None:
+            drift.extend(
+                self._drift_for(
+                    "movie",
+                    "radarr",
+                    self.radarr.get_movies(),
+                    self.config.paths.movie_root_mappings,
+                )
+            )
+        if self.sonarr is not None:
+            drift.extend(
+                self._drift_for(
+                    "series",
+                    "sonarr",
+                    self.sonarr.get_series(),
+                    self.config.paths.series_root_mappings,
+                )
+            )
+        return drift
+
+    def _drift_for(self, kind: str, section: str, items: list[dict], mappings) -> list[dict]:
+        results: list[dict] = []
+        for item in items:
+            arr_path = item.get("path")
+            if not arr_path:
+                continue
+            target_root = next(
+                (
+                    Path(mapping.managed_root)
+                    for mapping in mappings
+                    if is_within(Path(arr_path), Path(mapping.library_root))
+                ),
+                None,
+            )
+            if target_root is None:
+                continue  # Arr path is outside every configured library root
+            managed = self.cache.get_folder(section, int(item["id"]))
+            if managed is None or not managed.is_dir():
+                continue
+            current_root = next(
+                (
+                    Path(mapping.managed_root)
+                    for mapping in mappings
+                    if is_within(managed, Path(mapping.managed_root))
+                ),
+                None,
+            )
+            if current_root is None or current_root == target_root:
+                continue
+            results.append(
+                {
+                    "kind": kind,
+                    "id": int(item["id"]),
+                    "title": item.get("title"),
+                    "arr_path": str(arr_path),
+                    "managed_path": str(managed),
+                    "current_bucket": str(current_root),
+                    "target_bucket": str(target_root),
+                }
+            )
+        return results
 
     def manual_add(self, path: str) -> dict:
         """User-initiated add of one managed folder to the matching Arr.

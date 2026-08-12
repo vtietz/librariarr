@@ -240,6 +240,9 @@ def _load_runtime(raw: dict[str, Any]) -> RuntimeConfig:
         ),
         full_interval_minutes=max(1, int(runtime_raw.get("full_interval_minutes", 1440))),
         startup_scope=startup_scope,
+        bucket_drift_interval_seconds=max(
+            0, int(runtime_raw.get("bucket_drift_interval_seconds", 300))
+        ),
     )
 
 

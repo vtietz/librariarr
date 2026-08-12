@@ -291,3 +291,23 @@ def test_cache_survives_reload(tmp_path, config, roots):
 
     reloaded = AdvisoryCache(cache_path)
     assert reloaded.get_folder("radarr", 7) == roots["managed_movies"] / "X (2020)"
+
+
+def test_dry_run_does_not_leave_a_cache_hint_for_an_uncreated_folder(config, cache, roots):
+    """A dry run creates nothing, so it must claim no mapping either: a hint
+    pointing at a folder that does not exist reads as "known before, so probably
+    moved" on the next real pass, which would defer the ingest to the next full
+    pass instead of performing it."""
+    lib_file = write_file(roots["library_movies"] / "Planned (2020)" / "Planned.mkv")
+    radarr = FakeRadarr([movie_payload(1, "Planned", 2020, lib_file.parent, lib_file)])
+    engine = make_engine(config, cache, radarr)
+
+    engine.run(scope=SCOPE_CONSISTENCY, dry_run=True)
+    assert cache.get_folder("radarr", 1) is None
+
+    report = engine.run(scope=SCOPE_CONSISTENCY)
+
+    managed = roots["managed_movies"] / "Planned (2020)" / "Planned.mkv"
+    assert managed.exists(), "the real pass after a dry run must still ingest"
+    assert any(action.kind == "ingest_link" for action in report.actions)
+    assert not report.warnings

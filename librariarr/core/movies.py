@@ -8,6 +8,7 @@ is never renamed by us. See docs/architecture.md.
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from .fsops import (
 )
 from .index import AdvisoryCache, InodeIndex
 from .model import Action, ReconcileReport
+from .relocate import relocate_managed_folder
 
 LOG = logging.getLogger(__name__)
 
@@ -58,10 +60,21 @@ class MovieReconciler:
         index: InodeIndex | None = None,
         dry_run: bool = False,
         progress=None,
+        movie_ids: Sequence[int] | None = None,
     ) -> tuple[list[dict], set[int]]:
-        """Reconcile all movies. Returns (movies, arr_known_inodes) for discovery."""
-        movies = self.radarr.get_movies()
-        LOG.info("Radarr reconcile start: movies=%d", len(movies))
+        """Reconcile all movies. Returns (movies, arr_known_inodes) for discovery.
+
+        ``movie_ids`` narrows the pass to those Radarr ids (targeted scope).
+        Only the iteration narrows: the per-movie decision tree below is
+        identical for every scope, so a targeted pass can never reach a
+        different conclusion than the pass that covers the whole library.
+        """
+        movies = self._fetch_movies(movie_ids)
+        LOG.info(
+            "Radarr reconcile start: movies=%d%s",
+            len(movies),
+            " (targeted)" if movie_ids is not None else "",
+        )
         tick = progress or (lambda phase, current, total: None)
         arr_inodes: set[int] = set()
         for idx, movie in enumerate(movies, start=1):
@@ -82,10 +95,18 @@ class MovieReconciler:
                 self._reconcile_movie(movie, mapping, index, arr_inodes, report, dry_run)
             except OSError as exc:
                 report.errors.append(f"movie '{movie.get('title')}': {exc}")
-        if index is not None:
+        # Pruning decides what to delete from "every folder Radarr no longer
+        # lists", so it must never see a partial movie list: with movie_ids set,
+        # every folder outside the subset would look stale.
+        if index is not None and movie_ids is None:
             self._prune_library_roots(movies, index, report, dry_run)
         self.cache.save()
         return movies, arr_inodes
+
+    def _fetch_movies(self, movie_ids: Sequence[int] | None) -> list[dict]:
+        if movie_ids is None:
+            return self.radarr.get_movies()
+        return self.radarr.get_movies_by_ids(movie_ids)
 
     # ------------------------------------------------------------------
     # Per-movie reconcile
@@ -124,7 +145,9 @@ class MovieReconciler:
         source = self._managed_source_for_inode(library_inode, managed_folder, index)
         if source is not None:
             report.bump("movies_in_sync")
-            resolved_folder = self._reconcile_bucket(movie, source.parent, mapping, report, dry_run)
+            resolved_folder = self._reconcile_bucket(
+                movie, self._managed_folder_of(source, managed_folder), mapping, report, dry_run
+            )
             self.cache.set_folder("radarr", movie_id, resolved_folder)
             self._project(resolved_folder, library_folder, library_inode, report, dry_run)
             arr_inodes.update(self._folder_video_inodes(resolved_folder))
@@ -132,6 +155,14 @@ class MovieReconciler:
 
         # Library inode unknown to the managed tree: ingest or user-replacement.
         if managed_folder is not None:
+            # Reconcile the bucket *before* resolving the inode question: a
+            # root-folder change can coincide with an unresolved inode (Radarr
+            # copied instead of renaming, or an upgrade landed in the same
+            # cycle). Relocating first makes the ingest/relink below land in
+            # the bucket Radarr now says this movie belongs to, instead of
+            # writing into the old bucket and quarantining a file for nothing.
+            managed_folder = self._reconcile_bucket(movie, managed_folder, mapping, report, dry_run)
+            self.cache.set_folder("radarr", movie_id, managed_folder)
             self._resolve_unknown_inode_with_known_folder(
                 movie, library_file, library_folder, managed_folder, report, dry_run
             )
@@ -276,7 +307,12 @@ class MovieReconciler:
             self._supersede_old_videos(
                 managed_folder, ingested_videos, managed_root, report, dry_run
             )
-        self.cache.set_folder("radarr", int(movie["id"]), managed_folder)
+        if not dry_run:
+            # A dry run created nothing, so it must not claim this mapping: the
+            # next real pass would find the hint stale, read that as "known
+            # before, so probably moved" and defer the ingest to the next full
+            # pass instead of performing it.
+            self.cache.set_folder("radarr", int(movie["id"]), managed_folder)
 
     def _supersede_old_videos(
         self,
@@ -434,48 +470,39 @@ class MovieReconciler:
         report: ReconcileReport,
         dry_run: bool,
     ) -> Path:
-        """Follow a Radarr root-folder reassignment: if the movie's managed
-        folder currently lives under a different bucket than the one Radarr's
-        root folder now maps to, treat that as a deliberate reclassification
-        and move the managed folder to match (same-filesystem rename; the
-        library-side hardlink is unaffected since rename preserves inode).
+        """Follow a Radarr root-folder reassignment (scenario 11).
 
-        Refuses (warns) rather than overwrites if the destination already
-        has content there — never clobbers existing files.
+        The rules live in relocate.py so full, consistency and targeted passes
+        move a managed folder on exactly the same terms.
         """
-        target_root = Path(mapping.managed_root)
-        current_root = self._managed_root_of(managed_folder)
-        if current_root is None or current_root == target_root:
-            return managed_folder
-        try:
-            relative = managed_folder.relative_to(current_root)
-        except ValueError:
-            return managed_folder
-
-        new_folder = target_root / relative
-        if new_folder.exists():
-            report.warn(
-                f"'{movie.get('title')}' is in bucket '{current_root}' but Radarr now has "
-                f"it under '{target_root}'; cannot auto-relocate because {new_folder} "
-                "already exists"
-            )
-            return managed_folder
-
-        report.items_changed += 1
-        report.add(
-            Action(
-                "relocate",
-                f"moved to bucket matching Radarr's root folder for '{movie.get('title')}'",
-                str(managed_folder),
-                str(new_folder),
-            )
+        movie_id = int(movie["id"])
+        outcome = relocate_managed_folder(
+            managed_folder,
+            target_root=Path(mapping.managed_root),
+            current_root=self._managed_root_of(managed_folder),
+            label=str(movie.get("title") or movie_id),
+            arr_name="Radarr",
+            report=report,
+            dry_run=dry_run,
+            other_owners=self.cache.folder_owners("radarr", managed_folder, exclude=movie_id),
         )
-        if dry_run:
+        return outcome.folder
+
+    @staticmethod
+    def _managed_folder_of(source: Path, managed_folder: Path | None) -> Path:
+        """The managed folder a located video belongs to — the unit that a
+        bucket relocation moves.
+
+        Normally the video's own parent. When a verified cached folder *contains*
+        the video further down (multi-disc or other subfolder layouts), that
+        folder is the unit instead: moving only the video's parent would leave
+        the rest of the movie behind in the old bucket. A cached folder that
+        does not contain the video is ignored — the video was then located via
+        the inode index (the user moved it), and its own parent is the truth.
+        """
+        if managed_folder is not None and is_within(source, managed_folder):
             return managed_folder
-        new_folder.parent.mkdir(parents=True, exist_ok=True)
-        managed_folder.rename(new_folder)
-        prune_empty_dirs(current_root, dry_run=False)
-        return new_folder
+        return source.parent
 
     def _verified_managed_folder(self, movie_id: int) -> tuple[Path | None, bool]:
         """Returns (folder, had_stale_hint).

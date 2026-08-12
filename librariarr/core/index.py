@@ -108,3 +108,17 @@ class AdvisoryCache:
 
     def known_folders(self, section: str) -> set[str]:
         return set(self._data.get(section, {}).values())
+
+    def folder_owners(self, section: str, folder: Path, *, exclude: int | None = None) -> list[int]:
+        """Ids in ``section`` whose cached managed folder is exactly ``folder``.
+
+        Used by bucket relocation to refuse moving a folder that more than one
+        Arr item claims. Advisory like every other read here: a hint that is no
+        longer true only ever costs a refused relocation, never a wrong one.
+        """
+        wanted = str(folder)
+        return sorted(
+            int(item_id)
+            for item_id, value in self._data.get(section, {}).items()
+            if value == wanted and (exclude is None or int(item_id) != int(exclude))
+        )
