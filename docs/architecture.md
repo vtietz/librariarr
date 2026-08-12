@@ -187,10 +187,20 @@ season-like subfolders is found.
 
 - Managed files are **never deleted**. The only destructive operation on
   managed data is upgrade supersession, which defaults to a quarantine move to
-  `<managed_root>/.deletedByLibrariarr/`. Bucket relocation (moving a managed
-  folder to follow an Arr-side root-folder change) is non-destructive — same
-  inode, same data, only the location changes — and refuses rather than
-  overwrites when the destination already has content.
+  `<managed_root>/.deletedByLibrariarr/`. Every such removal goes through
+  `core/supersede.py`, including the case that is easy to miss: an import whose
+  *filename matches* the managed file it replaces. Ordinary supersession works
+  by name — keep the ingested names, quarantine the rest — so a same-named
+  upgrade is invisible to it and would be overwritten in place by the hardlink
+  itself (`ensure_hardlink` unlinks its target first), destroying a sole-copy
+  managed file outright. Such a target is therefore superseded *before* the
+  link is made, by the same rules. This applies to allowlisted extras too: an
+  import still wins over the managed copy, but the replaced copy — possibly the
+  user's own subtitle — stays recoverable instead of vanishing.
+- Bucket relocation (moving a managed folder to follow an Arr-side root-folder
+  change) is non-destructive — same inode, same data, only the location
+  changes — and refuses rather than overwrites when the destination already has
+  content.
 - Library/shadow cleanup only removes files provably safe to remove: inode
   present in the managed tree, or nlink > 1. A stale library folder containing
   a sole-copy video is left in place with a warning.

@@ -460,3 +460,31 @@ def test_s10_sonarr_user_replacement_wins_when_managed_newer(make_engine, cache,
 
     assert inode(shadow_old) == inode(managed_new)
     assert 1 in sonarr.refreshed
+
+
+# -- Scenario 2 variant: the upgrade carries the *same* filename ---------------
+
+
+def test_s2_same_named_upgrade_quarantines_instead_of_destroying(make_engine, cache, roots):
+    """Radarr's naming template can produce the same filename for the file that
+    replaces it. Name-based supersession cannot see that collision, so without
+    the pre-link rescue the hardlink overwrote the managed file's only link and
+    the data was gone. Verified on a real filesystem, where "gone" is literal:
+    the original bytes must still be readable from the quarantine.
+    """
+    managed_old = write_file(roots["managed_movies"] / "Foo (2020)" / "Foo.mkv", "original bytes")
+    cache.set_folder("radarr", 1, managed_old.parent)
+    lib_new = write_file(roots["library_movies"] / "Foo (2020)" / "Foo.mkv", "upgraded bytes")
+    os.utime(managed_old, (1000, 1000))
+    os.utime(lib_new, (2000, 2000))
+    assert inode(managed_old) != inode(lib_new), "two distinct files, one name"
+    assert managed_old.stat().st_nlink == 1, "the managed copy is a sole link — losable"
+    radarr = FakeRadarr([movie(1, "Foo", 2020, lib_new.parent, lib_new)])
+
+    make_engine(radarr=radarr).run(scope=SCOPE_CONSISTENCY)
+
+    assert managed_old.read_text() == "upgraded bytes", "the upgrade is in place"
+    assert inode(managed_old) == inode(lib_new), "and shares Radarr's inode"
+    quarantined = list((roots["managed_movies"] / TRASH_DIR_NAME).rglob("Foo.mkv"))
+    assert quarantined, "the replaced managed video must survive in the quarantine"
+    assert quarantined[0].read_text() == "original bytes", "byte-for-byte, not a stub"

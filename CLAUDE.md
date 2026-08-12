@@ -45,6 +45,7 @@ LIBRARIARR_PYTEST_ARGS="tests/unit/core/test_movies_reconcile.py -v" ./run.sh te
 - `discovery.py` — unmatched managed folders: adopt file-less Arr entries (exact title+year), conservative auto-add (single exact lookup match), otherwise report with reason. Name parsing happens only here, at first contact.
 - `index.py` — `InodeIndex` (rebuilt per full pass) and `AdvisoryCache` (id → managed folder JSON; advisory only, always stat-verified).
 - `relocate.py` — bucket relocation (scenario 11): the one place a managed folder moves between buckets, shared by movies and series so every scope applies identical rules. Refuses on `destination_exists` / `ambiguous_owner` / `cross_filesystem`.
+- `supersede.py` — the one place managed data is removed (quarantine by default). Also rescues a managed file that an incoming hardlink would otherwise overwrite in place, which is how a same-named upgrade used to destroy data.
 - `fsops.py` — hardlink/trash/prune primitives, exclusion pattern matching. Ingest = hardlink (data never moves). Trash = `<managed_root>/.deletedByLibrariarr/`.
 - `model.py` / `status.py` — `ReconcileReport`/`Action`/`UnmatchedFolder` and the thread-safe status snapshot.
 
@@ -64,7 +65,7 @@ Small React/TypeScript SPA (Mantine): Status, Unmatched, Config (raw YAML), Logs
 
 ### Safety invariants (do not violate)
 
-- Managed files are never deleted; the only destructive path is upgrade supersession → quarantine (or `hard` delete if configured).
+- Managed files are never deleted; the only destructive path is upgrade supersession → quarantine (or `hard` delete if configured). Anything that writes into the managed tree must route a would-be-overwritten target through `supersede.py` first — `ensure_hardlink` unlinks its target, so overwriting is deleting.
 - Library/shadow roots are machine-only; cleanup only removes files whose inode is in the managed tree or with nlink > 1; sole-copy videos are warned and left.
 - Arr paths/filenames are never rewritten; the Arr API is only used to read, add, and rescan.
 - Everything idempotent; every mutating helper honors `dry_run`.

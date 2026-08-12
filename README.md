@@ -38,10 +38,11 @@ What that gives you:
 - **New import** → the folder appears in your managed root (hardlinks) within seconds of the webhook. Sort it deeper into your hierarchy whenever you like.
 - **Quality upgrade** → new file hardlinked into your tree, old file quarantined (movies: any other video in the folder; series: only the same SxxEyy episode).
 - **You replace a file in your tree** → LibrariArr relinks Radarr's file to yours and triggers a rescan (newer side wins).
+- **You move an item to another root folder in Arr** → treated as a deliberate reclassification: the managed folder follows into the matching bucket, as a real rename that keeps your own subfolder structure and naming. Handy if your buckets are age ratings or collections.
 - **You drop a new movie/series folder** → discovery parses the name once, auto-adds on an exact match, or lists it as unmatched. To resolve manually: just add the title in the Radarr/Sonarr UI — no paths, no dialogs.
 - **You remove an item from Arr** → the library projection is pruned; your files are untouched.
 
-Runtime model: webhooks trigger a cheap **consistency pass** (two `stat()` calls per item, seconds even on NAS disks, no tree walk) — this is what makes Arr-driven downloads/upgrades show up in seconds, independent of any schedule. A scheduled **full pass** (default once daily) does the single tree walk for discovering manually-dropped folders and cleaning up stale projections; click **Run full pass now** in the Status panel for immediate convergence after reorganizing by hand. No filesystem watchers to configure or tune.
+Runtime model: a webhook that names an item reconciles **just that item** — no tree walk, and no cost that grows with your library — which is what makes Arr-driven downloads/upgrades show up in seconds, independent of any schedule. A cheap library-wide **consistency pass** still runs on an interval as the safety net for anything a lost webhook missed, and a scheduled **full pass** (default once daily) does the single tree walk for discovering manually-dropped folders and cleaning up stale projections; click **Run full pass now** in the Status panel for immediate convergence after reorganizing by hand. One Arr-side change sends no webhook at all — moving an item to another root folder — so that one is found by a cheap poll (one API call, no tree walk). No filesystem watchers to configure or tune.
 
 ## Quick Start (Docker Compose)
 
@@ -162,6 +163,7 @@ Start the container, open `http://localhost:8787`, and click **Preview (dry-run)
 |---|---|
 | Add a movie in Radarr, it downloads | Webhook → within seconds the folder appears in your managed root. Sort it deeper anytime. |
 | Radarr upgrades quality | New file hardlinked into your tree; old managed file quarantined. |
+| Change a movie's/series' root folder in Arr ("Move Files") | Found by the bucket-drift poll within minutes; the managed folder moves to the matching bucket. Arr sends no webhook for this, so it is polled — the Status panel's **Pending bucket moves** card also lets you preview and apply it immediately. |
 | Drop a `Title (Year)` folder into a managed root | Next full pass: auto-added on an exact match, otherwise listed in Unmatched. |
 | Unmatched entry you want to fix | Add the title in the Radarr/Sonarr UI — the next full pass links it. No paths needed. |
 | Rename/move folders in your tree (TMM, by hand) | Nothing breaks — identity is the inode. But Radarr/Sonarr keep showing the *old* name/path indefinitely — they never rewrite it themselves (invariant #3), and LibrariArr never writes back to Arr's side. This is expected, not a bug; the Status panel's **Naming differences** table shows both names side by side so it doesn't look like something's wrong. |
@@ -170,7 +172,7 @@ Start the container, open `http://localhost:8787`, and click **Preview (dry-run)
 
 ## Web UI
 
-Four panels: **Status** (runtime state, last run report, trigger reconcile), **Unmatched** (folders needing attention, with the reason and how to resolve), **Config** (raw YAML with validation and backup), **Logs**. The Radarr/Sonarr UIs remain the primary interaction surface for everything content-related.
+Four panels: **Status** (runtime state, last run report, trigger reconcile, plus **Pending bucket moves** and **Naming differences** when there is anything to show), **Unmatched** (folders needing attention, with the reason and how to resolve), **Config** (raw YAML with validation and backup), **Logs**. The Radarr/Sonarr UIs remain the primary interaction surface for everything content-related.
 
 ## Docs
 

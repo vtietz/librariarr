@@ -21,13 +21,13 @@ from .fsops import (
     is_within,
     iter_files,
     matches_extras_allowlist,
-    move_to_trash,
     prune_empty_dirs,
     remove_file,
 )
 from .index import AdvisoryCache, InodeIndex
 from .model import Action, ReconcileReport
 from .relocate import relocate_managed_folder
+from .supersede import rescue_replaced_target, supersede_managed_file
 
 LOG = logging.getLogger(__name__)
 
@@ -269,6 +269,16 @@ class SeriesReconciler:
             if not is_video and not matches_extras_allowlist(file_path.name, self.extras_allowlist):
                 continue
             target = managed_folder / file_path.relative_to(shadow_folder)
+            if not rescue_replaced_target(
+                file_path,
+                target,
+                managed_root=Path(mapping.managed_root),
+                mode=self.config.ingest.replacement_delete_mode,
+                kind="episode" if is_video else "file",
+                report=report,
+                dry_run=dry_run,
+            ):
+                continue
             if ensure_hardlink(file_path, target, dry_run=dry_run):
                 changed = True
                 report.items_changed += 1
@@ -296,6 +306,21 @@ class SeriesReconciler:
             report.warn(f"Ingest disabled; skipping episode ingest: {shadow_path}")
             return False
         target = managed_folder / relative
+        managed_root = self._managed_root_of(managed_folder)
+        mode = self.config.ingest.replacement_delete_mode
+        # An upgrade whose relative path matches the episode it replaces would
+        # otherwise be overwritten in place, bypassing supersession entirely
+        # (the loop below skips `old_file == target` for exactly that path).
+        if not rescue_replaced_target(
+            shadow_path,
+            target,
+            managed_root=managed_root,
+            mode=mode,
+            kind="episode",
+            report=report,
+            dry_run=dry_run,
+        ):
+            return False
         if not ensure_hardlink(shadow_path, target, dry_run=dry_run):
             return False
         report.items_changed += 1
@@ -304,26 +329,17 @@ class SeriesReconciler:
                 "ingest_link", "ingested episode into managed tree", str(shadow_path), str(target)
             )
         )
-        managed_root = self._managed_root_of(managed_folder)
         for old_file in superseded:
             if old_file == target:
-                continue
-            if self.config.ingest.replacement_delete_mode == "hard":
-                remove_file(old_file, dry_run=dry_run)
-                report.add(
-                    Action("unlink", "superseded managed episode removed", str(old_file), None)
-                )
-            elif managed_root is not None:
-                destination = move_to_trash(old_file, managed_root, dry_run=dry_run)
-                report.add(
-                    Action(
-                        "trash",
-                        "superseded managed episode quarantined",
-                        str(old_file),
-                        str(destination),
-                    )
-                )
-            report.items_changed += 1
+                continue  # handled before the link
+            supersede_managed_file(
+                old_file,
+                managed_root=managed_root,
+                mode=mode,
+                kind="episode",
+                report=report,
+                dry_run=dry_run,
+            )
         return True
 
     # ------------------------------------------------------------------

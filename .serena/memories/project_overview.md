@@ -1,3 +1,4 @@
-- Purpose: sync discovered movie/series folders into Radarr/Sonarr libraries via linking/reconciliation and expose runtime/web operations.
-- Stack: Python 3.12 backend, Docker Compose wrappers, pytest, Ruff, optional UI in ui/ (Vite/TS).
-- Main runtime packages: librariarr/service, librariarr/sync, librariarr/runtime, librariarr/web, librariarr/clients.
+- Purpose: keep a user-curated nested media tree (authoritative) in sync with Radarr/Sonarr's flat roots via hardlinks; identity is the inode, so renames/moves in the managed tree never break anything and Arr paths are never rewritten.
+- Stack: Python 3.12 backend, Docker Compose wrappers, pytest, Ruff, UI in ui/ (Vite/TS/Mantine).
+- Main runtime packages: librariarr/core (the product: engine, movies, series, discovery, index, relocate, supersede, fsops), plus librariarr/service, librariarr/runtime, librariarr/web, librariarr/clients, librariarr/config. librariarr/sync is only first-contact name parsing.
+- Canonical behavior docs: docs/architecture.md, docs/reconciliation_scenarios.md, docs/workflows.md.

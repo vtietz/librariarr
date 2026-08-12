@@ -26,7 +26,7 @@ Always treat these documents as the single source of truth for runtime behavior 
 
 - `docs/reconciliation_scenarios.md` (canonical scenario matrix and expected outcomes)
 - `docs/workflows.md` (runtime/reconcile flow overview)
-- `docs/radarr_projection_implementation_spec.md` (architecture and invariants)
+- `docs/architecture.md` (architecture and invariants)
 
 Required policy:
 
