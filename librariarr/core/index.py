@@ -13,11 +13,18 @@ import json
 import logging
 import threading
 from collections.abc import Iterable
+from dataclasses import dataclass
 from pathlib import Path
 
 from .fsops import inode_of, is_excluded, is_video_file, iter_files
 
 LOG = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class InodeLookup:
+    path: Path | None
+    ambiguous: bool = False
 
 
 class InodeIndex:
@@ -47,9 +54,29 @@ class InodeIndex:
                     index._by_inode.setdefault(inode, []).append(file_path)
         return index
 
-    def lookup(self, inode: int) -> Path | None:
-        paths = self._by_inode.get(inode)
-        return paths[0] if paths else None
+    def lookup(self, inode: int, *, root: Path | None = None) -> Path | None:
+        matches = self._live_matches(inode, root=root)
+        return matches[0] if len(matches) == 1 else None
+
+    def lookup_preferred(self, inode: int, *, root: Path) -> InodeLookup:
+        preferred = self._live_matches(inode, root=root)
+        if preferred:
+            return InodeLookup(
+                path=preferred[0] if len(preferred) == 1 else None,
+                ambiguous=len(preferred) > 1,
+            )
+        global_matches = self._live_matches(inode)
+        return InodeLookup(
+            path=global_matches[0] if len(global_matches) == 1 else None,
+            ambiguous=len(global_matches) > 1,
+        )
+
+    def _live_matches(self, inode: int, *, root: Path | None = None) -> list[Path]:
+        return [
+            path
+            for path in self._by_inode.get(inode, [])
+            if path.is_file() and (root is None or path.is_relative_to(root))
+        ]
 
     def contains(self, inode: int) -> bool:
         return inode in self._by_inode

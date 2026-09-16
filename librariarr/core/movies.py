@@ -142,7 +142,15 @@ class MovieReconciler:
             )
             return
 
-        source = self._managed_source_for_inode(library_inode, managed_folder, index)
+        source, ambiguous = self._managed_source_for_inode(
+            library_inode, managed_folder, index, Path(mapping.managed_root)
+        )
+        if ambiguous:
+            report.warn(
+                f"Multiple managed files share Radarr's inode for '{movie.get('title')}'; "
+                "deferring reconciliation"
+            )
+            return
         if source is not None:
             report.bump("movies_in_sync")
             resolved_folder = self._reconcile_bucket(
@@ -532,14 +540,16 @@ class MovieReconciler:
         library_inode: int,
         managed_folder: Path | None,
         index: InodeIndex | None,
-    ) -> Path | None:
+        managed_root: Path,
+    ) -> tuple[Path | None, bool]:
         if managed_folder is not None:
             for file_path in self._relevant_files(managed_folder):
                 if inode_of(file_path) == library_inode:
-                    return file_path
+                    return file_path, False
         if index is not None:
-            return index.lookup(library_inode)
-        return None
+            result = index.lookup_preferred(library_inode, root=managed_root)
+            return result.path, result.ambiguous
+        return None, False
 
     def _folder_video_inodes(self, folder: Path) -> set[int]:
         return {

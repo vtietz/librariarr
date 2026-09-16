@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import pytest
+
 from librariarr.core.engine import SCOPE_CONSISTENCY, SCOPE_FULL, ReconcileEngine
 from librariarr.core.fsops import TRASH_DIR_NAME
 from librariarr.core.index import AdvisoryCache
@@ -159,6 +161,62 @@ def test_managed_rename_is_recovered_via_index(config, cache, roots):
 
     assert cache.get_folder("radarr", 1) == managed.parent
     assert not any(a.kind in {"ingest_link", "trash"} for a in report.actions)
+
+
+def test_stale_cache_is_remapped_to_nested_collection_folder(multi_bucket_config, cache, buckets):
+    managed_folder = buckets["managed_b"] / "Alien Filmreihe" / "Alien - Romulus (2024) FSK16"
+    managed = write_file(managed_folder / "Alien.Romulus.2024.mkv")
+    duplicate = hardlink(managed, buckets["managed_a"] / "Alien Romulus (2024)" / managed.name)
+    library_folder = buckets["library_b"] / "Alien Romulus (2024)"
+    library_file = hardlink(managed, library_folder / "Alien.Romulus.2024.mkv")
+    stale_folder = buckets["managed_b"] / "Alien Romulus (2024)"
+    cache.set_folder("radarr", 3349, stale_folder)
+    radarr = FakeRadarr([movie_payload(3349, "Alien Romulus", 2024, library_folder, library_file)])
+
+    report = make_engine(multi_bucket_config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert cache.get_folder("radarr", 3349) == managed_folder
+    assert managed.exists()
+    assert duplicate.exists()
+    assert not (stale_folder / library_file.name).exists()
+    assert not any(action.kind in {"ingest_link", "move", "trash"} for action in report.actions)
+
+
+@pytest.mark.parametrize("cache_state", ["missing", "stale"])
+def test_full_reconcile_locates_previous_bucket_and_relocates_with_unusable_cache(
+    multi_bucket_config, cache, buckets, cache_state
+):
+    managed = write_file(buckets["managed_a"] / "Foo (2020)" / "Foo.mkv")
+    library_file = hardlink(managed, buckets["library_b"] / "Foo (2020)" / "Foo.mkv")
+    if cache_state == "stale":
+        cache.set_folder("radarr", 1, buckets["managed_a"] / "Gone (2020)")
+    radarr = FakeRadarr([movie_payload(1, "Foo", 2020, library_file.parent, library_file)])
+
+    report = make_engine(multi_bucket_config, cache, radarr).run(scope=SCOPE_FULL)
+
+    relocated = buckets["managed_b"] / "Foo (2020)" / "Foo.mkv"
+    assert relocated.exists()
+    assert inode(relocated) == inode(library_file)
+    assert not managed.exists()
+    assert cache.get_folder("radarr", 1) == relocated.parent
+    assert any(action.kind == "relocate" for action in report.actions)
+    assert not any(action.kind in {"ingest_link", "trash"} for action in report.actions)
+
+
+def test_ambiguous_inode_paths_in_expected_bucket_warn_and_defer(
+    multi_bucket_config, cache, buckets
+):
+    first = write_file(buckets["managed_b"] / "First (2020)" / "Foo.mkv")
+    second = hardlink(first, buckets["managed_b"] / "Second (2020)" / "Foo.mkv")
+    library_file = hardlink(first, buckets["library_b"] / "Foo (2020)" / "Foo.mkv")
+    radarr = FakeRadarr([movie_payload(1, "Foo", 2020, library_file.parent, library_file)])
+
+    report = make_engine(multi_bucket_config, cache, radarr).run(scope=SCOPE_FULL)
+
+    assert first.exists() and second.exists()
+    assert cache.get_folder("radarr", 1) is None
+    assert any("Multiple managed files" in warning for warning in report.warnings)
+    assert not any(action.kind in {"ingest_link", "relocate", "trash"} for action in report.actions)
 
 
 def test_stale_cache_during_consistency_pass_defers_instead_of_duplicating(config, cache, roots):
