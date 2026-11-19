@@ -58,7 +58,24 @@ export interface StatusResponse {
   last_full_report: ReconcileReport | null;
   last_full_finished_at: number | null;
   history: RunSummary[];
+  schedule: ScheduleInfo | null;
   runtime_loop_active: boolean;
+}
+
+export interface ScheduleInfo {
+  mode: "daily";
+  time: string;
+  timezone: string;
+  next_run_at: number | null;
+  last_success_slot: string | null;
+  last_success_at: number | null;
+  last_attempt_slot: string | null;
+  last_attempt_at: number | null;
+  last_result: "ok" | "failed" | null;
+  last_error: string | null;
+  retry_at: number | null;
+  consecutive_failures: number;
+  missed_slot: string | null;
 }
 
 export interface ManualAddResult {

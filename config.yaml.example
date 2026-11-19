@@ -106,6 +106,18 @@ runtime:
   bucket_drift_interval_seconds: 300
   # Reconcile scope at startup: full | consistency | off
   startup_scope: "full"
+  # interval (default): the consistency/full timers above.
+  # daily: one full pass per day at daily_full_time instead of both timers,
+  # so nothing touches the managed disks between slots and they can spin
+  # down. Webhooks and manual runs still work at any hour. For a fully idle
+  # setup also set bucket_drift_interval_seconds: 0 and startup_scope: "off".
+  # A missed slot (LibrariArr down) is reported, not caught up; a failed pass
+  # is retried after daily_retry_minutes.
+  schedule_mode: "interval"
+  daily_full_time: "03:00"
+  # IANA zone, e.g. "Europe/Berlin"; empty uses TZ / /etc/localtime.
+  daily_timezone: ""
+  daily_retry_minutes: 60
 
 ingest:
   # Bring new Radarr/Sonarr imports and upgrades into the managed tree by

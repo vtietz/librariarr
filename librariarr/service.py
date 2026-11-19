@@ -31,6 +31,10 @@ class LibrariArrService:
     ) -> None:
         self.config = config
         self.engine = engine or ReconcileEngine(config, cache_path=default_cache_path(config_path))
+        # Daily-schedule marker lives next to the id cache (same state volume).
+        self.schedule_state_path = default_cache_path(config_path).with_name(
+            "librariarr-schedule.json"
+        )
         self.status = get_status_tracker()
         self._reconcile_lock = threading.Lock()
 
@@ -118,4 +122,6 @@ class LibrariArrService:
         """Run the background loop (blocking). Used by --web and plain daemon mode."""
         from .runtime.loop import RuntimeLoop
 
-        RuntimeLoop(self, self.config.runtime).run(stop_event or threading.Event())
+        RuntimeLoop(self, self.config.runtime, schedule_state_path=self.schedule_state_path).run(
+            stop_event or threading.Event()
+        )

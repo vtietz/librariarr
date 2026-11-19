@@ -11,8 +11,9 @@ Canonical scenario semantics live in
 | Webhook naming an item (`POST /api/hooks/{radarr,sonarr}` with `movie.id`/`series.id`) | targeted, that item only | `runtime.debounce_seconds` (default 8s) |
 | Webhook without a usable item id (test/health events, unexpected payloads) | consistency | `runtime.debounce_seconds` |
 | Interval | bucket-drift poll → targeted for drifted items | every `runtime.bucket_drift_interval_seconds` (default 300s; `0` disables) |
-| Interval | consistency | every `runtime.consistency_interval_seconds` (default 300s) |
-| Interval | full | every `runtime.full_interval_minutes` (default 1440m / daily) |
+| Interval (`schedule_mode: interval`, default) | consistency | every `runtime.consistency_interval_seconds` (default 300s) |
+| Interval (`schedule_mode: interval`, default) | full | every `runtime.full_interval_minutes` (default 1440m / daily) |
+| Daily (`schedule_mode: daily`) | full, replacing both interval passes | once per day at `runtime.daily_full_time` in `runtime.daily_timezone` |
 | Startup | `runtime.startup_scope` (default full) | immediate |
 | API (`POST /api/reconcile`) | chosen scope | queued into the loop (or immediate with `dry_run`) |
 
@@ -37,11 +38,36 @@ panel (or `POST /api/reconcile {"scope": "full"}`) right after making changes
 — that's the intended way to get immediate convergence without lowering the
 scheduled interval for everyone.
 
+### Daily Schedule Mode (low idle disk access)
+
+`runtime.schedule_mode: daily` exists so the managed disks can spin down
+between jobs. It replaces the periodic consistency and full passes with one
+full pass per day — the full pass already covers known-item consistency plus
+discovery and prune, so nothing between slots touches the managed tree. For a
+fully idle setup also set `bucket_drift_interval_seconds: 0` (root-folder
+reassignments then wait for the daily pass) and `startup_scope: "off"`.
+
+- Targeted webhook passes and manual runs (`POST /api/reconcile`, the UI
+  buttons) work at any hour. They neither postpone the daily slot nor count
+  as it; a webhook without an item id still runs a consistency pass.
+- Each slot is identified by its local date and recorded in
+  `librariarr-schedule.json` next to the id cache. A slot that already
+  succeeded is never repeated after a restart.
+- A slot that passed while LibrariArr was down is **not** caught up on
+  startup (a restart must not walk the tree). It is logged and shown as
+  *missed* in `/api/status` → `schedule` and the Status panel, and the next
+  slot covers it.
+- A pass that raises, or returns a report carrying errors, is recorded as
+  failed (logged, shown in status with the error). It is retried after
+  `daily_retry_minutes` (default 60), never sooner and never past the next
+  slot. A pending retry survives a restart, and may run right at startup if
+  its time has already passed.
+
 Triggers that land in the same debounce window collapse into one pass, and the
 broader scope wins: several webhooks for the same movie run once, and a
 consistency trigger arriving alongside them supersedes the ids entirely. A
-targeted pass deliberately does *not* reset the consistency timer — otherwise
-continuous webhook traffic would starve the safety net.
+targeted pass deliberately does *not* reset the consistency timer (or the
+daily slot) — otherwise continuous webhook traffic would starve the safety net.
 
 ## Pass Contents
 

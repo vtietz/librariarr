@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import os
+from datetime import time as dtime
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 
@@ -19,6 +21,14 @@ from .models import (
     SonarrConfig,
     SonarrProjectionConfig,
 )
+
+
+def parse_daily_time(raw: str) -> dtime:
+    """``HH:MM`` (24h) -> time; raises ValueError on anything else."""
+    hours, sep, minutes = str(raw).strip().partition(":")
+    if not sep or not hours.isdigit() or not minutes.isdigit():
+        raise ValueError(f"invalid time: {raw!r}")
+    return dtime(int(hours), int(minutes))
 
 
 def _require(data: dict[str, Any], key: str) -> Any:
@@ -243,7 +253,34 @@ def _load_runtime(raw: dict[str, Any]) -> RuntimeConfig:
         bucket_drift_interval_seconds=max(
             0, int(runtime_raw.get("bucket_drift_interval_seconds", 300))
         ),
+        **_load_schedule(runtime_raw),
     )
+
+
+def _load_schedule(runtime_raw: dict[str, Any]) -> dict[str, Any]:
+    mode = str(runtime_raw.get("schedule_mode", "interval")).strip().lower() or "interval"
+    if mode not in {"interval", "daily"}:
+        raise ValueError("runtime.schedule_mode must be one of: interval, daily")
+    raw_time = runtime_raw.get("daily_full_time", "03:00")
+    if isinstance(raw_time, int):  # YAML 1.1 reads an unquoted 03:00 as sexagesimal
+        raw_time = f"{raw_time // 60:02d}:{raw_time % 60:02d}"
+    daily_time = str(raw_time).strip()
+    try:
+        parsed = parse_daily_time(daily_time)
+    except ValueError as exc:
+        raise ValueError("runtime.daily_full_time must be HH:MM (24h)") from exc
+    timezone = str(runtime_raw.get("daily_timezone") or "").strip()
+    if timezone:
+        try:
+            ZoneInfo(timezone)
+        except (ZoneInfoNotFoundError, ValueError) as exc:
+            raise ValueError(f"runtime.daily_timezone is not a known zone: {timezone}") from exc
+    return {
+        "schedule_mode": mode,
+        "daily_full_time": parsed.strftime("%H:%M"),
+        "daily_timezone": timezone,
+        "daily_retry_minutes": max(1, int(runtime_raw.get("daily_retry_minutes", 60))),
+    }
 
 
 def _load_ingest(raw: dict[str, Any]) -> IngestConfig:

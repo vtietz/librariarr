@@ -23,6 +23,7 @@ class StatusTracker:
         self._last_finished_at: float | None = None
         self._last_error: str | None = None
         self._history: list[dict[str, Any]] = []
+        self._schedule: dict[str, Any] | None = None
 
     def begin(self, scope: str) -> None:
         with self._lock:
@@ -74,6 +75,12 @@ class StatusTracker:
             )
             del self._history[_MAX_HISTORY:]
 
+    def set_schedule(self, schedule: dict[str, Any] | None) -> None:
+        """Daily-schedule state (next run, last result, missed slot); None in
+        interval mode."""
+        with self._lock:
+            self._schedule = dict(schedule) if schedule else None
+
     def snapshot(self) -> dict[str, Any]:
         with self._lock:
             return {
@@ -87,6 +94,7 @@ class StatusTracker:
                 "last_full_report": self._last_full_report,
                 "last_full_finished_at": self._last_full_finished_at,
                 "history": list(self._history),
+                "schedule": dict(self._schedule) if self._schedule else None,
             }
 
 

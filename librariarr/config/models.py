@@ -18,6 +18,13 @@ class RuntimeConfig:
     # Arr reports via no webhook). Cheaper than a consistency pass: one Arr list
     # call, no tree walk. 0 disables the poll.
     bucket_drift_interval_seconds: int = 300
+    # interval: periodic consistency + full passes (the timers above).
+    # daily: one full pass per day at daily_full_time instead of both timers;
+    # webhooks, manual runs and the drift poll are unaffected.
+    schedule_mode: str = "interval"  # interval | daily
+    daily_full_time: str = "03:00"  # HH:MM, local to daily_timezone
+    daily_timezone: str = ""  # IANA name; empty = process-local zone (TZ)
+    daily_retry_minutes: int = 60  # retry delay after a failed daily pass
 
 
 @dataclass

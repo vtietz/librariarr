@@ -122,6 +122,46 @@ def test_runtime_startup_scope_validation(tmp_path: Path) -> None:
         load_config(write(tmp_path, bad))
 
 
+def test_runtime_schedule_defaults_to_interval(tmp_path: Path) -> None:
+    runtime = load_config(write(tmp_path, BASE_YAML)).runtime
+    assert runtime.schedule_mode == "interval"
+
+
+def test_runtime_daily_schedule_loads(tmp_path: Path) -> None:
+    yaml_text = BASE_YAML + (
+        "runtime:\n"
+        "  schedule_mode: daily\n"
+        '  daily_full_time: "4:05"\n'
+        "  daily_timezone: Europe/Berlin\n"
+        "  daily_retry_minutes: 30\n"
+    )
+    runtime = load_config(write(tmp_path, yaml_text)).runtime
+    assert runtime.schedule_mode == "daily"
+    assert runtime.daily_full_time == "04:05"
+    assert runtime.daily_timezone == "Europe/Berlin"
+    assert runtime.daily_retry_minutes == 30
+
+
+def test_runtime_daily_time_unquoted_yaml_sexagesimal(tmp_path: Path) -> None:
+    # YAML 1.1 reads an unquoted 03:30 as the integer 210.
+    yaml_text = BASE_YAML + "runtime:\n  schedule_mode: daily\n  daily_full_time: 03:30\n"
+    assert load_config(write(tmp_path, yaml_text)).runtime.daily_full_time == "03:30"
+
+
+@pytest.mark.parametrize(
+    ("snippet", "match"),
+    [
+        ("schedule_mode: weekly", "schedule_mode"),
+        ('daily_full_time: "25:00"', "daily_full_time"),
+        ('daily_full_time: "noon"', "daily_full_time"),
+        ("daily_timezone: Mars/Olympus", "daily_timezone"),
+    ],
+)
+def test_runtime_schedule_validation(tmp_path: Path, snippet: str, match: str) -> None:
+    with pytest.raises(ValueError, match=match):
+        load_config(write(tmp_path, BASE_YAML + f"runtime:\n  {snippet}\n"))
+
+
 def test_unknown_legacy_keys_are_ignored(tmp_path: Path) -> None:
     legacy = BASE_YAML + (
         "cleanup:\n  sonarr_action_on_missing: unmonitor\n"

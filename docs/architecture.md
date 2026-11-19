@@ -76,7 +76,9 @@ upgrades, user-replacements, missing-file restore.
 (the only managed-tree walk), resolves items with no cache hint (e.g. after a
 user move), runs discovery/auto-add for unmatched folders, and prunes stale
 library/shadow folders. Runs at startup (configurable) and every
-`runtime.full_interval_minutes`.
+`runtime.full_interval_minutes` — or, with `runtime.schedule_mode: daily`, once
+per day at a fixed local time instead of both the full and consistency timers
+(see [workflows.md](workflows.md#daily-schedule-mode-low-idle-disk-access)).
 
 ### Bucket-Drift Poll
 
@@ -97,7 +99,9 @@ moves" card).
 The advisory cache (`librariarr-idcache.json` next to the config) maps Arr ids
 to managed folders so consistency passes never need the walk. It is **advisory
 only**: every entry is stat-verified before use; deleting the file costs one
-full pass, nothing else. There is no other persistent state.
+full pass, nothing else. The only other persistent state is the daily-schedule
+marker (`librariarr-schedule.json`, daily mode only: last slot run, result,
+pending retry); deleting it only loses the duplicate-run guard after a restart.
 
 ## Per-Movie Decision Tree
 

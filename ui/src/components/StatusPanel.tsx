@@ -14,8 +14,14 @@ import {
   Tooltip
 } from "@mantine/core";
 import { useEffect, useRef, useState } from "react";
-import type { BucketDrift, PathDifference, ReconcileReport, StatusResponse } from "../api/client";
+import type {
+  BucketDrift,
+  PathDifference,
+  ReconcileReport,
+  StatusResponse
+} from "../api/client";
 import { getBucketDrift, getPathDifferences, triggerReconcile } from "../api/client";
+import { DailyScheduleAlert } from "./DailyScheduleAlert";
 import { BucketDriftCard, PathDifferencesCard } from "./DivergenceCards";
 
 const formatTime = (epochSeconds: number | null | undefined): string =>
@@ -396,6 +402,8 @@ export default function StatusPanel({
       {status.last_error && !finishedNote && (
         <Alert color="red">Last error: {status.last_error}</Alert>
       )}
+
+      {status.schedule && <DailyScheduleAlert schedule={status.schedule} />}
 
       {status.last_full_report && (
         <LibraryGauges report={status.last_full_report} asOf={status.last_full_finished_at} />

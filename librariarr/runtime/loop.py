@@ -1,5 +1,9 @@
 """Slim runtime loop: webhook-triggered passes + scheduled drift/consistency/full.
 
+With ``runtime.schedule_mode: daily`` the consistency and full timers are
+replaced by one full pass per day (see ``daily.py``), so an idle system leaves
+the managed disks alone between slots.
+
 No filesystem watchers. Arr-side changes arrive via webhooks (instant,
 debounced) and are reconciled for the named item only when the payload
 identifies one. The two things a webhook cannot tell us are covered by polls:
@@ -15,10 +19,13 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..config.models import RuntimeConfig
 from ..core.engine import SCOPE_CONSISTENCY, SCOPE_FULL, SCOPE_TARGETED
+from .daily import DailySchedule
 
 LOG = logging.getLogger(__name__)
 
@@ -35,9 +42,18 @@ class _Pending:
 
 
 class RuntimeLoop:
-    def __init__(self, service, runtime_config: RuntimeConfig) -> None:
+    def __init__(
+        self,
+        service,
+        runtime_config: RuntimeConfig,
+        *,
+        schedule_state_path: Path | None = None,
+        wall_clock: Callable[[], float] = time.time,
+    ) -> None:
         self.service = service
         self.config = runtime_config
+        self.schedule_state_path = schedule_state_path
+        self._wall_clock = wall_clock
         self._wakeup = threading.Event()
         self._lock = threading.Lock()
         self._pending: _Pending | None = None
@@ -104,8 +120,14 @@ class RuntimeLoop:
     # -- loop -------------------------------------------------------------
 
     def run(self, stop_event: threading.Event) -> None:
-        interval = max(30, int(self.config.consistency_interval_seconds))
-        full_interval = max(60, int(self.config.full_interval_minutes) * 60)
+        daily = self._build_daily() if self.config.schedule_mode == "daily" else None
+        if daily is None:
+            interval = max(30, int(self.config.consistency_interval_seconds))
+            full_interval = max(60, int(self.config.full_interval_minutes) * 60)
+        else:
+            # The daily full pass covers known-item consistency and discovery,
+            # so neither timer runs: no idle filesystem access between slots.
+            interval = full_interval = float("inf")
         drift_configured = int(self.config.bucket_drift_interval_seconds)
         drift_interval = max(30, drift_configured) if drift_configured > 0 else None
 
@@ -118,10 +140,12 @@ class RuntimeLoop:
 
         while not stop_event.is_set():
             now = time.monotonic()
+            next_daily = self._daily_deadline(daily, now)
             deadline = min(
                 next_consistency,
                 next_full,
                 next_drift,
+                next_daily,
                 self._pending_deadline() or float("inf"),
             )
             if now < deadline:
@@ -142,6 +166,9 @@ class RuntimeLoop:
                     # webhook traffic that would starve it indefinitely.
                     continue
                 scope = pending.scope
+            elif daily is not None and now >= next_daily:
+                self._run_daily(daily)
+                continue
             elif now >= next_full:
                 self._safe_reconcile(SCOPE_FULL)
                 scope = SCOPE_FULL
@@ -165,16 +192,55 @@ class RuntimeLoop:
             if scope == SCOPE_FULL:
                 next_full = now + full_interval
 
-    def _safe_reconcile(self, scope: str, *, movie_ids=(), series_ids=()) -> None:
+    # -- daily schedule ---------------------------------------------------
+
+    def _build_daily(self) -> DailySchedule:
+        status = getattr(self.service, "status", None)
+        on_change = getattr(status, "set_schedule", None)
+        return DailySchedule(
+            self.config,
+            state_path=self.schedule_state_path,
+            clock=self._wall_clock,
+            on_change=on_change,
+        )
+
+    def _daily_deadline(self, daily: DailySchedule | None, mono_now: float) -> float:
+        """The daily due time (wall clock) mapped onto the monotonic timeline."""
+        if daily is None:
+            return float("inf")
+        wall_now = self._wall_clock()
+        return mono_now + (daily.due_at(wall_now) - wall_now)
+
+    def _run_daily(self, daily: DailySchedule) -> None:
+        slot = daily.slot_due(self._wall_clock())
+        if slot is None:
+            return
+        LOG.info("Starting daily full pass for %s", slot)
+        ok, error = self._safe_reconcile(SCOPE_FULL)
+        daily.record(slot, ok=ok, error=error)
+
+    # -- execution --------------------------------------------------------
+
+    def _safe_reconcile(
+        self, scope: str, *, movie_ids=(), series_ids=()
+    ) -> tuple[bool, str | None]:
+        """Run one pass; never raises. Returns (ok, first error). A pass that
+        returns a report carrying errors counts as failed, not just one that
+        raises."""
         try:
             if scope == SCOPE_TARGETED:
-                self.service.reconcile_targeted(
+                report = self.service.reconcile_targeted(
                     radarr_movie_ids=list(movie_ids), sonarr_series_ids=list(series_ids)
                 )
             else:
-                self.service.reconcile(scope=scope)
-        except Exception:  # noqa: BLE001 - the loop must survive any single failure
+                report = self.service.reconcile(scope=scope)
+        except Exception as exc:  # noqa: BLE001 - the loop must survive any single failure
             LOG.exception("Reconcile failed (scope=%s)", scope)
+            return False, str(exc) or type(exc).__name__
+        errors = list(getattr(report, "errors", None) or [])
+        if errors:
+            return False, "; ".join(str(e) for e in errors)
+        return True, None
 
     def _safe_bucket_drift(self) -> None:
         try:

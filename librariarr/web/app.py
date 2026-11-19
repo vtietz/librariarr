@@ -114,7 +114,9 @@ def _start_runtime(state: WebState) -> None:
     config = load_config(state.config_path)
     service = LibrariArrService(config, config_path=state.config_path)
     state.service = service
-    state.runtime_loop = RuntimeLoop(service, config.runtime)
+    state.runtime_loop = RuntimeLoop(
+        service, config.runtime, schedule_state_path=service.schedule_state_path
+    )
     state.stop_event = threading.Event()
     state.runtime_thread = threading.Thread(
         target=state.runtime_loop.run,

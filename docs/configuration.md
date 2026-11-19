@@ -39,6 +39,10 @@ Baseline: [config.yaml.example](../config.yaml.example). Env overrides:
 | `bucket_drift_interval_seconds` | `300` | how often to poll for Arr root-folder reassignments, which Arr reports via no webhook (min 30, `0` disables). One Arr list call, no tree walk; only drifted items are then reconciled |
 | `full_interval_minutes` | `1440` | tree walk + discovery + prune (min 1). Only this pass costs anything meaningful; lower it if you drop/reorganize managed folders by hand often, or just trigger it on demand ("Run full pass now" in the UI, or `POST /api/reconcile {"scope": "full"}`) right after doing so |
 | `startup_scope` | `full` | `full` \| `consistency` \| `off` (quote `"off"` in YAML) |
+| `schedule_mode` | `interval` | `interval` = the consistency/full timers above. `daily` = one full pass per day instead of both timers, so idle disks can spin down (see [workflows.md](workflows.md#daily-schedule-mode-low-idle-disk-access)). Webhooks, manual runs and the drift poll are unaffected |
+| `daily_full_time` | `"03:00"` | `daily` mode: local start time, `HH:MM` 24h (quote it in YAML) |
+| `daily_timezone` | `""` | `daily` mode: IANA zone, e.g. `Europe/Berlin`; empty = `TZ` env / `/etc/localtime` |
+| `daily_retry_minutes` | `60` | `daily` mode: delay before retrying a failed daily pass (min 1; never past the next slot) |
 
 ## ingest
 
